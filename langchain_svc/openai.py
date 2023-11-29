@@ -2,6 +2,11 @@ from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.output_parser import StrOutputParser
+
+from langchain.document_loaders import FileSystemBlobLoader
+from langchain.document_loaders.generic import GenericLoader
+from langchain.document_loaders.parsers import OpenAIWhisperParser
+
 from dotenv import load_dotenv
 import os
 
@@ -23,3 +28,13 @@ class OpenAIIntegration:
         ])
         chain = prompt | self.chat_model | StrOutputParser()
         return chain.invoke({})
+
+    def audio_to_text(self, audio):
+        from openai import OpenAI
+        client = OpenAI(api_key=openai_api_key, base_url=openai_api_base, default_headers={"x-pp-token": openai_proxy_token})
+        audio_file= open(audio, "rb")
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+        return transcript.text
