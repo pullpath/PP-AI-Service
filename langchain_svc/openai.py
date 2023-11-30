@@ -3,10 +3,6 @@ from langchain.schema import HumanMessage
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.output_parser import StrOutputParser
 
-from langchain.document_loaders import FileSystemBlobLoader
-from langchain.document_loaders.generic import GenericLoader
-from langchain.document_loaders.parsers import OpenAIWhisperParser
-
 from dotenv import load_dotenv
 import os
 
