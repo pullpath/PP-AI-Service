@@ -1,0 +1,5 @@
+Flask==3.0.0
+Flask_Cors==4.0.0
+langchain==0.0.343
+python-dotenv==1.0.0
+Werkzeug==3.0.1
