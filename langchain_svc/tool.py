@@ -1,5 +1,7 @@
 import json
 import requests
+from bs4 import BeautifulSoup
+from .openai import OpenAIIntegration
 
 from dotenv import load_dotenv
 import os
@@ -47,18 +49,19 @@ def web_scraping(objective: str, url: str):
 
     # Send the POST request
     response = requests.post(f"https://chrome.browserless.io/content?token={browserless_api_key}", headers=headers, data=data_json)
+
+    openai_integration = OpenAIIntegration()
     
     # Check the response status code
     if response.status_code == 200:
-        print("CONTENTTTTTT:", response.content)
-        # soup = BeautifulSoup(response.content, "html.parser")
-        # text = soup.get_text()
-        # print("CONTENTTTTTT:", text)
-        # if len(text) > 10000:
-        #     output = summary(objective,text)
-        #     return output
-        # else:
-        #     return text
-        return response.content
+        soup = BeautifulSoup(response.content, "html.parser")
+        text = soup.get_text()
+        print("CONTENTTTTTT:", text)
+        print(len(text))
+        if len(text) > 10000:
+            output = openai_integration.summary(objective,text)
+            return output
+        else:
+            return text
     else:
         print(f"HTTP request failed with status code {response.status_code}")   
