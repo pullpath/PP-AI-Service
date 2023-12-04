@@ -3,6 +3,7 @@ from langchain_svc.openai import OpenAIIntegration
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
+from langchain_svc import tool
 
 app = Flask(__name__)
 CORS(app)
@@ -23,6 +24,16 @@ def transcribe():
         return jsonify({"text": text})
     else:
         return jsonify({"error": "No audio provided"}), 400
+    
+@app.route('/api/search', methods=['GET'])
+def search():
+    result = tool.google_search(request.args.get('keyword'))
+    return jsonify({"status": "ok", "result": result})
+
+@app.route('/api/scrape', methods=['GET'])
+def scrape():
+    result = tool.web_scraping(request.args.get('objective'), request.args.get('url'))
+    return jsonify({"status": "ok", "result": result})
     
 # @app.errorhandler(404)
 # def page_not_found(error):
