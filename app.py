@@ -9,9 +9,13 @@ app = Flask(__name__)
 CORS(app)
 openai_integration = OpenAIIntegration()
 
-# @app.route('/')
-# def index():
-#     return render_template('index.html')
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.errorhandler(404)
+def page_not_found(error):
+    return redirect(url_for('index'))
 
 @app.route('/api/transcribe', methods=['POST'])
 def transcribe():
@@ -34,10 +38,6 @@ def search():
 def scrape():
     result = tool.web_scraping(request.args.get('objective'), request.args.get('url'))
     return jsonify({"status": "ok", "result": result})
-    
-# @app.errorhandler(404)
-# def page_not_found(error):
-#     return redirect(url_for('index'))
 
 if __name__ == '__main__':
     app.run(debug=True, port=9900)
