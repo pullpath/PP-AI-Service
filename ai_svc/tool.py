@@ -11,11 +11,11 @@ load_dotenv()
 serper_api_key = os.getenv('SERPER_API_KEY')
 browserless_api_key = os.getenv('BROWSERLESS_API_KEY')
 
-def google_search(keyword: str) -> str:
+def google_search(search_keyword: str) -> str:
     url = "https://google.serper.dev/search"
 
     payload = json.dumps({
-        "q": keyword
+        "q": search_keyword
     })
 
     headers = {
@@ -64,4 +64,4 @@ def web_scraping(objective: str, url: str):
         else:
             return text
     else:
-        print(f"HTTP request failed with status code {response.status_code}")   
+        print(f"HTTP request failed with status code {response.status_code}")

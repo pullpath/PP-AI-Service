@@ -1,0 +1,10 @@
+[
+    {
+        "model": "Your model name",
+        "api_key": "your openai apikey",
+        "base_url": "api base for users in areas that openai is not available",
+        "default_headers": {
+            "x-pp-token": "special header property for base_url"
+        }
+    }
+]
