@@ -1,9 +1,9 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for
-from langchain_svc.openai import OpenAIIntegration
+from ai_svc.openai import OpenAIIntegration
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
-from langchain_svc import tool
+from ai_svc import tool
 
 app = Flask(__name__)
 CORS(app)

@@ -1,7 +1,7 @@
 beautifulsoup4==4.12.2
 Flask==3.0.0
 Flask_Cors==4.0.0
-langchain==0.0.345
+langchain==0.0.346
 python-dotenv==1.0.0
 Requests==2.31.0
 Werkzeug==3.0.1
