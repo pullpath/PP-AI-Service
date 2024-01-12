@@ -36,11 +36,14 @@ RUN adduser \
 # Leverage a cache mount to /root/.cache/pip to speed up subsequent builds.
 # Leverage a bind mount to requirements.txt to avoid having to copy them into
 # into this layer.
+# Set mirrors for pip install if you are in China.
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    python -m pip install -r requirements.txt
+    python -m pip install --timeout=1000 -r requirements.txt -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
-RUN chmod 777 /app/static/uploads && \
+# Create uploads directory and set permissions.
+RUN mkdir -p /app/static/uploads && \
+    chmod 777 /app/static/uploads && \
     chown -R appuser:appuser /app
 
 # Switch to the non-privileged user to run the application.
