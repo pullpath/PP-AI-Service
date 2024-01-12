@@ -40,4 +40,8 @@ def scrape():
     return jsonify({"status": "ok", "result": result})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=9900)
+    env = os.environ.get('FLASK_ENV', 'development')
+    if env == 'production':
+        app.run(debug=False, host='0.0.0.0', port=8000)
+    else:
+        app.run(debug=True, port=8000)
