@@ -9,7 +9,7 @@ app = Flask(__name__)
 # Configure CORS
 cors_config = {
     "origins": ["https://welcome-admin-dev.pullpath.com.cn"],
-    "methods": ["GET", "POST", "PUT", "DELETE"],  # Add other methods you want to allow
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Add other methods you want to allow
     "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]
 }
 
