@@ -6,13 +6,15 @@ import os
 from ai_svc import tool
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
-openai_integration = OpenAIIntegration()
+# Configure CORS
+cors_config = {
+    "origins": ["https://welcome-admin-dev.pullpath.com.cn"],
+    "methods": ["GET", "POST", "PUT", "DELETE"],  # Add other methods you want to allow
+    "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]
+}
 
-@app.before_request
-def basic_authentication():
-    if request.method.lower() == 'options':
-        return Response()
+CORS(app, resources={r"/*": cors_config})
+openai_integration = OpenAIIntegration()
 
 @app.route('/')
 def index():
