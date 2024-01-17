@@ -42,7 +42,6 @@ def scrape():
 if __name__ == '__main__':
     env = os.environ.get('FLASK_ENV', 'development')
     if env == 'production':
-        print('running in production environment')
         app.run(debug=False, host='0.0.0.0', port=8000)
     else:
         app.run(debug=True, port=8000)
