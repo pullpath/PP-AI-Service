@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, redirect, url_for
+from flask import Flask, jsonify, request, render_template, redirect, url_for, Response
 from ai_svc.openai import OpenAIIntegration
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
@@ -6,8 +6,13 @@ import os
 from ai_svc import tool
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
 openai_integration = OpenAIIntegration()
+
+@app.before_request
+def basic_authentication():
+    if request.method.lower() == 'options':
+        return Response()
 
 @app.route('/')
 def index():
