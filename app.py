@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, redirect, url_for, Response
+from flask import Flask, jsonify, request, render_template, redirect, url_for
 from ai_svc.openai import OpenAIIntegration
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
@@ -6,14 +6,7 @@ import os
 from ai_svc import tool
 
 app = Flask(__name__)
-# Configure CORS
-cors_config = {
-    "origins": ["https://welcome-admin-dev.pullpath.com.cn"],
-    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Add other methods you want to allow
-    "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]
-}
-
-CORS(app, resources={r"/*": cors_config})
+CORS(app)
 openai_integration = OpenAIIntegration()
 
 @app.route('/')
@@ -51,4 +44,4 @@ if __name__ == '__main__':
     if env == 'production':
         app.run(debug=False, host='0.0.0.0', port=8000)
     else:
-        app.run(debug=True, port=8000)
+        app.run(debug=True, host='0.0.0.0', port=8000)
