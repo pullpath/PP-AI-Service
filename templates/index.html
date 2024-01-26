@@ -1,11 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>This is Home page</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Personal Website</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f2f2f2;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      background-color: #4285f4;
+      color: #fff;
+      padding: 20px;
+      text-align: center;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      overflow-y: auto;
+    }
+    footer {
+      background-color: #4285f4;
+      color: #fff;
+      padding: 20px;
+      text-align: center;
+    }
+    @media (max-width: 768px) {
+      main {
+        padding: 10px;
+      }
+    }
+  </style>
 </head>
 <body>
-    Hello
+  <header>
+    <h1>Welcome to My Personal Website</h1>
+  </header>
+  <main>
+    <h2>Ask Me Anything!</h2>
+    <p>Curious about my life, experiences, or anything else? Feel free to ask, and I'll be happy to share!</p>
+    <!-- Add more content here if needed -->
+  </main>
+  <footer>
+    &copy; 2024 My Personal Website. All rights reserved.
+  </footer>
 </body>
 </html>
