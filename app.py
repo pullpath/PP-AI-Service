@@ -24,8 +24,8 @@ def transcribe():
     audio = data.get("audio")
     if audio:
         saved_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/uploads', secure_filename(audio.filename))
-        print(saved_path)
-        audio.save(saved_path, sys.stderr)
+        print(saved_path, sys.stderr)
+        audio.save(saved_path)
         text = openai_integration.audio_to_text(saved_path)
         return jsonify({"text": text})
     else:
