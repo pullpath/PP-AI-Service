@@ -5,6 +5,13 @@ from flask_cors import CORS
 import os
 from ai_svc import tool
 import sys
+import logging
+
+def configure_logging():
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Configure logging to output to sys.stdout
+configure_logging()
 
 app = Flask(__name__)
 CORS(app)
@@ -24,12 +31,17 @@ def transcribe():
     audio = data.get("audio")
     if audio:
         saved_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/uploads', secure_filename(audio.filename))
-        print(saved_path, file=sys.stderr)
+        logging.info('save audio file to: ' + saved_path)
         audio.save(saved_path)
         text = openai_integration.audio_to_text(saved_path)
-        return jsonify({"text": text})
     else:
-        return jsonify({"error": "No audio provided"}), 400
+        text = None
+    if os.path.exists(saved_path):
+        logging.info('delete file: ' + saved_path)
+        os.remove(saved_path)
+    else:
+        logging.info("The file does not exist")
+    return jsonify({"text": text}) if text else (jsonify({"error": "No audio provided"}), 400)
     
 @app.route('/api/search', methods=['GET'])
 def search():
