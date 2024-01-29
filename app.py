@@ -4,6 +4,7 @@ from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
 from ai_svc import tool
+import sys
 
 app = Flask(__name__)
 CORS(app)
@@ -22,9 +23,9 @@ def transcribe():
     data = request.files
     audio = data.get("audio")
     if audio:
-        saved_path = os.path.join(os.getcwd(), 'static/uploads', secure_filename(audio.filename))
+        saved_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/uploads', secure_filename(audio.filename))
         print(saved_path)
-        audio.save(saved_path)
+        audio.save(saved_path, sys.stderr)
         text = openai_integration.audio_to_text(saved_path)
         return jsonify({"text": text})
     else:
