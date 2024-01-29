@@ -1,2 +1,2 @@
-docker build . -t ai
-docker run --rm -p 8000:8000 -d ai
+# This may varies on your system. Check your executable path with `whereis python3`
+nohup /usr/local/bin/python3 ./app.py > ~/ppaiservice.log 2>&1 &
