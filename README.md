@@ -28,9 +28,9 @@ We will use Let's Encrypt to obtain a free wildcard SSL certificate.
    
 3. **Run Certbot with DNS Validation:**:
    Use the following command to start the process. Replace yourdomain.com with your actual domain name.
-   ```bash
+   ````bash
    sudo certbot certonly --manual --preferred-challenges=dns -d "*.yourdomain.com"
-   ```
+   ````
    Add the provided TXT record to your DNS configuration.
 
 
