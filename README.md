@@ -8,13 +8,12 @@ This guide covers the deployment of a Flask web application on a Google Cloud Pl
 - [3. Web Server Configuration](#3-web-server-configuration)
 - [4. Flask Application Adjustments](#4-flask-application-adjustments)
 - [5. Auto-Renewal of SSL Certificate](#5-auto-renewal-of-ssl-certificate)
-- [6. Testing](#6-testing)
 
 ## 1. Domain Setup
 Before starting, ensure you have a domain name pointing to your VM's IP address. This is essential for SSL/TLS certificate issuance.
 
 ## 2. Obtaining a Wildcard SSL Certificate
-We will use Let's Encrypt to obtain a free wildcard SSL certificate.
+We will use Let's Encrypt to obtain a free SSL certificate.
 
 ### Steps:
 1. **SSH into your VM**:
@@ -30,13 +29,12 @@ sudo apt-get install certbot
 3. **Run Certbot with DNS Validation:**:
 Use the following command to start the process. Replace yourdomain.com with your actual domain name.
 ```bash
-sudo certbot certonly --manual --preferred-challenges=dns -d "*.yourdomain.com"
+sudo certbot certonly --standalone -d yourdomain.com -d www.yourdomain.com
 ```
 Add the provided TXT record to your DNS configuration.
 
-
 4. **Complete the Validation Process:**:
-   Once DNS propagation is complete, continue with Certbot to generate your wildcard certificate.
+Once DNS propagation is complete, continue with Certbot to generate your wildcard certificate.
 
 ## 3. Web Server Configuration
 Configure Nginx or Apache as a reverse proxy to serve your Flask application over HTTPS.
