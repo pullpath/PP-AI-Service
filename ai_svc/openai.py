@@ -58,7 +58,11 @@ class OpenAIIntegration:
 
     def audio_to_text(self, audio):
         from openai import OpenAI
-        client = OpenAI(api_key=openai_api_key, base_url=openai_api_base, default_headers={"x-pp-token": openai_proxy_token})
+        if openai_proxy_token is None:
+            client = OpenAI(api_key=openai_api_key)
+        else:
+            client = OpenAI(api_key=openai_api_key, base_url=openai_api_base, default_headers={"x-pp-token": openai_proxy_token})
+            
         audio_file= open(audio, "rb")
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
