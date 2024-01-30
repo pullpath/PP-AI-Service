@@ -6,6 +6,9 @@ import os
 from ai_svc import tool
 import sys
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def configure_logging():
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -54,7 +57,7 @@ def scrape():
     return jsonify({"status": "ok", "result": result})
 
 if __name__ == '__main__':
-    env = os.environ.get('FLASK_ENV', 'development')
+    env = os.getenv('FLASK_ENV', 'development')
     if env == 'production':
         app.run(debug=False, host='0.0.0.0', port=8000)
     else:
