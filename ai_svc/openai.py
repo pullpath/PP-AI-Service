@@ -20,7 +20,10 @@ class OpenAIIntegration:
         # Initialize the ChatOpenAI model
         if model_name is None:
             model_name = 'gpt-3.5-turbo'
-        self.chat_model = ChatOpenAI(model_name=model_name, openai_api_base=openai_api_base, openai_api_key=openai_api_key, default_headers={"x-pp-token": openai_proxy_token}, temperature=0)
+        if openai_proxy_token is None:
+            self.chat_model = ChatOpenAI(model_name=model_name, openai_api_key=openai_api_key, temperature=0)
+        else:
+            self.chat_model = ChatOpenAI(model_name=model_name, openai_api_base=openai_api_base, openai_api_key=openai_api_key, default_headers={"x-pp-token": openai_proxy_token}, temperature=0)
 
     def generate_text(self, text):
         # Use the chain to generate text
