@@ -30,6 +30,7 @@ We will use Let's Encrypt to obtain a free wildcard SSL certificate.
    Use the following command to start the process. Replace yourdomain.com with your actual domain name.
    ```bash
    sudo certbot certonly --manual --preferred-challenges=dns -d "*.yourdomain.com"
+
    Add the provided TXT record to your DNS configuration.
 
 
@@ -45,10 +46,40 @@ Configure Nginx or Apache as a reverse proxy to serve your Flask application ove
    sudo apt-get install nginx
 
 2. **Configure Nginx:**:
-   Edit the Nginx configuration to reverse proxy requests to your Flask app and use the SSL certificates. An example configuration is provided in the guide.
+   - Create a new configuration file for your site in /etc/nginx/sites-available/ and symlink it to /etc/nginx/sites-enabled/.
+   - Edit the configuration to reverse proxy requests to your Flask app and to use the SSL certificates. Here's a basic example:
+   ```bash
+   server {
+      listen 80;
+      server_name yourdomain.com www.yourdomain.com;
+      return 301 https://$host$request_uri;
+   }
+
+   server {
+      listen 443 ssl;
+      server_name yourdomain.com www.yourdomain.com;
+
+      ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+      ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+      location / {
+         proxy_pass http://localhost:your_flask_port;
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+         proxy_set_header X-Forwarded-Proto $scheme;
+      }
+   }
+   ```
+   - Replace yourdomain.com, www.yourdomain.com, and your_flask_port with your actual domain name and Flask port number.
 
 3. **Enable the Configuration:**:
    Symlink your site's configuration and reload Nginx.
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/your_site /etc/nginx/sites-enabled/
+   sudo nginx -t # Test configuration for syntax errors.
+   sudo systemctl reload nginx
+   ```
 
 ## 4. Flask Application Adjustments
 Ensure your Flask application is configured to work behind a reverse proxy and handle HTTPS traffic.
