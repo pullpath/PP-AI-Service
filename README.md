@@ -110,4 +110,4 @@ Set up a cron job for automatic renewal of the SSL certificate.
 echo "0 12 * * * /usr/bin/certbot renew --quiet" | sudo tee -a /etc/crontab > /dev/null
 ```
 
-Currently we have issue with automatically renewing the certificate.
+Currently we have issue with automatically renewing the certificate. We'll figure out a solution later.
