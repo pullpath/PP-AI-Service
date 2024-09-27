@@ -110,4 +110,10 @@ Set up a cron job for automatic renewal of the SSL certificate.
 echo "0 12 * * * /usr/bin/certbot renew --quiet" | sudo tee -a /etc/crontab > /dev/null
 ```
 
+Sudo Permissions: If you're using sudo in a cron job, ensure that the user running the cron job has the necessary permissions to execute these commands without being prompted for a password. You can configure this in the /etc/sudoers file by adding a line like:
+
+```bash
+alex123bobo ALL=(ALL) NOPASSWD: /usr/bin/certbot renew, /bin/systemctl stop nginx, /bin/systemctl start nginx
+```
+
 #### Currently we have issue with automatically renewing the certificate. We'll figure out a solution later.
