@@ -1,12 +1,13 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for
-from ai_svc.openai import OpenAIIntegration
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
-from ai_svc import tool
+from ai_svc import tool, openai
 import sys
 import logging
 from dotenv import load_dotenv
+import base64
+from typing import List
 
 load_dotenv()
 
@@ -18,7 +19,6 @@ configure_logging()
 
 app = Flask(__name__)
 CORS(app)
-openai_integration = OpenAIIntegration()
 
 @app.route('/')
 def index():
@@ -36,7 +36,7 @@ def transcribe():
         saved_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/uploads', secure_filename(audio.filename))
         logging.info('save audio file to: ' + saved_path)
         audio.save(saved_path)
-        text = openai_integration.audio_to_text(saved_path)
+        text = openai.audio_to_text(saved_path)
     else:
         text = None
     if os.path.exists(saved_path):
@@ -45,6 +45,41 @@ def transcribe():
     else:
         logging.info("The file does not exist")
     return jsonify({"text": text}) if text else (jsonify({"error": "No audio provided"}), 400)
+
+@app.route('/api/image', methods=['POST'])
+def image():
+    prompt_text = request.form.get('prompt')
+    if not prompt_text:
+        return jsonify({"error": "No prompt provided"}), 400
+
+    data = request.files
+    if 'images' not in data:
+        return jsonify({"error": "No images part in the request"}), 400
+
+    images = data.getlist('images')
+
+    # If no files are selected
+    if len(images) == 0:
+        return jsonify({"error": "No selected files"}), 400
+    
+     # Dictionary to store the base64 images
+    base64_images: List[str] = []
+
+    for idx, file in enumerate(images):
+        # Read the image file and encode it in base64
+        image_data = file.read()
+
+        # Detect image type using python-magic
+        image_type = tool.detect_image_type(image_data)
+        if not image_type:
+            return jsonify({"error": f"File '{file.filename}' is not a valid image"}), 400
+
+        b64 = base64.b64encode(image_data).decode('utf-8')
+        base64_images.append(f"data:image/{image_type};base64,{b64}")
+
+    result = openai.vision(images=base64_images, prompt_text=prompt_text)
+
+    return jsonify({"content": result})
     
 @app.route('/api/search', methods=['GET'])
 def search():
