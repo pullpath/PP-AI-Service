@@ -3,6 +3,7 @@ from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
 from ai_svc import tool, openai
+from ai_svc.dictionary_agent import dictionary_agent
 import sys
 import logging
 from dotenv import load_dotenv
@@ -80,6 +81,51 @@ def image():
     result = openai.vision(images=base64_images, prompt_text=prompt_text)
 
     return jsonify({"content": result})
+
+@app.route('/api/dictionary', methods=['POST'])
+def dictionary_lookup():
+    """
+    Dictionary agent endpoint for looking up words
+    Basic test endpoint that returns a static response
+    """
+    try:
+        data = request.get_json()
+        if not data or 'word' not in data:
+            return jsonify({
+                "error": "Missing 'word' parameter in request body",
+                "success": False
+            }), 400
+        
+        word = data['word'].strip()
+        if not word:
+            return jsonify({
+                "error": "Word cannot be empty",
+                "success": False
+            }), 400
+        
+        # Use the DeepSeek dictionary agent
+        result = dictionary_agent.lookup_word(word)
+        
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({
+            "error": f"Internal server error: {str(e)}",
+            "success": False
+        }), 500
+
+@app.route('/api/dictionary/test', methods=['GET'])
+def dictionary_test():
+    """
+    Simple test endpoint to verify the dictionary agent API is working
+    """
+    return jsonify({
+        "message": "Dictionary agent API is working!",
+        "endpoints": {
+            "POST /api/dictionary": "Look up a word (requires JSON body with 'word' field)",
+            "GET /api/dictionary/test": "This test endpoint"
+        },
+        "status": "ok"
+    }), 200
     
 @app.route('/api/search', methods=['GET'])
 def search():
