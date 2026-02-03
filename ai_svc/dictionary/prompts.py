@@ -6,27 +6,18 @@ Contains prompts for specialized agents
 
 def get_senses_discovery_prompt(word: str) -> str:
     """Generate prompt for Phase 1: Discover all word senses"""
-    return f"""You are a linguistic analysis assistant focused on discovering ALL word senses.
+    return f"""You are a linguistic analysis assistant focused on discovering commonly used word senses.
 
-Analyze the word "{word}" and discover ALL its distinct meanings/senses.
+Analyze the word "{word}" and discover its distinct meanings/senses.
 
-For each sense, provide:
-1. A clear, concise definition
-2. Part of speech (noun, verb, adjective, adverb, phrasal verb, idiom, etc.)
-3. Primary tone/connotation - MUST be one of these exact values: positive, negative, neutral, humorous, derogatory, pejorative, approving
-   - Do NOT use "archaic/rare" or any other values for tone
-   - "archaic/rare" is for frequency, NOT tone
+For each sense, provide a clear, concise definition.
 
 Also provide:
 - Pronunciation (IPA or simple phonetic guide)
 - Frequency in modern usage (very high/high/medium/low/archaic-rare)
 - Headword (the word itself)
 
-List ALL senses, not just the most common ones. Include rare, archaic, and specialized meanings.
 Order senses by frequency (most common first).
-
-CRITICAL: The "tone" field for each sense MUST be one of: positive, negative, neutral, humorous, derogatory, pejorative, approving
-Do NOT use "archaic/rare" or any other values for tone.
 
 Output must be valid JSON matching the WordSensesDiscovery schema."""
 

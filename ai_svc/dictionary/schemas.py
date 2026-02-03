@@ -11,20 +11,18 @@ from .enums import FrequencyEnum, ToneEnum
 class WordSenseBasic(BaseModel):
     """Basic information about a word sense (for discovery phase)"""
     definition: str = Field(..., description="The core definition for this specific meaning.")
-    part_of_speech: str = Field(..., description="e.g., noun, verb, phrasal verb, adjective, idiom, etc.")
-    tone: ToneEnum = Field(..., description="The primary connotation or emotional charge of this sense.")
     sense_index: int = Field(..., description="Index of this sense (0-based)")
 
 
 class WordSensesDiscovery(BaseModel):
-    """Result of Phase 1: Discover all word senses"""
+    """Result of Phase 1: Discover commonly used word senses"""
     headword: str = Field(..., description="The requested word or phrase.")
     pronunciation: str = Field(..., description="IPA transcription and/or a simple phonetic guide.")
     frequency: FrequencyEnum = Field(..., description="Indication of how common the word is in modern usage.")
     senses: List[WordSenseBasic] = Field(
         ...,
         min_length=1,
-        description="List of all discovered word senses, ordered by most common/frequent first."
+        description="List of commonly used word senses, ordered by most common/frequent first."
     )
 
 

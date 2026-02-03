@@ -106,11 +106,15 @@ class DictionaryService:
         try:
             start_time = time.time()
             
-            # Phase 1: Discover all word senses
-            print(f"Phase 1: Discovering all senses for '{word}'...")
+            # Phase 1: Discover commonly used word senses
+            print(f"Phase 1: Discovering commonly used senses for '{word}'...")
             discovery_result = self._discover_word_senses(word)
             if not discovery_result.get("success"):
                 return discovery_result
+            
+            phase_1_time = time.time()
+            
+            print('time spent on phase 1:', phase_1_time - start_time)
             
             discovery_data = discovery_result["discovery_data"]
             total_senses = len(discovery_data["senses"])
@@ -121,6 +125,9 @@ class DictionaryService:
             detailed_result = self._fetch_detailed_info_parallel(word, discovery_data)
             if not detailed_result.get("success"):
                 return detailed_result
+            
+            phase_2_time = time.time()
+            print('time spent on phase 2:', phase_2_time - phase_1_time)
             
             # Combine results
             final_result = self._combine_results(
