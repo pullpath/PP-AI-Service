@@ -65,7 +65,7 @@ class DictionaryEntry(BaseModel):
     """Comprehensive dictionary entry for a word or phrase"""
     headword: str = Field(..., description="The requested word or phrase.")
     pronunciation: str = Field(..., description="IPA transcription and/or a simple phonetic guide.")
-    audio_link: str = Field(default="", description="Placeholder for future audio URL.")
+    # audio_link: str = Field(default="", description="Placeholder for future audio URL.")
     senses: List[WordSense] = Field(
         ...,
         min_length=1,
@@ -90,10 +90,10 @@ class DictionaryEntry(BaseModel):
         default_factory=list,
         description="Words/phrases often confused with this one, with brief discriminators."
     )
-    visual_mnemonic: str = Field(
-        default="",
-        description="A creative sentence or image suggestion to aid memory. No actual image references."
-    )
+    # visual_mnemonic: str = Field(
+    #     default="",
+    #     description="A creative sentence or image suggestion to aid memory. No actual image references."
+    # )
     regional_variations: List[str] = Field(
         default_factory=list,
         description="Notable differences in meaning, spelling, or usage between English variants."

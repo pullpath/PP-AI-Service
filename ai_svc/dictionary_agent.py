@@ -29,6 +29,7 @@ class DictionaryAgent:
         deepseek_model = DeepSeek(
             id="deepseek-chat",
             api_key=deepseek_api_key,
+            temperature=0
         )
         
         # Initialize the Agno agent with DeepSeek
