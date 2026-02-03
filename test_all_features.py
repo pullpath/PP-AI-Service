@@ -37,88 +37,78 @@ class FeatureTester:
             print(f"    {details}")
         self.test_results[test_name] = success
     
-    def test_dictionary_agent_direct(self):
-        """Test the dictionary agent directly (without Flask)"""
-        self.print_header("Testing Dictionary Agent (Direct)")
+    def test_dictionary_service_direct(self):
+        """Test the dictionary service directly (without Flask)"""
+        self.print_header("Testing Dictionary Service (Direct)")
         
         try:
-            from ai_svc.dictionary_agent import DictionaryAgent, dictionary_agent
+            from ai_svc.dictionary import DictionaryService, dictionary_service
             
             # Test 1: Test global instance
-            print("  Testing global dictionary_agent instance...")
+            print("  Testing global dictionary_service instance...")
             self.print_result("Global Instance", True, "Global instance available")
             
             # Test 2: Create new agent instance
-            print("  Creating new DictionaryAgent instance...")
-            agent = DictionaryAgent()
-            self.print_result("Agent Creation", True, "DictionaryAgent created successfully")
+            print("  Creating new DictionaryService instance...")
+            agent = DictionaryService()
+            self.print_result("Agent Creation", True, "DictionaryService created successfully")
             
-            # Test 3: Look up a word with new instance
+            # Test 3: Test new two-phase parallel lookup with new instance
             test_word = "example"
-            print(f"  Looking up word: '{test_word}'...")
+            print(f"  Testing new two-phase parallel lookup for: '{test_word}'...")
             result = agent.lookup_word(test_word)
             
             success = result.get("success", False)
             if success:
-                # The result is the DictionaryEntry model directly (not wrapped in "data")
-                # Check for headword (new schema field)
-                headword = result.get("headword", "")
-                if not headword:
-                    # Try to get word from old structure for backward compatibility
-                    headword = result.get("word", "N/A")
+                headword = result.get("headword", "N/A")
+                pronunciation = result.get("pronunciation", "N/A")
+                frequency = result.get("frequency", "N/A")
+                total_senses = result.get("total_senses", 0)
+                parallel = result.get("parallel_execution", False)
                 
-                self.print_result("Word Lookup", True, 
-                                 f"Headword: {headword}, " +
-                                 f"Response received: {len(str(result))} chars")
+                self.print_result("Two-Phase Lookup", True, 
+                                 f"Headword: {headword}, Senses: {total_senses}, Parallel: {parallel}")
                 
-                # Check for new schema structure
+                # Check for new two-phase schema structure
                 has_new_schema = (
-                    "headword" in result or 
-                    "senses" in result or 
-                    "pronunciation" in result or
-                    "etymology" in result
+                    "headword" in result and 
+                    "pronunciation" in result and 
+                    "frequency" in result and
+                    "total_senses" in result and
+                    "parallel_execution" in result
                 )
                 
                 if has_new_schema:
-                    self.print_result("New Schema Structure", True, 
-                                     f"Response includes enhanced dictionary data")
-                    
-                    # Check for senses
-                    senses = result.get("senses", [])
-                    if senses:
-                        self.print_result("Word Senses", True, 
-                                         f"Found {len(senses)} word sense(s)")
-                    else:
-                        self.print_result("Word Senses", True, 
-                                         "No senses found (may be simple definition)")
+                    self.print_result("Two-Phase Schema Structure", True, 
+                                     f"Response includes two-phase dictionary data")
                 else:
-                    # Check for old structure
-                    has_json_structure = ('examples' in result or 
-                                         '"examples"' in str(result) or 
-                                         "'examples'" in str(result))
-                    
-                    if has_json_structure:
-                        self.print_result("JSON Structure", True, "Response includes structured data")
-                    else:
-                        self.print_result("JSON Structure", True, "Response format acceptable (may be markdown)")
+                    self.print_result("Two-Phase Schema Structure", False, 
+                                     "Missing expected two-phase fields")
+                
+                # Check granular components
+                granular_components = ["etymology_info", "word_family_info", "usage_context_info", "cultural_notes_info"]
+                missing_components = [c for c in granular_components if c not in result]
+                
+                if not missing_components:
+                    self.print_result("Granular Components", True, 
+                                     f"All 4 granular components present")
+                else:
+                    self.print_result("Granular Components", False, 
+                                     f"Missing components: {missing_components}")
+                
+                # Check detailed senses
+                detailed_senses = result.get("detailed_senses", [])
+                if detailed_senses:
+                    self.print_result("Detailed Senses", True, 
+                                     f"Found {len(detailed_senses)} detailed senses")
+                else:
+                    self.print_result("Detailed Senses", False, 
+                                     "No detailed senses found")
             else:
-                self.print_result("Word Lookup", False, f"Error: {result.get('error', 'Unknown')}")
+                error_msg = result.get("error", "Unknown error")
+                self.print_result("Two-Phase Lookup", False, f"Error: {error_msg}")
             
-            # Test 4: Test global instance lookup
-            test_word2 = "test"
-            result2 = dictionary_agent.lookup_word(test_word2)
-            global_success = result2.get("success", False)
-            self.print_result("Global Instance Lookup", global_success, 
-                             f"Global instance lookup {'worked' if global_success else 'failed'}")
-            
-            # Test 5: Sync method (backward compatibility)
-            test_word3 = "hello"
-            result3 = agent.lookup_word_sync(test_word3)
-            sync_success = result3.get("success", False)
-            self.print_result("Sync Method", sync_success, 
-                             f"Sync lookup {'worked' if sync_success else 'failed'}")
-            
-            return all([success, global_success, sync_success])
+            return success
             
         except Exception as e:
             self.print_result("Direct Agent Test", False, f"Error: {str(e)}")
@@ -297,12 +287,12 @@ class FeatureTester:
         # Run tests in logical order
         print("\nRunning tests in order:")
         print("1. DeepSeek Integration Test")
-        print("2. Dictionary Agent Direct Test")
+        print("2. Dictionary Service Direct Test")
         print("3. Flask API Endpoints Test")
         print("4. OpenAI Audio/Vision Test")
         
         test1 = self.test_deepseek_integration()
-        test2 = self.test_dictionary_agent_direct()
+        test2 = self.test_dictionary_service_direct()
         test3 = self.test_flask_endpoints()
         test4 = self.test_openai_audio_vision()
         

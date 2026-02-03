@@ -92,7 +92,7 @@ Contains reusable prompt templates for different AI tasks.
 - `get_simple_dictionary_prompt(word)`: Formats simple dictionary prompt
 - `get_chat_prompt(user_message)`: Formats chat prompt
 
-### 3. Agents Module (`ai_svc/dictionary_agent.py`)
+### 3. Agents Module (`ai_svc/dictionary_service.py`)
 
 Contains AI agents that use the schemas and prompts.
 

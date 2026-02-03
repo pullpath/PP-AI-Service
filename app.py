@@ -3,7 +3,7 @@ from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
 from ai_svc import tool, openai
-from ai_svc.dictionary_agent import dictionary_agent
+from ai_svc.dictionary import dictionary_service
 import sys
 import logging
 from dotenv import load_dotenv
@@ -86,7 +86,7 @@ def image():
 def dictionary_lookup():
     """
     Dictionary agent endpoint for looking up words
-    Basic test endpoint that returns a static response
+    Uses two-phase parallel architecture
     """
     try:
         data = request.get_json()
@@ -103,8 +103,8 @@ def dictionary_lookup():
                 "success": False
             }), 400
         
-        # Use the DeepSeek dictionary agent
-        result = dictionary_agent.lookup_word(word)
+        # Use the new single interface
+        result = dictionary_service.lookup_word(word)
         
         return jsonify(result), 200
     except Exception as e:
