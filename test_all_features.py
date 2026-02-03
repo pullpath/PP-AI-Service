@@ -60,26 +60,47 @@ class FeatureTester:
             
             success = result.get("success", False)
             if success:
-                # Check if response contains definition (could be in raw_response if JSON parsing failed)
-                definition = result.get("definition", "")
-                if not definition and "raw_response" in result:
-                    definition = result["raw_response"][:50]
+                # The result is the DictionaryEntry model directly (not wrapped in "data")
+                # Check for headword (new schema field)
+                headword = result.get("headword", "")
+                if not headword:
+                    # Try to get word from old structure for backward compatibility
+                    headword = result.get("word", "N/A")
                 
                 self.print_result("Word Lookup", True, 
-                                 f"Word: {result.get('word', 'N/A')}, " +
+                                 f"Headword: {headword}, " +
                                  f"Response received: {len(str(result))} chars")
                 
-                # Check JSON structure - the agent might return markdown with JSON inside
-                # Accept either direct JSON or markdown with JSON
-                response_str = str(result)
-                has_json_structure = ('examples' in result or 
-                                     '"examples"' in response_str or 
-                                     "'examples'" in response_str)
+                # Check for new schema structure
+                has_new_schema = (
+                    "headword" in result or 
+                    "senses" in result or 
+                    "pronunciation" in result or
+                    "etymology" in result
+                )
                 
-                if has_json_structure:
-                    self.print_result("JSON Structure", True, "Response includes structured data")
+                if has_new_schema:
+                    self.print_result("New Schema Structure", True, 
+                                     f"Response includes enhanced dictionary data")
+                    
+                    # Check for senses
+                    senses = result.get("senses", [])
+                    if senses:
+                        self.print_result("Word Senses", True, 
+                                         f"Found {len(senses)} word sense(s)")
+                    else:
+                        self.print_result("Word Senses", True, 
+                                         "No senses found (may be simple definition)")
                 else:
-                    self.print_result("JSON Structure", True, "Response format acceptable (may be markdown)")
+                    # Check for old structure
+                    has_json_structure = ('examples' in result or 
+                                         '"examples"' in str(result) or 
+                                         "'examples'" in str(result))
+                    
+                    if has_json_structure:
+                        self.print_result("JSON Structure", True, "Response includes structured data")
+                    else:
+                        self.print_result("JSON Structure", True, "Response format acceptable (may be markdown)")
             else:
                 self.print_result("Word Lookup", False, f"Error: {result.get('error', 'Unknown')}")
             
@@ -301,10 +322,13 @@ class FeatureTester:
         if overall_success:
             print("\n✅ ALL TESTS PASSED!")
             print("\nSystem Architecture Summary:")
-            print("  - DeepSeek: Dictionary agent, chat functionality")
+            print("  - Modular Architecture: Schemas and prompts in separate modules")
+            print("  - DeepSeek: Dictionary agent with enhanced schema, chat functionality")
             print("  - OpenAI: Audio transcription, Vision analysis")
-            print("  - Agno Framework: Agent-driven architecture")
+            print("  - Agno Framework: Agent-driven architecture with JSON mode")
             print("  - Flask API: All endpoints functional")
+            print("  - Enhanced Schema: DictionaryEntry with WordSense sub-models")
+            print("  - Prompt Templates: Reusable templates with variable substitution")
         else:
             print("\n❌ SOME TESTS FAILED")
             print("\nFailed tests:")

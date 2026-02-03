@@ -1,0 +1,12 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "lsp": {
+    "typescript": {
+      "command": "typescript-language-server",
+      "args": ["--stdio"]
+    }
+  },
+  "permissions": {
+    "allowed_tools": ["view", "ls", "grep", "edit"]
+  }
+}

@@ -117,3 +117,91 @@ alex123bobo ALL=(ALL) NOPASSWD: /usr/bin/certbot renew, /bin/systemctl stop ngin
 ```
 
 #### Currently we have issue with automatically renewing the certificate. We'll figure out a solution later.
+
+---
+
+# AI Service - Modular Architecture
+
+This Flask application now includes a comprehensive AI service with a modular architecture for dictionary lookups, chat functionality, audio transcription, and vision analysis.
+
+## Features
+
+### 1. **Dictionary Agent**
+- **DeepSeek Integration**: Uses DeepSeek LLM via Agno framework
+- **Enhanced Schema**: Comprehensive dictionary entries with multiple senses
+- **JSON Mode**: Structured responses using Pydantic models
+- **Modular Design**: Separate schemas and prompts modules
+
+### 2. **OpenAI Integration**
+- **Audio Transcription**: Transcribe audio files to text
+- **Vision Analysis**: Analyze images and extract information
+
+### 3. **Modular Architecture**
+- **Schemas Module**: Centralized Pydantic models for type safety
+- **Prompts Module**: Reusable prompt templates with variable substitution
+- **Agents Module**: AI agents using schemas and prompts
+
+## API Endpoints
+
+### Dictionary Endpoints
+- `GET /api/dictionary/test` - Test endpoint
+- `POST /api/dictionary` - Look up a word (requires JSON with "word" field)
+
+### OpenAI Endpoints
+- `GET /api/transcribe` - Audio transcription form
+- `POST /api/transcribe` - Transcribe audio file
+- `GET /api/vision` - Vision analysis form
+- `POST /api/vision` - Analyze image file
+
+## Getting Started
+
+### 1. Installation
+```bash
+# Clone the repository
+git clone <repository-url>
+cd PP-AI-Service
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Configuration
+Create a `.env` file with:
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### 3. Running the Service
+```bash
+# Start Flask server
+source venv/bin/activate
+python app.py
+
+# Run tests
+python test_all_features.py
+python test_endpoint.py
+```
+
+## Architecture Documentation
+
+For detailed architecture documentation, see [MODULAR_ARCHITECTURE.md](MODULAR_ARCHITECTURE.md).
+
+## Key Benefits
+
+1. **Maintainability**: Centralized schemas and prompts
+2. **Extensibility**: Easy to add new agent types
+3. **Type Safety**: Pydantic models with validation
+4. **Consistency**: Standardized prompt templates
+5. **Backward Compatibility**: Old endpoints still work
+
+## Future Extensions
+
+- Add more agent types (grammar, translation, summarization)
+- Implement caching for frequent requests
+- Add rate limiting and metrics
+- Support for more LLM providers

@@ -7,18 +7,13 @@ from agno.models.deepseek import DeepSeek
 from typing import Dict, Any
 import os
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
 
-class Definition(BaseModel):
-    word: str = Field(..., description="The word or phrase being defined")
-    definition: str = Field(..., description="The definition of the word or phrase")
-    examples: list[str] = Field([], description="Example sentences using the word or phrase")
-    synonyms: list[str] = Field([], description="Synonyms of the word or phrase")
-    antonyms: list[str] = Field([], description="Antonyms of the word or phrase")
-    etymology: str = Field("", description="The origin or etymology of the word or phrase")
-    part_of_speech: str = Field("", description="The part of speech (noun, verb, adjective, etc.)")
+# Import from modular schemas and prompts
+from .schemas import DictionaryEntry
+from .prompts import get_dictionary_prompt
 
 load_dotenv()
+
 
 class DictionaryAgent:
     """A simple dictionary agent that can look up words and provide definitions using DeepSeek"""
@@ -40,20 +35,14 @@ class DictionaryAgent:
         self.agent = Agent(
             name="DictionaryAgent",
             model=deepseek_model,
-            instructions="""
-            You are a helpful dictionary assistant. Your task is to:
-            1. Provide clear, concise definitions for words
-            2. Give examples of word usage in sentences
-            3. Provide synonyms and antonyms when relevant
-            4. Explain word origins or etymology when known
-            5. Handle multiple meanings for polysemous words
-            
-            Keep responses informative but concise.
-            Always respond in valid JSON format.
-            """,
-            # markdown=True,
+            description="A dictionary agent that provides comprehensive word definitions and linguistic analysis",
+            instructions="""You are an AI assistant specialized in language analysis. Follow these guidelines:
+1. Always respond in valid JSON format when JSON mode is enabled
+2. Provide accurate, well-researched linguistic information
+3. Structure responses according to the specified output schema
+4. Focus on clarity and educational value for language learners""",
             use_json_mode=True,
-            output_schema=Definition
+            output_schema=DictionaryEntry
         )
     
     def lookup_word(self, word: str) -> Dict[str, Any]:
@@ -67,39 +56,41 @@ class DictionaryAgent:
             Dictionary with word information in structured format
         """
         try:
+            # Format the prompt with the actual word
+            prompt = get_dictionary_prompt(word)
+            
             # Use the agent to generate a response
-            response = self.agent.run(
-                f"Please provide dictionary information for the word: '{word}'"
-            )
+            response = self.agent.run(prompt)
             
-            # Get the response content
-            response_content = response.content
-            
-            # Try to parse as JSON
-            import json
-            try:
-                result = json.loads(response_content)
-                
-                # Add success flag and ensure word is included
+            # When using JSON mode with output_schema, response.content is a Pydantic model
+            if isinstance(response.content, DictionaryEntry):
+                definition_model = response.content
+                # Convert Pydantic model to dict
+                result = definition_model.model_dump()
                 result["success"] = True
-                if "word" not in result:
-                    result["word"] = word
-                    
                 return result
-                
-            except json.JSONDecodeError:
-                # If response is not valid JSON, return it as plain text
-                return {
-                    "word": word,
-                    "definition": response_content,
-                    "raw_response": response_content,
-                    "success": True,
-                    "note": "Response was not in expected JSON format"
-                }
+            else:
+                # Fallback: try to parse as JSON string
+                import json
+                try:
+                    result = json.loads(str(response.content))
+                    result["success"] = True
+                    if "headword" not in result:
+                        result["headword"] = word
+                    return result
+                except json.JSONDecodeError:
+                    # If response is not valid JSON, return it as plain text
+                    return {
+                        "headword": word,
+                        "definition": str(response.content),
+                        "raw_response": str(response.content),
+                        "success": False,
+                        "note": "Response was not in expected JSON format"
+                    }
             
         except Exception as e:
             return {
-                "word": word,
+                "headword": word,
                 "error": str(e),
                 "success": False
             }
