@@ -69,7 +69,6 @@ PP-AI-Service/
 ├── app.py                    # Main Flask application
 ├── data_analyze.py           # AutoGen data analysis agent
 ├── web_research.py           # Web research agent
-├── test_hybrid_dictionary.py # Dictionary performance test
 ├── requirements.txt          # Python dependencies
 ├── Dockerfile               # Docker configuration
 ├── compose.yaml             # Docker Compose configuration
@@ -162,7 +161,6 @@ The dictionary service uses a **hybrid API + AI architecture** for optimal perfo
 - 40-60% faster than AI-only approach
 - 30-50% fewer AI calls (cost savings)
 - See `HYBRID_DICTIONARY_API.md` for details
-- Test with: `python test_hybrid_dictionary.py`
 
 ## Important Gotchas
 

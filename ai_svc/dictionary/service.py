@@ -214,25 +214,45 @@ class DictionaryService:
     def _convert_api_to_discovery(self, word: str, api_data: Dict[str, Any]) -> Dict[str, Any]:
         """Convert API response to WordSensesDiscovery schema format"""
         try:
-            # Extract pronunciation (IPA format preferred) and audio URL
+            # Extract audio URL from phonetics
+            # Priority: UK audio > US audio > any other audio
             phonetics = api_data.get("phonetics", [])
             pronunciation = ""
-            audio_url = ""
             
+            # First pass: look for UK audio
             for p in phonetics:
-                # Prioritize entries with both text and audio
-                if p.get("text") and p.get("audio"):
-                    pronunciation = p["text"]
-                    audio_url = p["audio"]
+                audio = p.get("audio", "")
+                if audio and ("-uk.mp3" in audio.lower() or "-uk-" in audio.lower()):
+                    pronunciation = audio
                     break
-                elif p.get("text") and not pronunciation:
-                    pronunciation = p["text"]
-                elif p.get("audio") and not audio_url:
-                    audio_url = p["audio"]
             
-            # Fallback to phonetic field if no IPA found
+            # Second pass: look for US audio if UK not found
             if not pronunciation:
-                pronunciation = api_data.get("phonetic", "")
+                for p in phonetics:
+                    audio = p.get("audio", "")
+                    if audio and ("-us.mp3" in audio.lower() or "-us-" in audio.lower()):
+                        pronunciation = audio
+                        break
+            
+            # Third pass: take any audio URL
+            if not pronunciation:
+                for p in phonetics:
+                    audio = p.get("audio", "")
+                    if audio:
+                        pronunciation = audio
+                        break
+            
+            # Fallback: use IPA if no audio found
+            if not pronunciation:
+                # Try to get IPA from phonetics with text
+                for p in phonetics:
+                    if p.get("text"):
+                        pronunciation = p["text"]
+                        break
+                
+                # Last resort: phonetic field
+                if not pronunciation:
+                    pronunciation = api_data.get("phonetic", "")
             
             # Convert meanings to senses (WordSenseBasic format)
             senses = []
@@ -253,8 +273,7 @@ class DictionaryService:
             # Create discovery data (frequency will be added by AI later)
             discovery_data = {
                 "headword": word,
-                "pronunciation": pronunciation,
-                "audio_url": audio_url,  # Add audio URL from API
+                "pronunciation": pronunciation,  # Audio URL (preferred) or IPA string (fallback)
                 "frequency": "common",  # Placeholder, will be replaced by AI
                 "senses": senses,
                 "api_raw_meanings": meanings  # Keep original for detailed processing
@@ -276,9 +295,13 @@ class DictionaryService:
             is_from_api = bool(meanings)
             
             # Calculate optimal thread count
-            sense_count = len(meanings) if is_from_api else len(senses)
+            # For API: count individual definitions across all meanings
+            if is_from_api:
+                sense_count = sum(len(m.get("definitions", [])) for m in meanings)
+            else:
+                sense_count = len(senses)
             # 5 base tasks: etymology, word_family, usage_context, cultural_notes, frequency
-            max_threads = min(10, 5 + sense_count)
+            max_threads = min(15, 5 + sense_count)  # Increased max to handle more senses
             
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
                 # Submit granular info tasks (always needed)
@@ -298,18 +321,31 @@ class DictionaryService:
                 sense_futures = []
                 if is_from_api:
                     # API path: enhance API data with AI analysis
-                    for i, meaning in enumerate(meanings):
-                        definitions = [d.get("definition", "") for d in meaning.get("definitions", [])]
+                    # Process each individual definition, not just meanings groups
+                    sense_index = 0
+                    for meaning in meanings:
                         part_of_speech = meaning.get("partOfSpeech", "")
-                        synonyms = meaning.get("synonyms", [])
-                        antonyms = meaning.get("antonyms", [])
-                        examples = [d.get("example", "") for d in meaning.get("definitions", []) if d.get("example")]
+                        definitions = meaning.get("definitions", [])
+                        meaning_synonyms = meaning.get("synonyms", [])
+                        meaning_antonyms = meaning.get("antonyms", [])
                         
-                        future = executor.submit(
-                            self._fetch_enhanced_sense,
-                            word, i, part_of_speech, definitions, synonyms, antonyms, examples
-                        )
-                        sense_futures.append(future)
+                        for def_obj in definitions:
+                            definition = def_obj.get("definition", "")
+                            example = def_obj.get("example", "")
+                            
+                            # Get definition-specific synonyms/antonyms, fallback to meaning-level
+                            def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
+                            def_antonyms = def_obj.get("antonyms", []) or meaning_antonyms
+                            
+                            future = executor.submit(
+                                self._fetch_enhanced_sense,
+                                word, sense_index, part_of_speech, 
+                                [definition],  # Single definition
+                                def_synonyms, def_antonyms, 
+                                [example] if example else []
+                            )
+                            sense_futures.append(future)
+                            sense_index += 1
                 else:
                     # AI path: detailed analysis from basic definitions
                     for i, sense_basic in enumerate(senses):
@@ -419,14 +455,14 @@ class DictionaryService:
             }
     
     def _fetch_enhanced_sense(self, word: str, sense_index: int, part_of_speech: str, 
-                             api_definitions: List[str], api_synonyms: List[str] = None,
-                             api_antonyms: List[str] = None, api_examples: List[str] = None) -> Dict[str, Any]:
+                             api_definitions: List[str], api_synonyms: Optional[List[str]] = None,
+                             api_antonyms: Optional[List[str]] = None, api_examples: Optional[List[str]] = None) -> Dict[str, Any]:
         """Fetch AI-enhanced analysis for a sense (API already provides basics)"""
         try:
             # Use prompt generator with API data
             prompt = get_enhanced_sense_prompt(
                 word, sense_index, part_of_speech,
-                api_definitions, api_synonyms, api_antonyms, api_examples
+                api_definitions, api_synonyms or [], api_antonyms or [], api_examples or []
             )
             
             response = self.detailed_sense_agent.run(prompt)
@@ -470,18 +506,13 @@ class DictionaryService:
         # Determine data source
         data_source = "hybrid_api_ai" if "api_raw_meanings" in discovery_data else "ai_only"
         
-        # Get audio URL and pronunciation
-        audio_url = discovery_data.get("audio_url", "")
+        # Get pronunciation (audio URL or IPA string)
         pronunciation = discovery_data.get("pronunciation", "")
-        
-        # If no pronunciation available, it means API failed and AI discovery didn't provide IPA
-        # In this case, pronunciation field already has the IPA from AI discovery
         
         # Create final result
         final_result = {
             "headword": word,
-            "pronunciation": pronunciation,
-            "audio_url": audio_url,  # Empty string if not available from API
+            "pronunciation": pronunciation,  # Audio URL (API) or IPA string (AI fallback)
             "frequency": frequency,
             "data_source": data_source,
             
@@ -531,8 +562,7 @@ class DictionaryService:
             
             if isinstance(response.content, WordSensesDiscovery):
                 discovery_data = response.content.model_dump()
-                # Add empty audio_url since AI doesn't generate audio
-                discovery_data["audio_url"] = ""
+                # AI fallback: pronunciation field contains IPA string
                 return {
                     "success": True,
                     "discovery_data": discovery_data

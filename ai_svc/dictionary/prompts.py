@@ -83,8 +83,8 @@ Return valid JSON matching FrequencyInfo schema."""
 
 
 def get_enhanced_sense_prompt(word: str, sense_index: int, part_of_speech: str,
-                              api_definitions: list, api_synonyms: list = None,
-                              api_antonyms: list = None, api_examples: list = None) -> str:
+                              api_definitions: list, api_synonyms: list = [],
+                              api_antonyms: list = [], api_examples: list = []) -> str:
     """Generate prompt for enhanced sense analysis (building on API data)"""
     return f""""{word}" ({part_of_speech}): {api_definitions[0] if api_definitions else ""}
 
