@@ -41,10 +41,10 @@ docker compose up
 ```
 
 ### Scripts
-- `./start.sh` - Starts the Flask app in background with logging
-- `./stop.sh` - Stops the background process
-- `./docker_start.sh` - Builds and runs Docker container
-- `./docker_stop.sh` - Stops Docker container
+- `./start.sh` - Starts the Flask app in background with logging (auto-detects venv)
+- `./stop.sh` - Gracefully stops the background process
+- `./docker_start.sh` - Builds and runs Docker container with status output
+- `./docker_stop.sh` - Stops Docker container and cleans up
 
 ## Project Structure
 
