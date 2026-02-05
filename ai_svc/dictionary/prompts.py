@@ -24,70 +24,72 @@ Output must be valid JSON matching the WordSensesDiscovery schema."""
 
 def get_etymology_prompt(word: str) -> str:
     """Generate prompt for etymology information"""
-    return f"""You are a linguistic historian specializing in word origins.
+    return f"""Provide etymology for "{word}":
 
-Provide detailed etymology and root analysis for the word "{word}":
+1. Etymology: Origin, historical development, meaning evolution (2-3 sentences)
+2. Root Analysis: Break down roots, prefixes, suffixes with meanings
 
-1. Etymology: Narrative of the word's origin, historical development, and meaning evolution.
-2. Root Analysis: Breakdown of roots, prefixes, and suffixes with their meanings and origins.
-
-Be comprehensive but focused on linguistic history.
-
-Output must be valid JSON matching the EtymologyInfo schema."""
+Return valid JSON matching EtymologyInfo schema."""
 
 
 def get_word_family_prompt(word: str) -> str:
     """Generate prompt for word family information"""
     return f"""You are a linguistic analyst specializing in word relationships.
 
-Provide the word family for "{word}":
+Provide the word family for "{word}".
 
-List all key words derived from the same root or sharing the same base.
+List 5-15 key words derived from the same root or sharing the same base.
 Include:
 - Direct derivatives (e.g., "happy" → "happiness", "unhappy")
 - Related terms from same linguistic root
 - Words in the same semantic field
 
-Focus on practical relationships that help language learners understand word connections.
+IMPORTANT: Return ONLY a valid JSON object with this exact structure:
+{{
+    "word_family": ["word1", "word2", "word3"]
+}}
 
-Output must be valid JSON matching the WordFamilyInfo schema."""
+Each word must be a simple string. Do not include explanations, examples, or additional formatting.
+Ensure all strings are properly closed with quotes."""
 
 
 def get_usage_context_prompt(word: str) -> str:
     """Generate prompt for usage context information"""
-    return f"""You are a sociolinguist analyzing word usage patterns.
+    return f"""Provide usage context for "{word}":
 
-Provide modern usage context for the word "{word}":
+1. Modern Relevance: Current trends (e.g., "rising in tech", "outdated")
+2. Common Confusions: Words confused with this (with brief differences)
+3. Regional Variations: UK/US/AU differences
 
-1. Modern Relevance: Current usage trends, popularity changes, domain shifts
-   (e.g., "rising in tech contexts", "considered outdated", "gaining informal use")
-
-2. Common Confusions: Words/phrases often confused with this one
-   Include brief discriminators explaining the differences
-
-3. Regional Variations: Notable differences in meaning, spelling, or usage
-   between English variants (American, British, Australian, etc.)
-
-Focus on practical guidance for language learners.
-
-Output must be valid JSON matching the UsageContextInfo schema."""
+Return valid JSON matching UsageContextInfo schema."""
 
 
 def get_cultural_notes_prompt(word: str) -> str:
     """Generate prompt for cultural and linguistic notes"""
-    return f"""You are a cultural linguist providing contextual insights.
+    return f"""Provide cultural notes for "{word}":
 
-Provide cultural and linguistic notes for the word "{word}":
+Include cultural associations, historical significance, or sociolinguistic observations (2-3 sentences).
 
-Include:
-- Cultural associations, connotations, or sensitivities
-- Historical or literary significance
-- Sociolinguistic observations
-- Any additional overarching notes about the word's place in language and culture
+Return valid JSON matching CulturalNotesInfo schema."""
 
-Be insightful but concise.
 
-Output must be valid JSON matching the CulturalNotesInfo schema."""
+def get_frequency_prompt(word: str) -> str:
+    """Generate prompt for frequency estimation"""
+    return f"""Estimate frequency of "{word}" in modern English.
+
+Choose: very_common (top 1000), common (top 5000), uncommon (top 20000), rare, or very_rare.
+
+Return valid JSON matching FrequencyInfo schema."""
+
+
+def get_enhanced_sense_prompt(word: str, sense_index: int, part_of_speech: str,
+                              api_definitions: list, api_synonyms: list = None,
+                              api_antonyms: list = None, api_examples: list = None) -> str:
+    """Generate prompt for enhanced sense analysis (building on API data)"""
+    return f""""{word}" ({part_of_speech}): {api_definitions[0] if api_definitions else ""}
+
+Output JSON:
+- definition, part_of_speech, usage_register, domain, tone, usage_notes, examples (3), collocations, word_specific_phrases, synonyms, antonyms"""
 
 
 def get_detailed_sense_prompt(word: str, sense_index: int, basic_definition: str) -> str:

@@ -68,6 +68,14 @@ class CulturalNotesInfo(BaseModel):
     )
 
 
+class FrequencyInfo(BaseModel):
+    """Word frequency estimation"""
+    frequency: FrequencyEnum = Field(
+        ...,
+        description="Indication of how common the word is in modern usage: very_common, common, uncommon, rare, very_rare"
+    )
+
+
 # Detailed Word Sense (for Phase 2 detailed analysis)
 class DetailedWordSense(BaseModel):
     """Detailed analysis of a specific word sense"""
@@ -89,8 +97,8 @@ class DetailedWordSense(BaseModel):
     examples: List[str] = Field(
         ...,
         min_length=3,
-        max_length=5,
-        description="3-5 example sentences. Include at least one corrected common learner error."
+        max_length=3,
+        description="Exactly 3 example sentences."
     )
     collocations: List[str] = Field(
         default_factory=list,

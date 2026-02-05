@@ -16,8 +16,8 @@ class ToneEnum(str, Enum):
 
 
 class FrequencyEnum(str, Enum):
-    VERY_HIGH = "very high"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    ARCHAIC_RARE = "archaic/rare"
+    VERY_COMMON = "very_common"
+    COMMON = "common"
+    UNCOMMON = "uncommon"
+    RARE = "rare"
+    VERY_RARE = "very_rare"
