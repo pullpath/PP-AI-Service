@@ -12,6 +12,7 @@ import os
 import time
 import concurrent.futures
 import requests
+import logging
 from dotenv import load_dotenv
 
 # Import schemas and prompts
@@ -30,6 +31,9 @@ from .prompts import (
 )
 
 load_dotenv()
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 
 class DictionaryService:
@@ -236,9 +240,11 @@ class DictionaryService:
                 api_result = self._fetch_from_api(word)
                 
                 if api_result.get("success"):
+                    logger.info(f"[{word}] Basic data: Using FREE API (hybrid_api_ai)")
                     discovery_data = self._convert_api_to_discovery(word, api_result["data"])
                     data_source = "hybrid_api_ai"
                 else:
+                    logger.info(f"[{word}] Basic data: Using AI (ai_only) - API failed: {api_result.get('error', 'unknown')}")
                     discovery_result = self._discover_word_senses(word)
                     if not discovery_result.get("success"):
                         return discovery_result
@@ -316,8 +322,10 @@ class DictionaryService:
             api_result = self._fetch_from_api(word)
             
             if api_result.get("success"):
+                logger.info(f"[{word}] Detailed sense #{sense_index}: Using API basic data + AI enhancement (hybrid)")
                 discovery_data = self._convert_api_to_discovery(word, api_result["data"])
             else:
+                logger.info(f"[{word}] Detailed sense #{sense_index}: Using AI only - API failed: {api_result.get('error', 'unknown')}")
                 discovery_result = self._discover_word_senses(word)
                 if not discovery_result.get("success"):
                     return discovery_result
@@ -344,6 +352,7 @@ class DictionaryService:
             # Fetch the specific sense
             if is_from_api:
                 # API path: find the definition at sense_index
+                logger.info(f"[{word}] Detailed sense #{sense_index}: Using _fetch_enhanced_sense (API data + 4 AI agents)")
                 current_index = 0
                 for meaning in meanings:
                     part_of_speech = meaning.get("partOfSpeech", "")
@@ -376,6 +385,7 @@ class DictionaryService:
                         current_index += 1
             else:
                 # AI path: direct index lookup
+                logger.info(f"[{word}] Detailed sense #{sense_index}: Using _fetch_detailed_sense (Pure AI with 4 agents)")
                 sense_basic = senses[sense_index]
                 sense_result = self._fetch_detailed_sense(
                     word, sense_index, sense_basic["definition"]
