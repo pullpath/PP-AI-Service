@@ -85,12 +85,13 @@ def image():
 @app.route('/api/dictionary', methods=['POST'])
 def dictionary_lookup():
     """
-    Dictionary lookup endpoint
+    Dictionary lookup endpoint - section-based only (no full lookup)
     
     Request body:
     {
-        "word": "hello",           # Required
-        "section": "etymology"     # Optional: specific section to fetch
+        "word": "hello",         # Required
+        "section": "etymology",  # Required: specific section to fetch
+        "index": 0               # Optional: for 'detailed_sense' section only
     }
     
     Valid sections:
@@ -100,15 +101,24 @@ def dictionary_lookup():
     - "usage_context": modern usage trends
     - "cultural_notes": cultural and linguistic notes
     - "frequency": word frequency estimation
-    - "detailed_senses": all sense details (slow for words with many senses)
+    - "detailed_sense": single sense detail (requires index, fast ~2-3s)
     
-    If section not specified, returns full lookup (all data)
+    Example requests:
+    - {"word": "run", "section": "basic"}  # Get basic info
+    - {"word": "run", "section": "etymology"}  # Get etymology only
+    - {"word": "run", "section": "detailed_sense", "index": 0}  # Get first sense
     """
     try:
         data = request.get_json()
         if not data or 'word' not in data:
             return jsonify({
                 "error": "Missing 'word' parameter in request body",
+                "success": False
+            }), 400
+        
+        if 'section' not in data:
+            return jsonify({
+                "error": "Missing 'section' parameter in request body. Valid sections: basic, etymology, word_family, usage_context, cultural_notes, frequency, detailed_sense",
                 "success": False
             }), 400
         
@@ -119,10 +129,17 @@ def dictionary_lookup():
                 "success": False
             }), 400
         
-        section = data.get('section', None)
+        section = data['section'].strip()
+        if not section:
+            return jsonify({
+                "error": "Section cannot be empty",
+                "success": False
+            }), 400
+        
+        index = data.get('index', None)
         
         # Service layer handles all business logic
-        result = dictionary_service.lookup_section(word, section)
+        result = dictionary_service.lookup_section(word, section, index)
         return jsonify(result), 200
         
     except Exception as e:

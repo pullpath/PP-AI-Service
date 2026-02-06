@@ -122,85 +122,33 @@ class DictionaryService:
             output_schema=FrequencyInfo
         )
     
-    def lookup_word(self, word: str) -> Dict[str, Any]:
-        """
-        Main dictionary lookup interface
-        Uses hybrid API + AI architecture:
-        1. Get discovery data (from API or AI fallback)
-        2. Use AI for enhanced/missing information (frequency + detailed analysis)
-        """
-        try:
-            start_time = time.time()
-            
-            # Step 1: Get discovery data (try API first, fallback to AI)
-            print(f"Step 1: Fetching discovery data for '{word}'...")
-            api_result = self._fetch_from_api(word)
-            
-            step_1_time = time.time()
-            
-            if api_result.get("success"):
-                # API success: convert to discovery format
-                print(f"Time spent on API fetch: {step_1_time - start_time:.2f}s")
-                discovery_data = self._convert_api_to_discovery(word, api_result["data"])
-                print(f"Converted {len(discovery_data['senses'])} senses from API to WordSensesDiscovery format")
-            else:
-                # API failed: use AI discovery
-                print(f"API fetch failed, using AI discovery...")
-                discovery_result = self._discover_word_senses(word)
-                if not discovery_result.get("success"):
-                    return discovery_result
-                discovery_data = discovery_result["discovery_data"]
-                print(f"AI discovered {len(discovery_data['senses'])} senses")
-                print(f"Time spent on AI discovery: {step_1_time - start_time:.2f}s")
-            
-            total_senses = len(discovery_data["senses"])
-            
-            # Step 2: Parallel fetch of AI-enhanced information (same for both paths)
-            print(f"Step 2: Fetching AI-enhanced information...")
-            enhanced_result = self._fetch_detailed_info_parallel(word, discovery_data)
-            
-            step_2_time = time.time()
-            print(f"Time spent on AI enhancement: {step_2_time - step_1_time:.2f}s")
-            
-            if not enhanced_result.get("success"):
-                return enhanced_result
-            
-            # Combine results (same for both paths)
-            final_result = self._combine_results(
-                word, discovery_data, enhanced_result, start_time, total_senses
-            )
-            
-            return final_result
-            
-        except Exception as e:
-            return {
-                "headword": word,
-                "error": str(e),
-                "success": False
-            }
     
-    def lookup_section(self, word: str, section: Optional[str] = None) -> Dict[str, Any]:
+    def lookup_section(self, word: str, section: str, index: Optional[int] = None) -> Dict[str, Any]:
         """
-        Look up full word data or specific section
-        If section is None, returns full lookup (same as lookup_word)
-        If section is provided, returns full data structure with only that section populated
-        """
-        # If no section specified, do full lookup
-        if section is None:
-            return self.lookup_word(word)
+        Look up specific section of word data
+        All requests must specify a section - no full lookup supported
         
+        For 'detailed_sense' section, index parameter is required to specify which sense
+        """
         try:
             start_time = time.time()
             
             # Validate section
             valid_sections = [
                 'etymology', 'word_family', 'usage_context', 
-                'cultural_notes', 'frequency', 'detailed_senses', 'basic'
+                'cultural_notes', 'frequency', 'detailed_sense', 'basic'
             ]
             
             if section not in valid_sections:
                 return {
                     "error": f"Invalid section '{section}'. Valid sections: {', '.join(valid_sections)}",
+                    "success": False
+                }
+            
+            # Special validation for detailed_sense
+            if section == 'detailed_sense' and index is None:
+                return {
+                    "error": "index is required when requesting 'detailed_sense'",
                     "success": False
                 }
             
@@ -227,14 +175,27 @@ class DictionaryService:
                     "success": True
                 }
             
+            # Handle individual detailed_sense specially
+            if section == 'detailed_sense':
+                result = self._fetch_single_detailed_sense(word, index)
+                
+                if not result.get("success"):
+                    return result
+                
+                return {
+                    "headword": word,
+                    "detailed_sense": result["detailed_sense"],
+                    "execution_time": time.time() - start_time,
+                    "success": True
+                }
+            
             # For AI sections, call the appropriate method
             section_method_map = {
                 'etymology': self._fetch_etymology,
                 'word_family': self._fetch_word_family,
                 'usage_context': self._fetch_usage_context,
                 'cultural_notes': self._fetch_cultural_notes,
-                'frequency': self._fetch_frequency,
-                'detailed_senses': self._fetch_all_detailed_senses
+                'frequency': self._fetch_frequency
             }
             
             method = section_method_map.get(section)
@@ -267,8 +228,8 @@ class DictionaryService:
                 "success": False
             }
     
-    def _fetch_all_detailed_senses(self, word: str) -> Dict[str, Any]:
-        """Fetch all detailed senses for a word"""
+    def _fetch_single_detailed_sense(self, word: str, sense_index: int) -> Dict[str, Any]:
+        """Fetch a single detailed sense by index"""
         try:
             # Get discovery data first
             api_result = self._fetch_from_api(word)
@@ -281,66 +242,75 @@ class DictionaryService:
                     return discovery_result
                 discovery_data = discovery_result["discovery_data"]
             
-            # Fetch detailed senses
+            # Determine which path to use
             meanings = discovery_data.get("api_raw_meanings", [])
             senses = discovery_data.get("senses", [])
             is_from_api = bool(meanings)
             
-            sense_futures = []
-            
+            # Validate sense_index
             if is_from_api:
-                # API path: process each definition
-                with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-                    sense_index = 0
-                    for meaning in meanings:
-                        part_of_speech = meaning.get("partOfSpeech", "")
-                        definitions = meaning.get("definitions", [])
-                        meaning_synonyms = meaning.get("synonyms", [])
-                        meaning_antonyms = meaning.get("antonyms", [])
-                        
-                        for def_obj in definitions:
+                # Count total definitions across all meanings
+                total_senses = sum(len(m.get("definitions", [])) for m in meanings)
+            else:
+                total_senses = len(senses)
+            
+            if sense_index < 0 or sense_index >= total_senses:
+                return {
+                    "error": f"Invalid sense_index {sense_index}. Word has {total_senses} senses (0-{total_senses-1})",
+                    "success": False
+                }
+            
+            # Fetch the specific sense
+            if is_from_api:
+                # API path: find the definition at sense_index
+                current_index = 0
+                for meaning in meanings:
+                    part_of_speech = meaning.get("partOfSpeech", "")
+                    definitions = meaning.get("definitions", [])
+                    meaning_synonyms = meaning.get("synonyms", [])
+                    meaning_antonyms = meaning.get("antonyms", [])
+                    
+                    for def_obj in definitions:
+                        if current_index == sense_index:
+                            # Found the target sense
                             definition = def_obj.get("definition", "")
                             example = def_obj.get("example", "")
                             def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
                             def_antonyms = def_obj.get("antonyms", []) or meaning_antonyms
                             
-                            future = executor.submit(
-                                self._fetch_enhanced_sense,
-                                word, sense_index, part_of_speech, 
-                                [definition], def_synonyms, def_antonyms, 
+                            sense_result = self._fetch_enhanced_sense(
+                                word, sense_index, part_of_speech,
+                                [definition], def_synonyms, def_antonyms,
                                 [example] if example else []
                             )
-                            sense_futures.append(future)
-                            sense_index += 1
-                    
-                    done, not_done = concurrent.futures.wait(sense_futures, timeout=60)
-                    
-                    detailed_senses = []
-                    for i, future in enumerate(sense_futures):
-                        sense_result = self._get_future_result(future, f"sense_{i}")
-                        if sense_result and sense_result.get("success"):
-                            detailed_senses.append(sense_result["sense_detail"])
+                            
+                            if sense_result.get("success"):
+                                return {
+                                    "detailed_sense": sense_result["sense_detail"],
+                                    "success": True
+                                }
+                            else:
+                                return sense_result
+                        
+                        current_index += 1
             else:
-                # AI path: process basic definitions
-                with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-                    for i, sense_basic in enumerate(senses):
-                        future = executor.submit(
-                            self._fetch_detailed_sense,
-                            word, i, sense_basic["definition"]
-                        )
-                        sense_futures.append(future)
-                    
-                    done, not_done = concurrent.futures.wait(sense_futures, timeout=60)
-                    
-                    detailed_senses = []
-                    for i, future in enumerate(sense_futures):
-                        sense_result = self._get_future_result(future, f"sense_{i}")
-                        if sense_result and sense_result.get("success"):
-                            detailed_senses.append(sense_result["sense_detail"])
+                # AI path: direct index lookup
+                sense_basic = senses[sense_index]
+                sense_result = self._fetch_detailed_sense(
+                    word, sense_index, sense_basic["definition"]
+                )
+                
+                if sense_result.get("success"):
+                    return {
+                        "detailed_sense": sense_result["sense_detail"],
+                        "success": True
+                    }
+                else:
+                    return sense_result
             
             return {
-                "detailed_senses": detailed_senses,
-                "success": True
+                "error": f"Failed to fetch sense {sense_index}",
+                "success": False
             }
                 
         except Exception as e:
@@ -455,139 +425,6 @@ class DictionaryService:
             raise
     
 
-    def _fetch_detailed_info_parallel(self, word: str, discovery_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Unified parallel fetch: works for both API and AI discovery paths"""
-        try:
-            # Detect source: API (has api_raw_meanings) vs AI (only has senses)
-            meanings = discovery_data.get("api_raw_meanings", [])
-            senses = discovery_data.get("senses", [])
-            is_from_api = bool(meanings)
-            
-            # Calculate optimal thread count
-            # For API: count individual definitions across all meanings
-            if is_from_api:
-                sense_count = sum(len(m.get("definitions", [])) for m in meanings)
-            else:
-                sense_count = len(senses)
-            # 5 base tasks: etymology, word_family, usage_context, cultural_notes, frequency
-            max_threads = min(15, 5 + sense_count)  # Increased max to handle more senses
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
-                # Submit granular info tasks (always needed)
-                etymology_future = executor.submit(self._fetch_etymology, word)
-                word_family_future = executor.submit(self._fetch_word_family, word)
-                usage_context_future = executor.submit(self._fetch_usage_context, word)
-                cultural_notes_future = executor.submit(self._fetch_cultural_notes, word)
-                
-                # Submit frequency detection (always needed - not in discovery_data anymore)
-                frequency_future = executor.submit(self._fetch_frequency, word)
-                
-                # Submit sense analysis
-                sense_futures = []
-                if is_from_api:
-                    # API path: enhance API data with AI analysis
-                    # Process each individual definition, not just meanings groups
-                    sense_index = 0
-                    for meaning in meanings:
-                        part_of_speech = meaning.get("partOfSpeech", "")
-                        definitions = meaning.get("definitions", [])
-                        meaning_synonyms = meaning.get("synonyms", [])
-                        meaning_antonyms = meaning.get("antonyms", [])
-                        
-                        for def_obj in definitions:
-                            definition = def_obj.get("definition", "")
-                            example = def_obj.get("example", "")
-                            
-                            # Get definition-specific synonyms/antonyms, fallback to meaning-level
-                            def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
-                            def_antonyms = def_obj.get("antonyms", []) or meaning_antonyms
-                            
-                            future = executor.submit(
-                                self._fetch_enhanced_sense,
-                                word, sense_index, part_of_speech, 
-                                [definition],  # Single definition
-                                def_synonyms, def_antonyms, 
-                                [example] if example else []
-                            )
-                            sense_futures.append(future)
-                            sense_index += 1
-                else:
-                    # AI path: detailed analysis from basic definitions
-                    for i, sense_basic in enumerate(senses):
-                        future = executor.submit(
-                            self._fetch_detailed_sense,
-                            word, i, sense_basic["definition"]
-                        )
-                        sense_futures.append(future)
-                
-                # Wait for all tasks with progress tracking
-                all_futures = [
-                    etymology_future, word_family_future,
-                    usage_context_future, cultural_notes_future
-                ] + sense_futures
-                if frequency_future:
-                    all_futures.append(frequency_future)
-                
-                # Wait with timeout (60s total for all parallel tasks)
-                done, not_done = concurrent.futures.wait(all_futures, timeout=60)
-                
-                # Log any tasks that didn't complete
-                if not_done:
-                    print(f"Warning: {len(not_done)} tasks did not complete within 60s timeout")
-                    for future in not_done:
-                        future.cancel()
-                
-                # Collect results
-                results = {
-                    "etymology": self._get_future_result(etymology_future, "etymology"),
-                    "word_family": self._get_future_result(word_family_future, "word_family"),
-                    "usage_context": self._get_future_result(usage_context_future, "usage_context"),
-                    "cultural_notes": self._get_future_result(cultural_notes_future, "cultural_notes"),
-                    "frequency": None,
-                    "detailed_senses": []  # Use same key for both paths
-                }
-                
-                # Get frequency (always fetched from AI)
-                results["frequency"] = self._get_future_result(frequency_future, "frequency")
-                
-                # Collect sense details
-                for i, future in enumerate(sense_futures):
-                    sense_result = self._get_future_result(future, f"sense_{i}")
-                    if sense_result and sense_result.get("success"):
-                        results["detailed_senses"].append(sense_result["sense_detail"])
-                
-                # Handle failures gracefully (allow partial success)
-                if not results["etymology"] or not results["etymology"].get("success"):
-                    print("Warning: Failed to fetch etymology, continuing...")
-                    results["etymology"] = {"success": True, "etymology": {"etymology": "", "root_analysis": ""}}
-                
-                if not results["word_family"] or not results["word_family"].get("success"):
-                    print("Warning: Failed to fetch word family, continuing...")
-                    results["word_family"] = {"success": True, "word_family": {"word_family": []}}
-                
-                if not results["usage_context"] or not results["usage_context"].get("success"):
-                    print("Warning: Failed to fetch usage context, continuing...")
-                    results["usage_context"] = {"success": True, "usage_context": {"modern_relevance": "", "common_confusions": [], "regional_variations": []}}
-                
-                if not results["cultural_notes"] or not results["cultural_notes"].get("success"):
-                    print("Warning: Failed to fetch cultural notes, continuing...")
-                    results["cultural_notes"] = {"success": True, "cultural_notes": {"notes": ""}}
-                
-                if not results["frequency"] or not results["frequency"].get("success"):
-                    print("Warning: Failed to fetch frequency, using default 'common'")
-                    results["frequency"] = {"success": True, "frequency": "common"}
-                
-                return {
-                    "success": True,
-                    "results": results
-                }
-                
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "headword": word
-            }
     
     def _fetch_frequency(self, word: str) -> Dict[str, Any]:
         """Fetch frequency estimation via AI"""
@@ -652,46 +489,6 @@ class DictionaryService:
                 "error": str(e)
             }
     
-    def _combine_results(self, word: str, discovery_data: Dict[str, Any], 
-                        enhanced_result: Dict[str, Any], start_time: float, 
-                        total_senses: int) -> Dict[str, Any]:
-        """Combine discovery data with AI enhancements (unified for API and fallback paths)"""
-        results = enhanced_result["results"]
-        
-        # Get frequency (from AI results only)
-        frequency = results.get("frequency", {}).get("frequency", "common")
-        
-        # Determine data source
-        data_source = "hybrid_api_ai" if "api_raw_meanings" in discovery_data else "ai_only"
-        
-        # Get pronunciation (audio URL or IPA string)
-        pronunciation = discovery_data.get("pronunciation", "")
-        
-        # Create final result
-        final_result = {
-            "headword": word,
-            "pronunciation": pronunciation,  # Audio URL (API) or IPA string (AI fallback)
-            "frequency": frequency,
-            "data_source": data_source,
-            
-            # AI-enhanced information
-            "etymology": results["etymology"]["etymology"],
-            "word_family": results["word_family"]["word_family"],
-            "usage_context": results["usage_context"]["usage_context"],
-            "cultural_notes": results["cultural_notes"]["cultural_notes"],
-            
-            # Detailed senses (same key for both API and AI paths)
-            "detailed_senses": results["detailed_senses"],
-            
-            # Metadata
-            "timestamp": time.time(),
-            "total_senses": total_senses,
-            "parallel_execution": True,
-            "execution_time": time.time() - start_time,
-            "success": True
-        }
-        
-        return final_result
     
     # Keep original AI-only methods for fallback
     def _discover_word_senses(self, word: str) -> Dict[str, Any]:
