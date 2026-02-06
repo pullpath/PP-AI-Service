@@ -144,19 +144,6 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 
 All agents run in parallel using `ThreadPoolExecutor` with optimized token limits.
 
-## Testing
-
-```bash
-# Test logging and API/AI paths
-python test_logging.py
-
-# Test 4-agent parallel performance
-python test_parallel_detailed_sense.py
-
-# Test all features
-python test_all_features.py
-```
-
 ## Project Structure
 
 ```
@@ -217,9 +204,6 @@ python app.py
 
 # Check logs (if using start.sh)
 tail -f ~/ppaiservice.log
-
-# View AI/API decisions
-python test_logging.py
 ```
 
 ## Production Deployment

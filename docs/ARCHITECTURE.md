@@ -292,15 +292,18 @@ Monitor these patterns:
 
 ### Performance Testing
 
+You can verify performance using the API endpoints directly:
+
 ```bash
 # Test basic lookup
-python test_logging.py
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"hello","section":"basic"}'
 
-# Test detailed sense
-python test_parallel_detailed_sense.py
-
-# Test all features
-python test_all_features.py
+# Test detailed sense (4-agent parallel)
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"detailed_sense","index":0}'
 ```
 
 ### Health Checks

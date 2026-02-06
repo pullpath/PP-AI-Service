@@ -113,9 +113,9 @@ Required environment variables (copy from `.env.example`):
 - File operations include cleanup (delete temporary files)
 - Input validation for required parameters
 
-## Testing and Quality
+## Code Quality
 
-**Note**: No test suite or linting configuration was found in the codebase.
+**Note**: No automated test suite currently exists in the codebase. Testing is done manually via API endpoints.
 
 ## Deployment
 
@@ -185,7 +185,7 @@ The dictionary service uses a **hybrid API + AI architecture** for optimal perfo
 5. **Chinese Network**: Dockerfile uses Aliyun PyPI mirror for faster installs in China
 6. **Port Configuration**: Application runs on port 8000 (configurable via environment)
 7. **DeepSeek API Key**: Required for dictionary service (set `DEEPSEEK_API_KEY` in `.env`)
-8. **Logging**: Service logs API vs AI decisions at INFO level (see test_logging.py)
+8. **Logging**: Service logs API vs AI decisions at INFO level for monitoring
 
 ## Development Workflow
 
