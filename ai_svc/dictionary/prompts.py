@@ -14,7 +14,6 @@ For each sense, provide a clear, concise definition.
 
 Also provide:
 - Pronunciation (IPA or simple phonetic guide)
-- Frequency in modern usage (very high/high/medium/low/archaic-rare)
 - Headword (the word itself)
 
 Order senses by frequency (most common first).

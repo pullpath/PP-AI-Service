@@ -179,6 +179,176 @@ class DictionaryService:
                 "success": False
             }
     
+    def lookup_section(self, word: str, section: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Look up full word data or specific section
+        If section is None, returns full lookup (same as lookup_word)
+        If section is provided, returns full data structure with only that section populated
+        """
+        # If no section specified, do full lookup
+        if section is None:
+            return self.lookup_word(word)
+        
+        try:
+            start_time = time.time()
+            
+            # Validate section
+            valid_sections = [
+                'etymology', 'word_family', 'usage_context', 
+                'cultural_notes', 'frequency', 'detailed_senses', 'basic'
+            ]
+            
+            if section not in valid_sections:
+                return {
+                    "error": f"Invalid section '{section}'. Valid sections: {', '.join(valid_sections)}",
+                    "success": False
+                }
+            
+            # Handle basic specially (doesn't require AI)
+            if section == 'basic':
+                api_result = self._fetch_from_api(word)
+                
+                if api_result.get("success"):
+                    discovery_data = self._convert_api_to_discovery(word, api_result["data"])
+                    data_source = "hybrid_api_ai"
+                else:
+                    discovery_result = self._discover_word_senses(word)
+                    if not discovery_result.get("success"):
+                        return discovery_result
+                    discovery_data = discovery_result["discovery_data"]
+                    data_source = "ai_only"
+                
+                return {
+                    "headword": word,
+                    "pronunciation": discovery_data.get("pronunciation", ""),
+                    "total_senses": len(discovery_data.get("senses", [])),
+                    "data_source": data_source,
+                    "execution_time": time.time() - start_time,
+                    "success": True
+                }
+            
+            # For AI sections, call the appropriate method
+            section_method_map = {
+                'etymology': self._fetch_etymology,
+                'word_family': self._fetch_word_family,
+                'usage_context': self._fetch_usage_context,
+                'cultural_notes': self._fetch_cultural_notes,
+                'frequency': self._fetch_frequency,
+                'detailed_senses': self._fetch_all_detailed_senses
+            }
+            
+            method = section_method_map.get(section)
+            if not method:
+                return {
+                    "error": f"Section '{section}' not implemented",
+                    "success": False
+                }
+            
+            result = method(word)
+            
+            if not result.get("success"):
+                return result
+            
+            # Build response with same structure as full lookup
+            # This allows frontend to merge section data easily
+            response = {
+                "headword": word,
+                section: result[section],  # Use same property name as full lookup
+                "execution_time": time.time() - start_time,
+                "success": True
+            }
+            
+            return response
+                
+        except Exception as e:
+            return {
+                "headword": word,
+                "error": str(e),
+                "success": False
+            }
+    
+    def _fetch_all_detailed_senses(self, word: str) -> Dict[str, Any]:
+        """Fetch all detailed senses for a word"""
+        try:
+            # Get discovery data first
+            api_result = self._fetch_from_api(word)
+            
+            if api_result.get("success"):
+                discovery_data = self._convert_api_to_discovery(word, api_result["data"])
+            else:
+                discovery_result = self._discover_word_senses(word)
+                if not discovery_result.get("success"):
+                    return discovery_result
+                discovery_data = discovery_result["discovery_data"]
+            
+            # Fetch detailed senses
+            meanings = discovery_data.get("api_raw_meanings", [])
+            senses = discovery_data.get("senses", [])
+            is_from_api = bool(meanings)
+            
+            sense_futures = []
+            
+            if is_from_api:
+                # API path: process each definition
+                with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+                    sense_index = 0
+                    for meaning in meanings:
+                        part_of_speech = meaning.get("partOfSpeech", "")
+                        definitions = meaning.get("definitions", [])
+                        meaning_synonyms = meaning.get("synonyms", [])
+                        meaning_antonyms = meaning.get("antonyms", [])
+                        
+                        for def_obj in definitions:
+                            definition = def_obj.get("definition", "")
+                            example = def_obj.get("example", "")
+                            def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
+                            def_antonyms = def_obj.get("antonyms", []) or meaning_antonyms
+                            
+                            future = executor.submit(
+                                self._fetch_enhanced_sense,
+                                word, sense_index, part_of_speech, 
+                                [definition], def_synonyms, def_antonyms, 
+                                [example] if example else []
+                            )
+                            sense_futures.append(future)
+                            sense_index += 1
+                    
+                    done, not_done = concurrent.futures.wait(sense_futures, timeout=60)
+                    
+                    detailed_senses = []
+                    for i, future in enumerate(sense_futures):
+                        sense_result = self._get_future_result(future, f"sense_{i}")
+                        if sense_result and sense_result.get("success"):
+                            detailed_senses.append(sense_result["sense_detail"])
+            else:
+                # AI path: process basic definitions
+                with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+                    for i, sense_basic in enumerate(senses):
+                        future = executor.submit(
+                            self._fetch_detailed_sense,
+                            word, i, sense_basic["definition"]
+                        )
+                        sense_futures.append(future)
+                    
+                    done, not_done = concurrent.futures.wait(sense_futures, timeout=60)
+                    
+                    detailed_senses = []
+                    for i, future in enumerate(sense_futures):
+                        sense_result = self._get_future_result(future, f"sense_{i}")
+                        if sense_result and sense_result.get("success"):
+                            detailed_senses.append(sense_result["sense_detail"])
+            
+            return {
+                "detailed_senses": detailed_senses,
+                "success": True
+            }
+                
+        except Exception as e:
+            return {
+                "error": str(e),
+                "success": False
+            }
+    
     def _fetch_from_api(self, word: str) -> Dict[str, Any]:
         """Fetch basic dictionary data from free API"""
         try:
@@ -270,11 +440,10 @@ class DictionaryService:
                         })
                         sense_index += 1
             
-            # Create discovery data (frequency will be added by AI later)
+            # Create discovery data
             discovery_data = {
                 "headword": word,
                 "pronunciation": pronunciation,  # Audio URL (preferred) or IPA string (fallback)
-                "frequency": "common",  # Placeholder, will be replaced by AI
                 "senses": senses,
                 "api_raw_meanings": meanings  # Keep original for detailed processing
             }
@@ -310,12 +479,8 @@ class DictionaryService:
                 usage_context_future = executor.submit(self._fetch_usage_context, word)
                 cultural_notes_future = executor.submit(self._fetch_cultural_notes, word)
                 
-                # Submit frequency detection
-                # - For API path: frequency not available, need AI
-                # - For AI path: already in discovery_data, but fetch anyway for consistency
-                frequency_future = None
-                if is_from_api or not discovery_data.get("frequency"):
-                    frequency_future = executor.submit(self._fetch_frequency, word)
+                # Submit frequency detection (always needed - not in discovery_data anymore)
+                frequency_future = executor.submit(self._fetch_frequency, word)
                 
                 # Submit sense analysis
                 sense_futures = []
@@ -382,15 +547,8 @@ class DictionaryService:
                     "detailed_senses": []  # Use same key for both paths
                 }
                 
-                # Get frequency
-                if frequency_future:
-                    results["frequency"] = self._get_future_result(frequency_future, "frequency")
-                else:
-                    # Use frequency from AI discovery
-                    results["frequency"] = {
-                        "success": True,
-                        "frequency": discovery_data.get("frequency", "common")
-                    }
+                # Get frequency (always fetched from AI)
+                results["frequency"] = self._get_future_result(frequency_future, "frequency")
                 
                 # Collect sense details
                 for i, future in enumerate(sense_futures):
@@ -401,19 +559,19 @@ class DictionaryService:
                 # Handle failures gracefully (allow partial success)
                 if not results["etymology"] or not results["etymology"].get("success"):
                     print("Warning: Failed to fetch etymology, continuing...")
-                    results["etymology"] = {"success": True, "etymology_info": {"etymology": "", "root_analysis": ""}}
+                    results["etymology"] = {"success": True, "etymology": {"etymology": "", "root_analysis": ""}}
                 
                 if not results["word_family"] or not results["word_family"].get("success"):
                     print("Warning: Failed to fetch word family, continuing...")
-                    results["word_family"] = {"success": True, "word_family_info": {"word_family": []}}
+                    results["word_family"] = {"success": True, "word_family": {"word_family": []}}
                 
                 if not results["usage_context"] or not results["usage_context"].get("success"):
                     print("Warning: Failed to fetch usage context, continuing...")
-                    results["usage_context"] = {"success": True, "usage_context_info": {"modern_relevance": "", "common_confusions": [], "regional_variations": []}}
+                    results["usage_context"] = {"success": True, "usage_context": {"modern_relevance": "", "common_confusions": [], "regional_variations": []}}
                 
                 if not results["cultural_notes"] or not results["cultural_notes"].get("success"):
                     print("Warning: Failed to fetch cultural notes, continuing...")
-                    results["cultural_notes"] = {"success": True, "cultural_notes_info": {"notes": ""}}
+                    results["cultural_notes"] = {"success": True, "cultural_notes": {"notes": ""}}
                 
                 if not results["frequency"] or not results["frequency"].get("success"):
                     print("Warning: Failed to fetch frequency, using default 'common'")
@@ -500,8 +658,8 @@ class DictionaryService:
         """Combine discovery data with AI enhancements (unified for API and fallback paths)"""
         results = enhanced_result["results"]
         
-        # Get frequency (from AI or from discovery_data)
-        frequency = results.get("frequency", {}).get("frequency", discovery_data.get("frequency", "common"))
+        # Get frequency (from AI results only)
+        frequency = results.get("frequency", {}).get("frequency", "common")
         
         # Determine data source
         data_source = "hybrid_api_ai" if "api_raw_meanings" in discovery_data else "ai_only"
@@ -517,10 +675,10 @@ class DictionaryService:
             "data_source": data_source,
             
             # AI-enhanced information
-            "etymology_info": results["etymology"]["etymology_info"],
-            "word_family_info": results["word_family"]["word_family_info"],
-            "usage_context_info": results["usage_context"]["usage_context_info"],
-            "cultural_notes_info": results["cultural_notes"]["cultural_notes_info"],
+            "etymology": results["etymology"]["etymology"],
+            "word_family": results["word_family"]["word_family"],
+            "usage_context": results["usage_context"]["usage_context"],
+            "cultural_notes": results["cultural_notes"]["cultural_notes"],
             
             # Detailed senses (same key for both API and AI paths)
             "detailed_senses": results["detailed_senses"],
@@ -603,7 +761,7 @@ class DictionaryService:
             if isinstance(response.content, EtymologyInfo):
                 return {
                     "success": True,
-                    "etymology_info": response.content.model_dump()
+                    "etymology": response.content.model_dump()
                 }
             else:
                 return {
@@ -625,7 +783,7 @@ class DictionaryService:
             if isinstance(response.content, WordFamilyInfo):
                 return {
                     "success": True,
-                    "word_family_info": response.content.model_dump()
+                    "word_family": response.content.model_dump()
                 }
             else:
                 return {
@@ -647,7 +805,7 @@ class DictionaryService:
             if isinstance(response.content, UsageContextInfo):
                 return {
                     "success": True,
-                    "usage_context_info": response.content.model_dump()
+                    "usage_context": response.content.model_dump()
                 }
             else:
                 return {
@@ -669,7 +827,7 @@ class DictionaryService:
             if isinstance(response.content, CulturalNotesInfo):
                 return {
                     "success": True,
-                    "cultural_notes_info": response.content.model_dump()
+                    "cultural_notes": response.content.model_dump()
                 }
             else:
                 return {

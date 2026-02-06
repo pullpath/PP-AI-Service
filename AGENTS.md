@@ -160,7 +160,13 @@ The dictionary service uses a **hybrid API + AI architecture** for optimal perfo
 **Performance**:
 - 40-60% faster than AI-only approach
 - 30-50% fewer AI calls (cost savings)
-- See `HYBRID_DICTIONARY_API.md` for details
+- Supports section-by-section loading (optional)
+- See `HYBRID_DICTIONARY_API.md` for architecture details
+
+**Key Features**:
+- ✅ Hybrid API + AI architecture (fast + comprehensive)
+- ✅ Section-based loading (load specific data sections on demand)
+- ✅ Unified response format (sections match full lookup structure)
 
 ## Important Gotchas
 

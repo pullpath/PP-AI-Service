@@ -18,7 +18,6 @@ class WordSensesDiscovery(BaseModel):
     """Result of Phase 1: Discover commonly used word senses"""
     headword: str = Field(..., description="The requested word or phrase.")
     pronunciation: str = Field(..., description="Audio URL (from API) or IPA string (AI-generated when API fails). Frontend should check if starts with 'http' to determine format.")
-    frequency: FrequencyEnum = Field(..., description="Indication of how common the word is in modern usage.")
     senses: List[WordSenseBasic] = Field(
         ...,
         min_length=1,

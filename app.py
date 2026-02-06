@@ -85,8 +85,24 @@ def image():
 @app.route('/api/dictionary', methods=['POST'])
 def dictionary_lookup():
     """
-    Dictionary agent endpoint for looking up words
-    Uses two-phase parallel architecture
+    Dictionary lookup endpoint
+    
+    Request body:
+    {
+        "word": "hello",           # Required
+        "section": "etymology"     # Optional: specific section to fetch
+    }
+    
+    Valid sections:
+    - "basic": pronunciation, total_senses (fast, no AI)
+    - "etymology": word origin and root analysis
+    - "word_family": related words
+    - "usage_context": modern usage trends
+    - "cultural_notes": cultural and linguistic notes
+    - "frequency": word frequency estimation
+    - "detailed_senses": all sense details (slow for words with many senses)
+    
+    If section not specified, returns full lookup (all data)
     """
     try:
         data = request.get_json()
@@ -103,10 +119,12 @@ def dictionary_lookup():
                 "success": False
             }), 400
         
-        # Use the new single interface
-        result = dictionary_service.lookup_word(word)
+        section = data.get('section', None)
         
+        # Service layer handles all business logic
+        result = dictionary_service.lookup_section(word, section)
         return jsonify(result), 200
+        
     except Exception as e:
         return jsonify({
             "error": f"Internal server error: {str(e)}",
