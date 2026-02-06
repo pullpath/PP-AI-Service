@@ -151,32 +151,41 @@ The dictionary service uses a **hybrid API + AI architecture** for optimal perfo
    - Fetches basic data from https://api.dictionaryapi.dev/api/v2/entries/en/<word>
    - Provides: pronunciation, definitions, examples, synonyms, antonyms
    
-2. **Step 2 - AI Enhancement** (~20-30s):
+2. **Step 2 - AI Enhancement** (~5-6s with 4-agent parallel):
    - Uses DeepSeek LLM for enhanced analysis
+   - 4 concurrent agents for `detailed_sense` generation:
+     - Agent 1: Core metadata (definition, POS, register, domain, tone) - 300 tokens
+     - Agent 2: Examples & collocations (3 each) - 200 tokens
+     - Agent 3: Related words (synonyms, antonyms, phrases, 3 each) - 200 tokens
+     - Agent 4: Usage notes (2-3 sentences) - 150 tokens
    - Adds: etymology, word family, usage context, cultural notes, learner guidance
    
 3. **Fallback**: Automatically uses full AI mode if free API fails
 
 **Performance**:
-- 40-60% faster than AI-only approach
+- 60-70% faster than AI-only approach (5-6s vs 15-18s)
 - 30-50% fewer AI calls (cost savings)
-- Supports section-by-section loading (optional)
-- See `HYBRID_DICTIONARY_API.md` for architecture details
+- 4-agent parallel execution for optimal speed
+- See `docs/ARCHITECTURE.md` for detailed architecture
+- See `docs/API.md` for API usage guide
 
 **Key Features**:
 - ✅ Hybrid API + AI architecture (fast + comprehensive)
+- ✅ 4-agent parallel execution (optimal performance)
 - ✅ Section-based loading (load specific data sections on demand)
+- ✅ Logging (track API vs AI decisions)
 - ✅ Unified response format (sections match full lookup structure)
 
 ## Important Gotchas
 
-1. **Dictionary Service**: Uses hybrid API + AI; falls back to AI-only if free API fails
+1. **Dictionary Service**: Uses hybrid API + AI; falls back to AI-only if free API fails (logged)
 2. **File Uploads**: Audio files are temporarily saved to `static/uploads/` and deleted after processing
 3. **Image Processing**: Images are converted to base64 for OpenAI Vision API
 4. **API Configuration**: Requires `OAI_CONFIG_LIST` file for AutoGen agents (see `OAI_CONFIG_LIST.example`)
 5. **Chinese Network**: Dockerfile uses Aliyun PyPI mirror for faster installs in China
 6. **Port Configuration**: Application runs on port 8000 (configurable via environment)
 7. **DeepSeek API Key**: Required for dictionary service (set `DEEPSEEK_API_KEY` in `.env`)
+8. **Logging**: Service logs API vs AI decisions at INFO level (see test_logging.py)
 
 ## Development Workflow
 

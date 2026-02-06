@@ -1,167 +1,35 @@
-# Flask Application Deployment with HTTPS on GCP
+# PP-AI-Service
 
-This guide covers the deployment of a Flask web application on a Google Cloud Platform (GCP) VM instance, including the setup of a wildcard HTTPS certificate using Let's Encrypt.
-
-## Table of Contents
-
-- [1. Domain Setup](#1-domain-setup)
-- [2. Obtaining a Wildcard SSL Certificate](#2-obtaining-a-wildcard-ssl-certificate)
-- [3. Web Server Configuration](#3-web-server-configuration)
-- [4. Flask Application Adjustments](#4-flask-application-adjustments)
-- [5. Auto-Renewal of SSL Certificate](#5-auto-renewal-of-ssl-certificate)
-
-## 1. Domain Setup
-
-Before starting, ensure you have a domain name pointing to your VM's IP address. This is essential for SSL/TLS certificate issuance.
-
-## 2. Obtaining a Wildcard SSL Certificate
-
-We will use Let's Encrypt to obtain a free SSL certificate.
-
-### Steps:
-
-1. **SSH into your VM**:
-   Access your VM instance via SSH.
-
-2. **Install Certbot**:
-   Certbot automates the process of obtaining and renewing Let's Encrypt certificates.
-
-```bash
-sudo apt-get update
-sudo apt-get install certbot
-```
-
-3. **Run Certbot with DNS Validation:**:
-   Use the following command to start the process. Replace yourdomain.com with your actual domain name.
-
-```bash
-sudo certbot certonly --standalone -d yourdomain.com -d www.yourdomain.com
-```
-
-Add the provided TXT record to your DNS configuration.
-
-4. **Complete the Validation Process:**:
-   Once DNS propagation is complete, continue with Certbot to generate your wildcard certificate.
-
-## 3. Web Server Configuration
-
-Configure Nginx or Apache as a reverse proxy to serve your Flask application over HTTPS.
-
-### Example with Nginx:
-
-1. **Install Nginx:**:
-
-```bash
-sudo apt-get install nginx
-```
-
-2. **Configure Nginx:**:
-
-- Create a new configuration file for your site in /etc/nginx/sites-available/ and symlink it to /etc/nginx/sites-enabled/.
-- Edit the configuration to reverse proxy requests to your Flask app and to use the SSL certificates. Here's a basic example:
-- Replace yourdomain.com, www.yourdomain.com, and your_flask_port with your actual domain name and Flask port number.
-
-```
-server {
-   listen 80;
-   server_name yourdomain.com www.yourdomain.com;
-   return 301 https://$host$request_uri;
-}
-
-server {
-   listen 443 ssl;
-   server_name yourdomain.com www.yourdomain.com;
-
-   ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-   ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-
-   location / {
-      proxy_pass http://localhost:your_flask_port;
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Forwarded-Proto $scheme;
-   }
-}
-```
-
-3. **Enable the Configuration:**:
-   Symlink your site's configuration and reload Nginx.
-
-```bash
-sudo ln -s /etc/nginx/sites-available/your_site /etc/nginx/sites-enabled/
-sudo nginx -t # Test configuration for syntax errors.
-sudo systemctl reload nginx
-```
-
-## 4. Flask Application Adjustments
-
-Ensure your Flask application is configured to work behind a reverse proxy and handle HTTPS traffic.
-**Key Adjustments**
-Use ProxyFix middleware to trust headers from the reverse proxy.
-Ensure secure cookies are used.
-Adjust any logic that changes behavior based on HTTP or HTTPS.
-
-## 5. Auto-Renewal of SSL Certificate
-
-Set up a cron job for automatic renewal of the SSL certificate.
-
-```bash
-echo "0 12 * * * /usr/bin/certbot renew --quiet" | sudo tee -a /etc/crontab > /dev/null
-```
-
-Sudo Permissions: If you're using sudo in a cron job, ensure that the user running the cron job has the necessary permissions to execute these commands without being prompted for a password. You can configure this in the /etc/sudoers file by adding a line like:
-
-```bash
-alex123bobo ALL=(ALL) NOPASSWD: /usr/bin/certbot renew, /bin/systemctl stop nginx, /bin/systemctl start nginx
-```
-
-#### Currently we have issue with automatically renewing the certificate. We'll figure out a solution later.
-
----
-
-# AI Service - Modular Architecture
-
-This Flask application now includes a comprehensive AI service with a modular architecture for dictionary lookups, chat functionality, audio transcription, and vision analysis.
+AI-powered Flask web service providing dictionary lookups, audio transcription, image analysis, and web services.
 
 ## Features
 
-### 1. **Dictionary Agent** ⚡ NEW: Hybrid API + AI Architecture
-- **Performance Optimized**: 40-60% faster using free Dictionary API + AI enhancement
-- **Cost Efficient**: 30-50% fewer AI calls by leveraging free API for basic data
-- **DeepSeek Integration**: Uses DeepSeek LLM via Agno framework for enhanced analysis
-- **Enhanced Schema**: Comprehensive dictionary entries with multiple senses
-- **JSON Mode**: Structured responses using Pydantic models
-- **Modular Design**: Separate schemas and prompts modules
-- **Robust Fallback**: Automatically falls back to AI-only mode if API fails
-- See [HYBRID_DICTIONARY_API.md](HYBRID_DICTIONARY_API.md) for details
+### 🎯 Dictionary Service (Hybrid API + AI)
+- **60-70% faster** than pure AI (5-6s vs 15-18s)
+- **4-agent parallel architecture** for optimal performance
+- **Hybrid approach**: Free Dictionary API + DeepSeek AI enhancement
+- **Automatic fallback**: Pure AI mode if API fails
+- **Section-based loading**: Load only what you need
+- **Comprehensive data**: Etymology, word family, usage context, cultural notes, detailed sense analysis
 
-### 2. **OpenAI Integration**
-- **Audio Transcription**: Transcribe audio files to text
-- **Vision Analysis**: Analyze images and extract information
+### 🎙️ Audio Transcription
+- OpenAI Whisper integration
+- High-quality audio-to-text conversion
 
-### 3. **Modular Architecture**
-- **Schemas Module**: Centralized Pydantic models for type safety
-- **Prompts Module**: Reusable prompt templates with variable substitution
-- **Agents Module**: AI agents using schemas and prompts
+### 👁️ Image Analysis
+- OpenAI Vision API integration
+- Context-aware image understanding
 
-## API Endpoints
+### 🌐 Web Services
+- Web search via Serper API
+- Web scraping via Browserless
 
-### Dictionary Endpoints
-- `GET /api/dictionary/test` - Test endpoint
-- `POST /api/dictionary` - Look up a word (requires JSON with "word" field)
+## Quick Start
 
-### OpenAI Endpoints
-- `GET /api/transcribe` - Audio transcription form
-- `POST /api/transcribe` - Transcribe audio file
-- `GET /api/vision` - Vision analysis form
-- `POST /api/vision` - Analyze image file
+### Installation
 
-## Getting Started
-
-### 1. Installation
 ```bash
-# Clone the repository
+# Clone repository
 git clone <repository-url>
 cd PP-AI-Service
 
@@ -173,39 +41,234 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Configuration
-Create a `.env` file with:
+### Configuration
+
+Create `.env` file:
+
 ```env
+# Dictionary Service
 DEEPSEEK_API_KEY=your_deepseek_api_key
+
+# OpenAI Services
 OPENAI_API_KEY=your_openai_api_key
+OPENAI_API_BASE=your_proxy_url  # Optional
+X-PP-TOKEN=your_proxy_token     # Optional
+
+# Web Services
+SERPER_API_KEY=your_serper_api_key
+BROWSERLESS_API_KEY=your_browserless_api_key
+
+# Flask
+FLASK_ENV=development  # or production
 ```
 
-### 3. Running the Service
+### Running the Service
+
+#### Development Mode
+
 ```bash
 # Start Flask server
 source venv/bin/activate
 python app.py
-
-# Run tests
-python test_all_features.py
-python test_endpoint.py
 ```
 
-## Architecture Documentation
+#### Using Start Script (Background)
 
-For detailed architecture documentation, see [MODULAR_ARCHITECTURE.md](MODULAR_ARCHITECTURE.md).
+```bash
+./start.sh  # Auto-detects venv, logs to ~/ppaiservice.log
+./stop.sh   # Graceful shutdown
+```
 
-## Key Benefits
+#### Docker
 
-1. **Maintainability**: Centralized schemas and prompts
-2. **Extensibility**: Easy to add new agent types
-3. **Type Safety**: Pydantic models with validation
-4. **Consistency**: Standardized prompt templates
-5. **Backward Compatibility**: Old endpoints still work
+```bash
+# Build and run
+./docker_start.sh
 
-## Future Extensions
+# Or manually
+docker build . -t ai
+docker run --rm -p 8000:8000 -d ai
 
-- Add more agent types (grammar, translation, summarization)
-- Implement caching for frequent requests
-- Add rate limiting and metrics
-- Support for more LLM providers
+# Using Docker Compose
+docker compose up
+
+# Stop
+./docker_stop.sh
+```
+
+## API Endpoints
+
+### Dictionary API
+
+```bash
+# Basic info (fast, ~0.5s)
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"hello","section":"basic"}'
+
+# Detailed sense (~5.25s with 4-agent parallel)
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"detailed_sense","index":0}'
+```
+
+**Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`
+
+See [docs/API.md](docs/API.md) for complete API documentation.
+
+### Other Endpoints
+
+- `POST /api/transcribe` - Audio transcription
+- `POST /api/image` - Image analysis
+- `GET /api/search?q=query` - Web search
+- `GET /api/scrape?url=url` - Web scraping
+
+## Performance
+
+### Dictionary Service
+
+| Operation | Time | Architecture |
+|-----------|------|--------------|
+| Basic info | 0.5-1s | Free API (no AI) |
+| Etymology/Word Family | 2-3s | Single AI agent |
+| Detailed Sense | **5.25s** | **4 parallel AI agents** |
+
+**Evolution**: Sequential (10-13s) → 3 agents (6.5s) → **4 agents (5.25s)** ✨
+
+### 4-Agent Breakdown
+
+- **Agent 1**: Core metadata (definition, POS, register) - 300 tokens
+- **Agent 2**: Examples & collocations (3 each) - 200 tokens  
+- **Agent 3**: Related words (synonyms, antonyms, phrases) - 200 tokens
+- **Agent 4**: Usage notes (2-3 sentences) - 150 tokens
+
+All agents run in parallel using `ThreadPoolExecutor` with optimized token limits.
+
+## Testing
+
+```bash
+# Test logging and API/AI paths
+python test_logging.py
+
+# Test 4-agent parallel performance
+python test_parallel_detailed_sense.py
+
+# Test all features
+python test_all_features.py
+```
+
+## Project Structure
+
+```
+PP-AI-Service/
+├── ai_svc/                    # Core AI services
+│   ├── dictionary/           # Dictionary service (4-agent)
+│   │   ├── service.py        # Main service logic
+│   │   ├── schemas.py        # Pydantic models
+│   │   ├── prompts.py        # AI prompts
+│   │   └── enums.py          # Enumerations
+│   ├── openai.py             # OpenAI integrations
+│   └── tool.py               # Web search/scraping
+├── docs/                     # Documentation
+│   ├── ARCHITECTURE.md       # System architecture
+│   ├── API.md                # API usage guide
+│   └── DEPLOYMENT.md         # Deployment guide
+├── static/                   # Static files
+├── templates/                # HTML templates
+├── app.py                    # Flask application
+├── requirements.txt          # Dependencies
+├── Dockerfile               # Docker config
+└── compose.yaml             # Docker Compose
+```
+
+## Documentation
+
+- **[Architecture](docs/ARCHITECTURE.md)** - System design, 4-agent architecture, data flow
+- **[API Guide](docs/API.md)** - Complete API reference with examples
+- **[Deployment](docs/DEPLOYMENT.md)** - Production deployment (Docker, GCP, HTTPS)
+- **[AGENTS.md](AGENTS.md)** - Guide for AI agents working on this codebase
+
+## Technology Stack
+
+- **Flask** - Web framework (Python 3.10.13)
+- **DeepSeek** - Primary LLM (via Agno framework)
+- **OpenAI** - Whisper (audio) + Vision (images)
+- **Pydantic** - Data validation
+- **Docker** - Containerization
+- **Free Dictionary API** - Basic word data
+
+## Key Features
+
+✅ **Hybrid Architecture** - Free API + AI for best of both worlds  
+✅ **Parallel Execution** - 4 agents run concurrently  
+✅ **Automatic Fallback** - Graceful AI-only mode  
+✅ **Logging** - Track API vs AI decisions  
+✅ **Section Loading** - Progressive, on-demand data  
+✅ **Cost Optimized** - Minimal AI calls, token limits  
+
+## Development
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run development server
+python app.py
+
+# Check logs (if using start.sh)
+tail -f ~/ppaiservice.log
+
+# View AI/API decisions
+python test_logging.py
+```
+
+## Production Deployment
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for:
+- Docker deployment
+- GCP VM setup
+- SSL/HTTPS configuration (Let's Encrypt)
+- Nginx reverse proxy
+- Auto-renewal setup
+
+## Security
+
+- ✅ API keys in `.env` (not committed)
+- ✅ Docker runs as non-root user
+- ✅ File uploads sanitized and cleaned up
+- ✅ CORS configured
+- ⚠️ Add rate limiting for production
+- ⚠️ Use HTTPS in production
+
+## Performance Tips
+
+1. **Cache responses** - Frontend should cache section data
+2. **Load progressively** - Show basic info first, then details
+3. **Lazy load senses** - Only load visible senses
+4. **Parallel requests** - Load independent sections in parallel
+5. **Monitor logs** - Track API success rate vs AI fallback
+
+## Contributing
+
+See [AGENTS.md](AGENTS.md) for:
+- Project overview
+- Essential commands
+- Code patterns
+- Important gotchas
+- Development workflow
+
+## License
+
+[Add your license here]
+
+## Support
+
+For issues:
+- Check logs for errors
+- Verify `.env` configuration
+- Ensure API keys are valid
+- Review [docs/API.md](docs/API.md) for usage
+
+---
+
+**Made with ❤️ using Flask + DeepSeek + OpenAI**

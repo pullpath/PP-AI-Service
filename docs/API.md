@@ -52,7 +52,7 @@ const [etymology, wordFamily, frequency] = await Promise.all([
   }).then(r => r.json())
 ]);
 
-// Step 3: Load individual senses on-demand (~10-13s each)
+// Step 3: Load individual senses on-demand (~5.25s each with 4-agent parallel)
 const sense0 = await fetch('/api/dictionary', {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
@@ -243,7 +243,7 @@ const sense0 = await fetch('/api/dictionary', {
 ---
 
 ### 7. `detailed_sense` - Individual Sense Detail
-**Speed**: Slow (~10-13s) - Complex AI generation
+**Speed**: Medium (~5.25s) - 4 parallel AI agents (optimized)
 
 **Request**:
 ```json
@@ -282,7 +282,7 @@ const sense0 = await fetch('/api/dictionary', {
     "synonyms": ["sprint", "jog", "dash", "race"],
     "antonyms": ["walk", "stand", "stop", "rest"]
   },
-  "execution_time": 11.23,
+  "execution_time": 5.25,
   "success": true
 }
 ```
@@ -420,8 +420,8 @@ showQuickLoader(); // Spinner for 0.5s
 // Medium sections (etymology, word_family, etc.)
 showMediumLoader(); // Progress bar for 2-5s
 
-// Slow sections (detailed_sense)
-showSlowLoader(); // "Generating detailed analysis..." for 10-13s
+// Medium sections (detailed_sense)
+showMediumLoader(); // "Analyzing with 4 parallel agents..." for ~5.25s
 ```
 
 ### 2. Request Throttling
@@ -568,12 +568,12 @@ loadFullWordInfo('run');
 | `usage_context` | Medium | ~2-5s | AI generation |
 | `cultural_notes` | Medium | ~2-5s | AI generation |
 | `frequency` | Medium | ~2-5s | AI generation |
-| `detailed_sense` | Slow | ~10-13s | Complex AI generation |
+| `detailed_sense` | Medium | ~5.25s | 4 parallel AI agents (optimized) |
 
 **Total for full word info**:
 - Basic + 5 metadata sections (parallel): ~5-7s
-- + First 3 senses (sequential): ~30-40s
-- **Total: ~35-47s** for comprehensive word data
+- + First 3 senses (sequential): ~15.75s (3 × 5.25s)
+- **Total: ~20-23s** for comprehensive word data (with 4-agent optimization)
 
 **Recommendation**: Load progressively and show content as it arrives, not all at once.
 
