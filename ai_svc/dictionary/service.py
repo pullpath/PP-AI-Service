@@ -17,13 +17,16 @@ from dotenv import load_dotenv
 # Import schemas and prompts
 from .schemas import (
     WordSensesDiscovery, EtymologyInfo, WordFamilyInfo, 
-    UsageContextInfo, CulturalNotesInfo, DetailedWordSense, FrequencyInfo
+    UsageContextInfo, CulturalNotesInfo, DetailedWordSense, FrequencyInfo,
+    SenseCoreMetadata, SenseUsageExamples, SenseRelatedWords, SenseUsageNotes
 )
 from .prompts import (
     get_senses_discovery_prompt, get_etymology_prompt,
     get_word_family_prompt, get_usage_context_prompt,
     get_cultural_notes_prompt, get_detailed_sense_prompt,
-    get_frequency_prompt, get_enhanced_sense_prompt
+    get_frequency_prompt, get_enhanced_sense_prompt,
+    get_sense_core_metadata_prompt, get_sense_usage_examples_prompt,
+    get_sense_related_words_prompt, get_sense_usage_notes_prompt
 )
 
 load_dotenv()
@@ -121,6 +124,82 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=FrequencyInfo
         )
+        
+        # Parallel execution agents for detailed sense (faster performance)
+        # These agents split DetailedWordSense generation into 4 parallel tasks
+        # Optimized models with reduced tokens for faster generation
+        
+        # Agent 1: Core metadata (definition, POS, register, domain, tone) - needs more tokens
+        core_metadata_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=300,  # Reduced from 512 for faster inference
+            timeout=30.0,
+            max_retries=0
+        )
+        
+        # Agent 2: Examples and collocations (3 examples, 3 collocations) - medium tokens
+        usage_examples_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=200,  # Reduced from 250 (removed usage_notes)
+            timeout=30.0,
+            max_retries=0
+        )
+        
+        # Agent 3: Related words (3 synonyms, 3 antonyms, 3 phrases) - medium tokens
+        related_words_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=200,  # Generating only 3 items each
+            timeout=30.0,
+            max_retries=0
+        )
+        
+        # Agent 4: Usage notes (2-3 sentences) - smallest tokens
+        usage_notes_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=150,  # Just usage notes guidance
+            timeout=30.0,
+            max_retries=0
+        )
+        
+        self.sense_core_agent = Agent(
+            name="SenseCoreMetadataAgent",
+            model=core_metadata_model,
+            description="Provides core metadata for word senses",
+            use_json_mode=True,
+            output_schema=SenseCoreMetadata
+        )
+        
+        self.sense_usage_agent = Agent(
+            name="SenseUsageExamplesAgent",
+            model=usage_examples_model,
+            description="Provides examples and collocations",
+            use_json_mode=True,
+            output_schema=SenseUsageExamples
+        )
+        
+        self.sense_related_agent = Agent(
+            name="SenseRelatedWordsAgent",
+            model=related_words_model,
+            description="Provides synonyms, antonyms, and related phrases",
+            use_json_mode=True,
+            output_schema=SenseRelatedWords
+        )
+        
+        self.sense_usage_notes_agent = Agent(
+            name="SenseUsageNotesAgent",
+            model=usage_notes_model,
+            description="Provides usage notes and guidance",
+            use_json_mode=True,
+            output_schema=SenseUsageNotes
+        )
     
     
     def lookup_section(self, word: str, section: str, index: Optional[int] = None) -> Dict[str, Any]:
@@ -177,6 +256,8 @@ class DictionaryService:
             
             # Handle individual detailed_sense specially
             if section == 'detailed_sense':
+                # index is guaranteed to be int at this point due to validation above
+                assert index is not None, "index should have been validated"
                 result = self._fetch_single_detailed_sense(word, index)
                 
                 if not result.get("success"):
@@ -452,36 +533,201 @@ class DictionaryService:
     def _fetch_enhanced_sense(self, word: str, sense_index: int, part_of_speech: str, 
                              api_definitions: List[str], api_synonyms: Optional[List[str]] = None,
                              api_antonyms: Optional[List[str]] = None, api_examples: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Fetch AI-enhanced analysis for a sense (API already provides basics)"""
+        """Fetch AI-enhanced analysis for a sense using parallel execution (API already provides basics)"""
         try:
-            # Use prompt generator with API data
-            prompt = get_enhanced_sense_prompt(
-                word, sense_index, part_of_speech,
-                api_definitions, api_synonyms or [], api_antonyms or [], api_examples or []
-            )
+            basic_definition = api_definitions[0] if api_definitions else ""
             
-            response = self.detailed_sense_agent.run(prompt)
-            
-            if isinstance(response.content, DetailedWordSense):
-                sense_detail = response.content.model_dump()
+            # Execute 4 agents in parallel for faster performance
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                # Submit all 4 tasks
+                future_core = executor.submit(
+                    self._fetch_sense_core_metadata, 
+                    word, sense_index, basic_definition, part_of_speech
+                )
+                future_usage = executor.submit(
+                    self._fetch_sense_usage_examples,
+                    word, sense_index, basic_definition, api_examples or []
+                )
+                future_related = executor.submit(
+                    self._fetch_sense_related_words,
+                    word, sense_index, basic_definition, api_synonyms or [], api_antonyms or []
+                )
+                future_notes = executor.submit(
+                    self._fetch_sense_usage_notes,
+                    word, sense_index, basic_definition
+                )
                 
-                # Merge API data with AI enhancements
-                definition = api_definitions[0] if api_definitions else ""
-                sense_detail["definition"] = definition
-                if not sense_detail.get("synonyms") and api_synonyms:
-                    sense_detail["synonyms"] = api_synonyms
-                if not sense_detail.get("antonyms") and api_antonyms:
-                    sense_detail["antonyms"] = api_antonyms
+                # Wait for all tasks to complete (with timeout)
+                done, not_done = concurrent.futures.wait(
+                    [future_core, future_usage, future_related, future_notes],
+                    timeout=45.0,
+                    return_when=concurrent.futures.ALL_COMPLETED
+                )
+                
+                # Cancel any incomplete tasks
+                for future in not_done:
+                    future.cancel()
+                
+                # Get results
+                core_result = self._get_future_result(future_core, "core_metadata")
+                usage_result = self._get_future_result(future_usage, "usage_examples")
+                related_result = self._get_future_result(future_related, "related_words")
+                notes_result = self._get_future_result(future_notes, "usage_notes")
+            
+            # Check if all succeeded
+            if not all([
+                core_result and core_result.get("success"),
+                usage_result and usage_result.get("success"),
+                related_result and related_result.get("success"),
+                notes_result and notes_result.get("success")
+            ]):
+                errors = []
+                if not core_result or not core_result.get("success"):
+                    errors.append(f"core: {core_result.get('error') if core_result else 'timeout'}")
+                if not usage_result or not usage_result.get("success"):
+                    errors.append(f"usage: {usage_result.get('error') if usage_result else 'timeout'}")
+                if not related_result or not related_result.get("success"):
+                    errors.append(f"related: {related_result.get('error') if related_result else 'timeout'}")
+                if not notes_result or not notes_result.get("success"):
+                    errors.append(f"notes: {notes_result.get('error') if notes_result else 'timeout'}")
                 
                 return {
+                    "success": False,
+                    "error": f"Parallel execution failed: {', '.join(errors)}"
+                }
+            
+            # At this point, all results are successful (type assertion for type checker)
+            assert core_result and "data" in core_result
+            assert usage_result and "data" in usage_result
+            assert related_result and "data" in related_result
+            assert notes_result and "data" in notes_result
+            
+            # Merge results into DetailedWordSense format
+            sense_detail = {
+                # From core metadata
+                "definition": core_result["data"]["definition"],
+                "part_of_speech": core_result["data"]["part_of_speech"],
+                "usage_register": core_result["data"]["usage_register"],
+                "domain": core_result["data"]["domain"],
+                "tone": core_result["data"]["tone"],
+                # From usage notes
+                "usage_notes": notes_result["data"]["usage_notes"],
+                # From usage examples
+                "examples": usage_result["data"]["examples"],
+                "collocations": usage_result["data"]["collocations"],
+                # From related words
+                "synonyms": related_result["data"]["synonyms"],
+                "antonyms": related_result["data"]["antonyms"],
+                "word_specific_phrases": related_result["data"]["word_specific_phrases"],
+            }
+            
+            # Merge API data if AI didn't provide it
+            if not sense_detail.get("synonyms") and api_synonyms:
+                sense_detail["synonyms"] = api_synonyms
+            if not sense_detail.get("antonyms") and api_antonyms:
+                sense_detail["antonyms"] = api_antonyms
+            
+            return {
+                "success": True,
+                "sense_index": sense_index,
+                "sense_detail": sense_detail
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _fetch_sense_core_metadata(self, word: str, sense_index: int, basic_definition: str, 
+                                   part_of_speech: str = "") -> Dict[str, Any]:
+        """Fetch core metadata for a sense (parallel execution component)"""
+        try:
+            prompt = get_sense_core_metadata_prompt(word, sense_index, basic_definition)
+            response = self.sense_core_agent.run(prompt)
+            
+            if isinstance(response.content, SenseCoreMetadata):
+                data = response.content.model_dump()
+                # Override part_of_speech if provided by API
+                if part_of_speech:
+                    data["part_of_speech"] = part_of_speech
+                return {
                     "success": True,
-                    "sense_index": sense_index,
-                    "sense_detail": sense_detail
+                    "data": data
                 }
             else:
                 return {
                     "success": False,
-                    "error": f"Failed to parse enhanced sense {sense_index}"
+                    "error": "Failed to parse core metadata"
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _fetch_sense_usage_examples(self, word: str, sense_index: int, basic_definition: str,
+                                   api_examples: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Fetch usage notes and examples for a sense (parallel execution component)"""
+        try:
+            prompt = get_sense_usage_examples_prompt(word, sense_index, basic_definition, api_examples)
+            response = self.sense_usage_agent.run(prompt)
+            
+            if isinstance(response.content, SenseUsageExamples):
+                return {
+                    "success": True,
+                    "data": response.content.model_dump()
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to parse usage examples"
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _fetch_sense_related_words(self, word: str, sense_index: int, basic_definition: str,
+                                  api_synonyms: Optional[List[str]] = None, 
+                                  api_antonyms: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Fetch related words and phrases for a sense (parallel execution component)"""
+        try:
+            prompt = get_sense_related_words_prompt(word, sense_index, basic_definition, 
+                                                   api_synonyms, api_antonyms)
+            response = self.sense_related_agent.run(prompt)
+            
+            if isinstance(response.content, SenseRelatedWords):
+                return {
+                    "success": True,
+                    "data": response.content.model_dump()
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to parse related words"
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _fetch_sense_usage_notes(self, word: str, sense_index: int, basic_definition: str) -> Dict[str, Any]:
+        """Fetch usage notes and guidance for a sense (parallel execution component)"""
+        try:
+            prompt = get_sense_usage_notes_prompt(word, sense_index, basic_definition)
+            response = self.sense_usage_notes_agent.run(prompt)
+            
+            if isinstance(response.content, SenseUsageNotes):
+                return {
+                    "success": True,
+                    "data": response.content.model_dump()
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to parse usage notes"
                 }
         except Exception as e:
             return {
@@ -638,22 +884,97 @@ class DictionaryService:
             }
     
     def _fetch_detailed_sense(self, word: str, sense_index: int, basic_definition: str) -> Dict[str, Any]:
-        """Fetch detailed analysis for a specific sense (fallback only)"""
+        """Fetch detailed analysis for a specific sense using parallel execution (AI-only fallback)"""
         try:
-            prompt = get_detailed_sense_prompt(word, sense_index, basic_definition)
-            response = self.detailed_sense_agent.run(prompt)
+            # Execute 4 agents in parallel for faster performance
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                # Submit all 4 tasks
+                future_core = executor.submit(
+                    self._fetch_sense_core_metadata, 
+                    word, sense_index, basic_definition, ""  # No part_of_speech from API
+                )
+                future_usage = executor.submit(
+                    self._fetch_sense_usage_examples,
+                    word, sense_index, basic_definition, None  # No API examples
+                )
+                future_related = executor.submit(
+                    self._fetch_sense_related_words,
+                    word, sense_index, basic_definition, None, None  # No API synonyms/antonyms
+                )
+                future_notes = executor.submit(
+                    self._fetch_sense_usage_notes,
+                    word, sense_index, basic_definition
+                )
+                
+                # Wait for all tasks to complete (with timeout)
+                done, not_done = concurrent.futures.wait(
+                    [future_core, future_usage, future_related, future_notes],
+                    timeout=45.0,
+                    return_when=concurrent.futures.ALL_COMPLETED
+                )
+                
+                # Cancel any incomplete tasks
+                for future in not_done:
+                    future.cancel()
+                
+                # Get results
+                core_result = self._get_future_result(future_core, "core_metadata")
+                usage_result = self._get_future_result(future_usage, "usage_examples")
+                related_result = self._get_future_result(future_related, "related_words")
+                notes_result = self._get_future_result(future_notes, "usage_notes")
             
-            if isinstance(response.content, DetailedWordSense):
-                return {
-                    "success": True,
-                    "sense_index": sense_index,
-                    "sense_detail": response.content.model_dump()
-                }
-            else:
+            # Check if all succeeded
+            if not all([
+                core_result and core_result.get("success"),
+                usage_result and usage_result.get("success"),
+                related_result and related_result.get("success"),
+                notes_result and notes_result.get("success")
+            ]):
+                errors = []
+                if not core_result or not core_result.get("success"):
+                    errors.append(f"core: {core_result.get('error') if core_result else 'timeout'}")
+                if not usage_result or not usage_result.get("success"):
+                    errors.append(f"usage: {usage_result.get('error') if usage_result else 'timeout'}")
+                if not related_result or not related_result.get("success"):
+                    errors.append(f"related: {related_result.get('error') if related_result else 'timeout'}")
+                if not notes_result or not notes_result.get("success"):
+                    errors.append(f"notes: {notes_result.get('error') if notes_result else 'timeout'}")
+                
                 return {
                     "success": False,
-                    "error": f"Failed to parse detailed sense {sense_index}"
+                    "error": f"Parallel execution failed: {', '.join(errors)}"
                 }
+            
+            # At this point, all results are successful (type assertion for type checker)
+            assert core_result and "data" in core_result
+            assert usage_result and "data" in usage_result
+            assert related_result and "data" in related_result
+            assert notes_result and "data" in notes_result
+            
+            # Merge results into DetailedWordSense format
+            sense_detail = {
+                # From core metadata
+                "definition": core_result["data"]["definition"],
+                "part_of_speech": core_result["data"]["part_of_speech"],
+                "usage_register": core_result["data"]["usage_register"],
+                "domain": core_result["data"]["domain"],
+                "tone": core_result["data"]["tone"],
+                # From usage notes
+                "usage_notes": notes_result["data"]["usage_notes"],
+                # From usage examples
+                "examples": usage_result["data"]["examples"],
+                "collocations": usage_result["data"]["collocations"],
+                # From related words
+                "synonyms": related_result["data"]["synonyms"],
+                "antonyms": related_result["data"]["antonyms"],
+                "word_specific_phrases": related_result["data"]["word_specific_phrases"],
+            }
+            
+            return {
+                "success": True,
+                "sense_index": sense_index,
+                "sense_detail": sense_detail
+            }
         except Exception as e:
             return {
                 "success": False,

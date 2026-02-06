@@ -109,3 +109,51 @@ class DetailedWordSense(BaseModel):
     )
     synonyms: List[str] = Field(default_factory=list, description="Close synonyms for this specific sense.")
     antonyms: List[str] = Field(default_factory=list, description="Close antonyms for this specific sense.")
+
+
+# Parallel execution components for DetailedWordSense (split for faster generation)
+class SenseCoreMetadata(BaseModel):
+    """Core definition and metadata (Agent 1)"""
+    definition: str = Field(..., description="The core definition for this specific meaning.")
+    part_of_speech: str = Field(..., description="e.g., noun, verb, phrasal verb, adjective, idiom, etc.")
+    usage_register: List[str] = Field(
+        ...,
+        description="List the appropriate contexts. Common values: 'formal', 'informal', 'colloquial', 'slang', 'archaic', 'literary', 'professional', 'academic', 'neutral'."
+    )
+    domain: List[str] = Field(
+        default_factory=list,
+        description="Specific fields of use, e.g., ['biology', 'law', 'gaming', 'business']. Can be empty."
+    )
+    tone: ToneEnum = Field(..., description="The primary connotation or emotional charge of this sense.")
+
+
+class SenseUsageExamples(BaseModel):
+    """Examples and collocations (Agent 2)"""
+    examples: List[str] = Field(
+        ...,
+        min_length=3,
+        max_length=3,
+        description="Exactly 3 example sentences."
+    )
+    collocations: List[str] = Field(
+        default_factory=list,
+        description="Frequent word partners for this sense. Format: 'strong evidence', 'gather evidence'."
+    )
+
+
+class SenseRelatedWords(BaseModel):
+    """Synonyms, antonyms, and related phrases (Agent 3)"""
+    synonyms: List[str] = Field(default_factory=list, description="Close synonyms for this specific sense.")
+    antonyms: List[str] = Field(default_factory=list, description="Close antonyms for this specific sense.")
+    word_specific_phrases: List[str] = Field(
+        default_factory=list,
+        description="Fixed expressions, phrasal verbs, or idioms built around this sense. e.g., 'run up a bill', 'in the long run'."
+    )
+
+
+class SenseUsageNotes(BaseModel):
+    """Usage notes and guidance (Agent 4)"""
+    usage_notes: str = Field(
+        default="",
+        description="Critical guidance on when/how to use this sense and common pitfalls for learners."
+    )

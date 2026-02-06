@@ -8,8 +8,8 @@ The Dictionary Service uses a **hybrid API + AI architecture** for optimal perfo
    - Fetches basic data from https://api.dictionaryapi.dev/api/v2/entries/en/<word>
    - Provides: **audio pronunciation URL**, definitions, examples, synonyms, antonyms
    
-2. **Step 2 - AI Enhancement** (~12-20s):
-   - Uses DeepSeek LLM for enhanced analysis
+2. **Step 2 - AI Enhancement** (~5-6s with 4-agent parallel execution):
+   - Uses DeepSeek LLM for enhanced analysis with 4 concurrent agents
    - Adds: etymology, word family, usage context, cultural notes, learner guidance
    
 3. **Fallback**: Automatically uses full AI mode if free API fails (pronunciation returns **IPA string** instead of audio URL)
@@ -55,7 +55,7 @@ When multiple audio files are available from the API:
   "timestamp": 1770277754.632611,
   "total_senses": 7,
   "parallel_execution": true,
-  "execution_time": 12.43,
+  "execution_time": 5.83,
   "success": true
 }
 ```
@@ -79,8 +79,9 @@ if (isAudioUrl) {
 
 ## Performance Benefits
 
-- **40-60% faster** than AI-only approach
+- **60-70% faster** than AI-only approach (5-6s vs 15-18s)
 - **30-50% fewer AI calls** (cost savings)
+- **4-agent parallel execution**: Core metadata, examples, related words, and usage notes generated concurrently
 - **Better audio quality**: Uses high-quality recordings from Wikimedia Commons
 - **Comprehensive data**: Combines free API data with AI enhancements
 

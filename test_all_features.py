@@ -53,60 +53,65 @@ class FeatureTester:
             agent = DictionaryService()
             self.print_result("Agent Creation", True, "DictionaryService created successfully")
             
-            # Test 3: Test new two-phase parallel lookup with new instance
+            # Test 3: Test section-based API with new instance
             test_word = "example"
-            print(f"  Testing new two-phase parallel lookup for: '{test_word}'...")
-            result = agent.lookup_word(test_word)
+            print(f"  Testing section-based API for: '{test_word}'...")
             
-            success = result.get("success", False)
+            # Test basic section
+            basic_result = agent.lookup_section(test_word, "basic")
+            success = basic_result.get("success", False)
+            
             if success:
-                headword = result.get("headword", "N/A")
-                pronunciation = result.get("pronunciation", "N/A")
-                frequency = result.get("frequency", "N/A")
-                total_senses = result.get("total_senses", 0)
-                parallel = result.get("parallel_execution", False)
+                headword = basic_result.get("headword", "N/A")
+                pronunciation = basic_result.get("pronunciation", "N/A")
+                total_senses = basic_result.get("total_senses", 0)
                 
-                self.print_result("Two-Phase Lookup", True, 
-                                 f"Headword: {headword}, Senses: {total_senses}, Parallel: {parallel}")
+                self.print_result("Basic Section", True, 
+                                 f"Headword: {headword}, Total senses: {total_senses}")
                 
-                # Check for new two-phase schema structure
-                has_new_schema = (
-                    "headword" in result and 
-                    "pronunciation" in result and 
-                    "frequency" in result and
-                    "total_senses" in result and
-                    "parallel_execution" in result
-                )
-                
-                if has_new_schema:
-                    self.print_result("Two-Phase Schema Structure", True, 
-                                     f"Response includes two-phase dictionary data")
+                # Test etymology section
+                etymology_result = agent.lookup_section(test_word, "etymology")
+                if etymology_result.get("success"):
+                    self.print_result("Etymology Section", True, 
+                                     "Etymology data retrieved")
                 else:
-                    self.print_result("Two-Phase Schema Structure", False, 
-                                     "Missing expected two-phase fields")
+                    self.print_result("Etymology Section", False, 
+                                     f"Error: {etymology_result.get('error', 'Unknown')}")
                 
-                # Check granular components
-                granular_components = ["etymology_info", "word_family_info", "usage_context_info", "cultural_notes_info"]
-                missing_components = [c for c in granular_components if c not in result]
-                
-                if not missing_components:
-                    self.print_result("Granular Components", True, 
-                                     f"All 4 granular components present")
+                # Test frequency section
+                frequency_result = agent.lookup_section(test_word, "frequency")
+                if frequency_result.get("success"):
+                    freq = frequency_result.get("frequency", "N/A")
+                    self.print_result("Frequency Section", True, 
+                                     f"Frequency: {freq}")
                 else:
-                    self.print_result("Granular Components", False, 
-                                     f"Missing components: {missing_components}")
+                    self.print_result("Frequency Section", False, 
+                                     f"Error: {frequency_result.get('error', 'Unknown')}")
                 
-                # Check detailed senses
-                detailed_senses = result.get("detailed_senses", [])
-                if detailed_senses:
-                    self.print_result("Detailed Senses", True, 
-                                     f"Found {len(detailed_senses)} detailed senses")
+                # Test detailed_sense section
+                if total_senses > 0:
+                    sense_result = agent.lookup_section(test_word, "detailed_sense", index=0)
+                    if sense_result.get("success"):
+                        sense = sense_result.get("detailed_sense", {})
+                        definition = sense.get("definition", "N/A")[:50]
+                        self.print_result("Detailed Sense Section", True, 
+                                         f"Sense 0: {definition}...")
+                    else:
+                        self.print_result("Detailed Sense Section", False, 
+                                         f"Error: {sense_result.get('error', 'Unknown')}")
+                
+                # Test error handling - missing index
+                error_result = agent.lookup_section(test_word, "detailed_sense")
+                if not error_result.get("success") and "index" in error_result.get("error", ""):
+                    self.print_result("Error Handling (Missing Index)", True, 
+                                     "Correctly rejects missing index parameter")
                 else:
-                    self.print_result("Detailed Senses", False, 
-                                     "No detailed senses found")
+                    self.print_result("Error Handling (Missing Index)", False, 
+                                     "Should reject missing index parameter")
+                
             else:
-                error_msg = result.get("error", "Unknown error")
-                self.print_result("Two-Phase Lookup", False, f"Error: {error_msg}")
+                error_msg = basic_result.get("error", "Unknown error")
+                self.print_result("Basic Section", False, f"Error: {error_msg}")
             
             return success
             
@@ -128,24 +133,45 @@ class FeatureTester:
                 "expected_status": 200
             },
             {
-                "name": "POST /api/dictionary (valid)",
+                "name": "POST /api/dictionary (basic section)",
                 "method": "POST",
                 "url": f"{self.base_url}/api/dictionary",
-                "data": {"word": "example"},
+                "data": {"word": "example", "section": "basic"},
+                "expected_status": 200
+            },
+            {
+                "name": "POST /api/dictionary (etymology section)",
+                "method": "POST",
+                "url": f"{self.base_url}/api/dictionary",
+                "data": {"word": "example", "section": "etymology"},
+                "expected_status": 200
+            },
+            {
+                "name": "POST /api/dictionary (detailed_sense with index)",
+                "method": "POST",
+                "url": f"{self.base_url}/api/dictionary",
+                "data": {"word": "example", "section": "detailed_sense", "index": 0},
                 "expected_status": 200
             },
             {
                 "name": "POST /api/dictionary (missing word)",
                 "method": "POST",
                 "url": f"{self.base_url}/api/dictionary",
-                "data": {},
+                "data": {"section": "basic"},
                 "expected_status": 400
             },
             {
-                "name": "POST /api/dictionary (empty word)",
+                "name": "POST /api/dictionary (missing section)",
                 "method": "POST",
                 "url": f"{self.base_url}/api/dictionary",
-                "data": {"word": ""},
+                "data": {"word": "example"},
+                "expected_status": 400
+            },
+            {
+                "name": "POST /api/dictionary (detailed_sense missing index)",
+                "method": "POST",
+                "url": f"{self.base_url}/api/dictionary",
+                "data": {"word": "example", "section": "detailed_sense"},
                 "expected_status": 400
             },
         ]
@@ -312,13 +338,13 @@ class FeatureTester:
         if overall_success:
             print("\n✅ ALL TESTS PASSED!")
             print("\nSystem Architecture Summary:")
-            print("  - Modular Architecture: Schemas and prompts in separate modules")
-            print("  - DeepSeek: Dictionary agent with enhanced schema, chat functionality")
+            print("  - Section-based API: Request specific sections (basic, etymology, etc.)")
+            print("  - DeepSeek: Dictionary agent with hybrid API + AI architecture")
             print("  - OpenAI: Audio transcription, Vision analysis")
             print("  - Agno Framework: Agent-driven architecture with JSON mode")
             print("  - Flask API: All endpoints functional")
-            print("  - Enhanced Schema: DictionaryEntry with WordSense sub-models")
-            print("  - Prompt Templates: Reusable templates with variable substitution")
+            print("  - No Caching: Simplified architecture, all requests hit service layer")
+            print("  - Progressive Loading: Load basic first, then sections on-demand")
         else:
             print("\n❌ SOME TESTS FAILED")
             print("\nFailed tests:")
