@@ -131,9 +131,9 @@ class SenseUsageExamples(BaseModel):
     """Examples and collocations (Agent 2)"""
     examples: List[str] = Field(
         ...,
-        min_length=3,
-        max_length=3,
-        description="Exactly 3 example sentences."
+        min_length=2,
+        max_length=2,
+        description="Exactly 2 example sentences."
     )
     collocations: List[str] = Field(
         default_factory=list,

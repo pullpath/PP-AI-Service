@@ -113,7 +113,7 @@ def get_sense_usage_examples_prompt(word: str, sense_index: int, basic_definitio
 Analyze sense #{sense_index + 1} of "{word}": "{basic_definition}"{examples_context}
 
 Provide:
-1. **examples**: Exactly 3 example sentences showing this sense in natural context
+1. **examples**: Exactly 2 example sentences showing this sense in natural context
 2. **collocations**: Exactly 3 most frequent word partners (e.g., "strong evidence", "gather evidence")
 
 Focus on practical, real-world usage for language learners.
