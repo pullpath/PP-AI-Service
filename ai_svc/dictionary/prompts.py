@@ -82,42 +82,8 @@ Choose: very_common (top 1000), common (top 5000), uncommon (top 20000), rare, o
 Return valid JSON matching FrequencyInfo schema."""
 
 
-def get_enhanced_sense_prompt(word: str, sense_index: int, part_of_speech: str,
-                              api_definitions: list, api_synonyms: list = [],
-                              api_antonyms: list = [], api_examples: list = []) -> str:
-    """Generate prompt for enhanced sense analysis (building on API data)"""
-    return f""""{word}" ({part_of_speech}): {api_definitions[0] if api_definitions else ""}
-
-Output JSON:
-- definition, part_of_speech, usage_register, domain, tone, usage_notes, examples (3), collocations, word_specific_phrases, synonyms, antonyms"""
-
-
-def get_detailed_sense_prompt(word: str, sense_index: int, basic_definition: str) -> str:
-    """Generate prompt for detailed sense analysis (Phase 2)"""
-    return f"""You are a linguistic expert analyzing specific word meanings.
-
-Provide comprehensive analysis for sense #{sense_index + 1} of the word "{word}".
-
-Basic definition: "{basic_definition}"
-
-Provide detailed analysis including:
-1. Refined definition for this specific sense
-2. Part of speech
-3. Usage register (formality level: formal, informal, colloquial, slang, archaic, literary, professional, academic, neutral)
-4. Domain/field of use (e.g., biology, law, gaming, business)
-5. Tone and connotations (positive, negative, neutral, humorous, derogatory, pejorative, approving)
-6. Usage notes and common pitfalls for learners
-7. 3-5 example sentences (include at least one corrected common learner error)
-8. Common collocations (frequent word partners)
-9. Related phrases/idioms built around this sense
-10. Synonyms and antonyms for this specific sense
-
-Focus on practical utility for language learners.
-
-Output must be valid JSON matching the DetailedWordSense schema."""
-
-
-# Parallel execution prompts for DetailedWordSense (split for faster generation)
+# 4-Agent Parallel Execution Prompts for DetailedWordSense
+# These prompts split detailed sense generation into 4 concurrent tasks for optimal performance
 def get_sense_core_metadata_prompt(word: str, sense_index: int, basic_definition: str) -> str:
     """Generate prompt for core metadata (Agent 1) - parallel execution"""
     return f"""You are a linguistic expert analyzing word meanings.

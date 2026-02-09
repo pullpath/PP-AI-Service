@@ -24,8 +24,7 @@ from .schemas import (
 from .prompts import (
     get_senses_discovery_prompt, get_etymology_prompt,
     get_word_family_prompt, get_usage_context_prompt,
-    get_cultural_notes_prompt, get_detailed_sense_prompt,
-    get_frequency_prompt, get_enhanced_sense_prompt,
+    get_cultural_notes_prompt, get_frequency_prompt,
     get_sense_core_metadata_prompt, get_sense_usage_examples_prompt,
     get_sense_related_words_prompt, get_sense_usage_notes_prompt
 )
