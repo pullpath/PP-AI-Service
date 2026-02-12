@@ -102,19 +102,41 @@ Focus on accuracy and clarity for language learners.
 Output must be valid JSON matching the SenseCoreMetadata schema."""
 
 
-def get_sense_usage_examples_prompt(word: str, sense_index: int, basic_definition: str, 
-                                   api_examples=None) -> str:
-    """Generate prompt for examples and collocations (Agent 2) - parallel execution"""
+def get_sense_usage_examples_prompt(word: str, sense_index: int, basic_definition: str,
+                                   api_examples=None, examples_needed: int = 2, 
+                                   collocations_needed: int = 3) -> str:
+    """Generate prompt for examples and collocations (Agent 2) - parallel execution
+    
+    Dynamic counts based on API data availability:
+    - examples_needed: Number of additional examples to generate (0-2)
+    - collocations_needed: Number of collocations to generate (0-3)
+    """
     api_examples = api_examples or []
-    examples_context = f"\n\nAPI provided examples: {api_examples}" if api_examples else ""
+    
+    # Build dynamic context
+    if api_examples:
+        examples_context = f"\n\nAPI already provided {len(api_examples)} example(s): {api_examples}"
+    else:
+        examples_context = ""
+    
+    # Build dynamic instructions
+    if examples_needed > 0:
+        examples_instruction = f"1. **examples**: Exactly {examples_needed} additional example sentence(s) showing this sense in natural context"
+    else:
+        examples_instruction = "1. **examples**: Empty list (API already provided sufficient examples)"
+    
+    if collocations_needed > 0:
+        collocations_instruction = f"2. **collocations**: Exactly {collocations_needed} most frequent word partner(s) (e.g., \"strong evidence\", \"gather evidence\")"
+    else:
+        collocations_instruction = "2. **collocations**: Empty list (not needed)"
     
     return f"""You are a linguistic expert specializing in language usage and examples.
 
 Analyze sense #{sense_index + 1} of "{word}": "{basic_definition}"{examples_context}
 
 Provide:
-1. **examples**: Exactly 2 example sentences showing this sense in natural context
-2. **collocations**: Exactly 3 most frequent word partners (e.g., "strong evidence", "gather evidence")
+{examples_instruction}
+{collocations_instruction}
 
 Focus on practical, real-world usage for language learners.
 
@@ -122,21 +144,52 @@ Output must be valid JSON matching the SenseUsageExamples schema."""
 
 
 def get_sense_related_words_prompt(word: str, sense_index: int, basic_definition: str,
-                                   api_synonyms=None, api_antonyms=None) -> str:
-    """Generate prompt for related words and phrases (Agent 3) - parallel execution"""
+                                   api_synonyms=None, api_antonyms=None,
+                                   synonyms_needed: int = 3, antonyms_needed: int = 3,
+                                   phrases_needed: int = 3) -> str:
+    """Generate prompt for related words and phrases (Agent 3) - parallel execution
+    
+    Dynamic counts based on API data availability:
+    - synonyms_needed: Number of additional synonyms to generate (0-3)
+    - antonyms_needed: Number of additional antonyms to generate (0-3)
+    - phrases_needed: Number of phrases to generate (0-3)
+    """
     api_synonyms = api_synonyms or []
     api_antonyms = api_antonyms or []
-    synonyms_context = f"\n\nAPI provided synonyms: {api_synonyms}" if api_synonyms else ""
-    antonyms_context = f"\n\nAPI provided antonyms: {api_antonyms}" if api_antonyms else ""
+    
+    if api_synonyms:
+        synonyms_context = f"\n\nAPI already provided {len(api_synonyms)} synonym(s): {api_synonyms}"
+    else:
+        synonyms_context = ""
+    
+    if api_antonyms:
+        antonyms_context = f"\n\nAPI already provided {len(api_antonyms)} antonym(s): {api_antonyms}"
+    else:
+        antonyms_context = ""
+    
+    if synonyms_needed > 0:
+        synonyms_instruction = f"1. **synonyms**: Exactly {synonyms_needed} additional most common synonym(s) for this specific sense"
+    else:
+        synonyms_instruction = "1. **synonyms**: Empty list (API already provided sufficient synonyms)"
+    
+    if antonyms_needed > 0:
+        antonyms_instruction = f"2. **antonyms**: Exactly {antonyms_needed} additional most common antonym(s) for this specific sense (can be empty if none exist)"
+    else:
+        antonyms_instruction = "2. **antonyms**: Empty list (API already provided sufficient antonyms)"
+    
+    if phrases_needed > 0:
+        phrases_instruction = f"3. **word_specific_phrases**: Exactly {phrases_needed} most common fixed expression(s), phrasal verb(s), or idiom(s) built around this sense (e.g., \"run up a bill\", \"in the long run\")"
+    else:
+        phrases_instruction = "3. **word_specific_phrases**: Empty list (not needed)"
     
     return f"""You are a linguistic expert specializing in word relationships.
 
 Analyze sense #{sense_index + 1} of "{word}": "{basic_definition}"{synonyms_context}{antonyms_context}
 
 Provide:
-1. **synonyms**: Exactly 3 most common synonyms for this specific sense
-2. **antonyms**: Exactly 3 most common antonyms for this specific sense (can be empty list if none exist)
-3. **word_specific_phrases**: Exactly 3 most common fixed expressions, phrasal verbs, or idioms built around this sense (e.g., "run up a bill", "in the long run")
+{synonyms_instruction}
+{antonyms_instruction}
+{phrases_instruction}
 
 Focus on the most useful words/phrases that help learners expand vocabulary.
 

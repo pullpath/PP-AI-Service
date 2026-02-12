@@ -5,10 +5,12 @@ AI-powered Flask web service providing dictionary lookups, audio transcription, 
 ## Features
 
 ### 🎯 Dictionary Service (Hybrid API + AI)
-- **60-70% faster** than pure AI (5-6s vs 15-18s)
-- **4-agent parallel architecture** for optimal performance
+- **75% faster perceived performance** with progressive loading (2.5s core vs 5s monolithic)
+- **2+1+1 agent architecture** with separate endpoints for progressive loading
+- **Dynamic prompt optimization**: 20-40% token reduction based on API data
 - **Entry-aware architecture** with per-entry pronunciation
 - **Two-dimensional indexing** `(entry_index, sense_index)` for precise sense addressing
+- **Progressive loading**: Core sense (2-3s) → Examples (1.5-2s) → Usage notes (1-1.5s)
 - **Hybrid approach**: Free Dictionary API + DeepSeek AI enhancement
 - **Automatic fallback**: Pure AI mode if API fails
 - **Section-based loading**: Load only what you need
@@ -108,13 +110,23 @@ curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
   -d '{"word":"hello","section":"basic"}'
 
-# Detailed sense (~5.25s with 4-agent parallel)
+# Core sense data (fast, ~2-3s with 2-agent parallel)
 curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
-  -d '{"word":"run","section":"detailed_sense","index":0}'
+  -d '{"word":"run","section":"detailed_sense","entry_index":0,"sense_index":0}'
+
+# Examples (fast, ~1.5-2s) - NEW
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"examples","entry_index":0,"sense_index":0}'
+
+# Usage notes (fast, ~1-1.5s) - NEW
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"usage_notes","entry_index":0,"sense_index":0}'
 ```
 
-**Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`
+**Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`, `examples`, `usage_notes`
 
 See [docs/API.md](docs/API.md) for complete API documentation.
 
@@ -133,25 +145,30 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 |-----------|------|--------------|
 | Basic info | 0.5-1s | Free API (no AI) |
 | Etymology/Word Family | 2-3s | Single AI agent |
-| Detailed Sense | **5.25s** | **4 parallel AI agents** |
+| Detailed Sense (Core) | **2-3s** | **2 parallel AI agents** |
+| Examples | **1.5-2s** | **1 AI agent** (NEW) |
+| Usage Notes | **1-1.5s** | **1 AI agent** (NEW) |
 
-**Evolution**: Sequential (10-13s) → 3 agents (6.5s) → **4 agents (5.25s)** ✨
+**Evolution**: Sequential (10-13s) → 3 agents (6.5s) → 4 agents (5.25s) → **2+1+1 progressive (2.5s perceived)** ✨
 
-### 4-Agent Breakdown
+### Progressive Loading Architecture
 
-- **Agent 1**: Core metadata (definition, POS, register) - 300 tokens
-- **Agent 2**: Examples & collocations (3 each) - 200 tokens  
-- **Agent 3**: Related words (synonyms, antonyms, phrases) - 200 tokens
-- **Agent 4**: Usage notes (2-3 sentences) - 150 tokens
+#### Core Sense (2 agents parallel, ~2-3s)
+- **Agent 1**: Core metadata (definition, POS, register, domain, tone) - 300 tokens
+- **Agent 2**: Related words (synonyms, antonyms, phrases) - 200 tokens
 
-All agents run in parallel using `ThreadPoolExecutor` with optimized token limits.
+#### Separate Endpoints (load on-demand)
+- **Examples endpoint**: Examples (2) + collocations (3) - 200 tokens, ~1.5-2s
+- **Usage notes endpoint**: Usage guidance (2-3 sentences) - 150 tokens, ~1-1.5s
+
+**Frontend Strategy**: Show core sense immediately (~2.5s), then load examples/notes progressively or on-demand for best UX.
 
 ## Project Structure
 
 ```
 PP-AI-Service/
 ├── ai_svc/                    # Core AI services
-│   ├── dictionary/           # Dictionary service (4-agent)
+│   ├── dictionary/           # Dictionary service (2+1+1 agents)
 │   │   ├── service.py        # Main service logic
 │   │   ├── schemas.py        # Pydantic models
 │   │   ├── prompts.py        # AI prompts
@@ -161,7 +178,8 @@ PP-AI-Service/
 ├── docs/                     # Documentation
 │   ├── ARCHITECTURE.md       # System architecture
 │   ├── API.md                # API usage guide
-│   └── DEPLOYMENT.md         # Deployment guide
+│   ├── DEPLOYMENT.md         # Deployment guide
+│   └── FRONTEND_MIGRATION_EXAMPLES_SPLIT.md  # Frontend migration guide
 ├── static/                   # Static files
 ├── templates/                # HTML templates
 ├── app.py                    # Flask application
@@ -172,8 +190,9 @@ PP-AI-Service/
 
 ## Documentation
 
-- **[Architecture](docs/ARCHITECTURE.md)** - System design, 4-agent architecture, data flow
+- **[Architecture](docs/ARCHITECTURE.md)** - System design, 2+1+1 agent architecture, progressive loading
 - **[API Guide](docs/API.md)** - Complete API reference with examples
+- **[Frontend Migration](docs/FRONTEND_MIGRATION_EXAMPLES_SPLIT.md)** - Guide for updating frontend to new split endpoints
 - **[Deployment](docs/DEPLOYMENT.md)** - Production deployment (Docker, GCP, HTTPS)
 - **[AGENTS.md](AGENTS.md)** - Guide for AI agents working on this codebase
 
@@ -189,7 +208,9 @@ PP-AI-Service/
 ## Key Features
 
 ✅ **Hybrid Architecture** - Free API + AI for best of both worlds  
-✅ **Parallel Execution** - 4 agents run concurrently  
+✅ **Progressive Loading** - Show core data fast, load details on-demand  
+✅ **2+1+1 Agent Split** - Core sense (2 agents) + Examples (1 agent) + Usage notes (1 agent)  
+✅ **Dynamic Prompts** - 20-40% token reduction based on API data  
 ✅ **Automatic Fallback** - Graceful AI-only mode  
 ✅ **Logging** - Track API vs AI decisions  
 ✅ **Section Loading** - Progressive, on-demand data  

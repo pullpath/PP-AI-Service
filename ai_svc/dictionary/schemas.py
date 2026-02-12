@@ -3,7 +3,7 @@ Dictionary service schemas for two-phase parallel architecture
 Contains Pydantic models for structured AI responses
 """
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from .enums import FrequencyEnum, ToneEnum
 
 
@@ -89,15 +89,13 @@ class DetailedWordSense(BaseModel):
         description="Specific fields of use, e.g., ['biology', 'law', 'gaming', 'business']. Can be empty."
     )
     tone: ToneEnum = Field(..., description="The primary connotation or emotional charge of this sense.")
-    usage_notes: str = Field(
-        default="",
-        description="Critical guidance on when/how to use this sense and common pitfalls for learners."
+    usage_notes: Optional[str] = Field(
+        default=None,
+        description="Critical guidance on when/how to use this sense and common pitfalls for learners. Fetch separately via 'usage_notes' section."
     )
-    examples: List[str] = Field(
-        ...,
-        min_length=3,
-        max_length=3,
-        description="Exactly 3 example sentences."
+    examples: Optional[List[str]] = Field(
+        default=None,
+        description="Exactly 2 example sentences. Fetch separately via 'examples' section."
     )
     collocations: List[str] = Field(
         default_factory=list,
@@ -128,16 +126,18 @@ class SenseCoreMetadata(BaseModel):
 
 
 class SenseUsageExamples(BaseModel):
-    """Examples and collocations (Agent 2)"""
+    """Examples and collocations (Agent 2) - Dynamic count based on API data"""
     examples: List[str] = Field(
-        ...,
-        min_length=2,
+        default_factory=list,
+        min_length=0,
         max_length=2,
-        description="Exactly 2 example sentences."
+        description="0-2 example sentences (dynamic based on API-provided examples)."
     )
     collocations: List[str] = Field(
         default_factory=list,
-        description="Frequent word partners for this sense. Format: 'strong evidence', 'gather evidence'."
+        min_length=0,
+        max_length=3,
+        description="0-3 frequent word partners (dynamic based on available data)."
     )
 
 
