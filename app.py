@@ -140,11 +140,10 @@ def dictionary_lookup():
                 "success": False
             }), 400
         
-        index = data.get('index', None)
         entry_index = data.get('entry_index', None)
         sense_index = data.get('sense_index', None)
         
-        result = dictionary_service.lookup_section(word, section, sense_index, entry_index, index)
+        result = dictionary_service.lookup_section(word, section, sense_index, entry_index)
         return jsonify(result), 200
         
     except Exception as e:

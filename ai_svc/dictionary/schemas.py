@@ -1,31 +1,10 @@
 """
-Dictionary service schemas for two-phase parallel architecture
+Dictionary service schemas
 Contains Pydantic models for structured AI responses
 """
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from .enums import FrequencyEnum, ToneEnum
-
-
-# Phase 1: Word Senses Discovery
-class WordSenseBasic(BaseModel):
-    """Basic information about a word sense (for discovery phase)"""
-    definition: str = Field(..., description="The core definition for this specific meaning.")
-    sense_index: int = Field(..., description="Index of this sense (0-based)")
-
-
-class WordSensesDiscovery(BaseModel):
-    """Result of Phase 1: Discover commonly used word senses"""
-    headword: str = Field(..., description="The requested word or phrase.")
-    pronunciation: str = Field(..., description="Audio URL (from API) or IPA string (AI-generated when API fails). Frontend should check if starts with 'http' to determine format.")
-    senses: List[WordSenseBasic] = Field(
-        ...,
-        min_length=1,
-        description="List of commonly used word senses, ordered by most common/frequent first."
-    )
-
-
-# Phase 2: Granular Information Components (for parallel fetch)
 class EtymologyInfo(BaseModel):
     """Etymology and historical development"""
     etymology: str = Field(..., description="Narrative of the word's origin, history, and meaning evolution.")
@@ -111,8 +90,7 @@ class DetailedWordSense(BaseModel):
 
 # Parallel execution components for DetailedWordSense (split for faster generation)
 class SenseCoreMetadata(BaseModel):
-    """Core definition and metadata (Agent 1)"""
-    definition: str = Field(..., description="The core definition for this specific meaning.")
+    """Core metadata without definition (API always provides definition)"""
     part_of_speech: str = Field(..., description="e.g., noun, verb, phrasal verb, adjective, idiom, etc.")
     usage_register: List[str] = Field(
         ...,
