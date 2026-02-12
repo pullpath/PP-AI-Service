@@ -205,17 +205,31 @@ class DictionaryService:
         )
     
     
-    def lookup_section(self, word: str, section: str, index: Optional[int] = None) -> Dict[str, Any]:
+    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, index: Optional[int] = None) -> Dict[str, Any]:
         """
-        Look up specific section of word data
-        All requests must specify a section - no full lookup supported
+        Look up specific section of word data with entry-level awareness
         
-        For 'detailed_sense' section, index parameter is required to specify which sense
+        Parameters:
+        - word: The word to look up
+        - section: Section to fetch
+        - sense_index: Sense index within an entry (0-based, for 'detailed_sense')
+        - entry_index: Entry index (0-based, for entry-specific sections and 'detailed_sense')
+        - index: DEPRECATED - use (entry_index, sense_index) instead
+        
+        Sections:
+        - basic: Returns entry-level structure (no parameters needed)
+        - etymology, word_family, usage_context, cultural_notes, frequency: 
+            Require entry_index (defaults to 0)
+        - detailed_sense: Requires BOTH entry_index AND sense_index
+        
+        Examples:
+        - {"word": "scrub", "section": "basic"}
+        - {"word": "scrub", "section": "etymology", "entry_index": 1}
+        - {"word": "scrub", "section": "detailed_sense", "entry_index": 1, "sense_index": 0}  # Entry 1, first sense
         """
         try:
             start_time = time.time()
             
-            # Validate section
             valid_sections = [
                 'etymology', 'word_family', 'usage_context', 
                 'cultural_notes', 'frequency', 'detailed_sense', 'basic'
@@ -227,43 +241,17 @@ class DictionaryService:
                     "success": False
                 }
             
-            # Special validation for detailed_sense
-            if section == 'detailed_sense' and index is None:
-                return {
-                    "error": "index is required when requesting 'detailed_sense'",
-                    "success": False
-                }
-            
-            # Handle basic specially (doesn't require AI)
-            if section == 'basic':
-                api_result = self._fetch_from_api(word)
-                
-                if api_result.get("success"):
-                    logger.info(f"[{word}] Basic data: Using FREE API (hybrid_api_ai)")
-                    discovery_data = self._convert_api_to_discovery(word, api_result["data"])
-                    data_source = "hybrid_api_ai"
-                else:
-                    logger.info(f"[{word}] Basic data: Using AI (ai_only) - API failed: {api_result.get('error', 'unknown')}")
-                    discovery_result = self._discover_word_senses(word)
-                    if not discovery_result.get("success"):
-                        return discovery_result
-                    discovery_data = discovery_result["discovery_data"]
-                    data_source = "ai_only"
-                
-                return {
-                    "headword": word,
-                    "pronunciation": discovery_data.get("pronunciation", ""),
-                    "total_senses": len(discovery_data.get("senses", [])),
-                    "data_source": data_source,
-                    "execution_time": time.time() - start_time,
-                    "success": True
-                }
-            
-            # Handle individual detailed_sense specially
             if section == 'detailed_sense':
-                # index is guaranteed to be int at this point due to validation above
-                assert index is not None, "index should have been validated"
-                result = self._fetch_single_detailed_sense(word, index)
+                if index is not None:
+                    logger.warning(f"[{word}] DEPRECATED: 'index' parameter is deprecated. Use 'entry_index' + 'sense_index' instead.")
+                    result = self._fetch_single_detailed_sense_flat(word, index)
+                elif entry_index is not None and sense_index is not None:
+                    result = self._fetch_single_detailed_sense_2d(word, entry_index, sense_index)
+                else:
+                    return {
+                        "error": "detailed_sense requires both 'entry_index' and 'sense_index' (or deprecated 'index')",
+                        "success": False
+                    }
                 
                 if not result.get("success"):
                     return result
@@ -271,41 +259,23 @@ class DictionaryService:
                 return {
                     "headword": word,
                     "detailed_sense": result["detailed_sense"],
+                    "entry_index": result.get("entry_index", 0),
+                    "sense_index": result.get("sense_index", 0),
                     "execution_time": time.time() - start_time,
                     "success": True
                 }
             
-            # For AI sections, call the appropriate method
-            section_method_map = {
-                'etymology': self._fetch_etymology,
-                'word_family': self._fetch_word_family,
-                'usage_context': self._fetch_usage_context,
-                'cultural_notes': self._fetch_cultural_notes,
-                'frequency': self._fetch_frequency
+            if section == 'basic':
+                return self._fetch_basic(word, start_time)
+            
+            entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']
+            if section in entry_level_sections:
+                return self._fetch_entry_level_section(word, section, entry_index, start_time)
+            
+            return {
+                "error": f"Section '{section}' not implemented",
+                "success": False
             }
-            
-            method = section_method_map.get(section)
-            if not method:
-                return {
-                    "error": f"Section '{section}' not implemented",
-                    "success": False
-                }
-            
-            result = method(word)
-            
-            if not result.get("success"):
-                return result
-            
-            # Build response with same structure as full lookup
-            # This allows frontend to merge section data easily
-            response = {
-                "headword": word,
-                section: result[section],  # Use same property name as full lookup
-                "execution_time": time.time() - start_time,
-                "success": True
-            }
-            
-            return response
                 
         except Exception as e:
             return {
@@ -314,45 +284,243 @@ class DictionaryService:
                 "success": False
             }
     
-    def _fetch_single_detailed_sense(self, word: str, sense_index: int) -> Dict[str, Any]:
-        """Fetch a single detailed sense by index"""
-        try:
-            # Get discovery data first
-            api_result = self._fetch_from_api(word)
+    def _fetch_basic(self, word: str, start_time: float) -> Dict[str, Any]:
+        """
+        Fetch basic word info with entry-level structure
+        
+        Returns:
+        {
+            "headword": "scrub",
+            "pronunciation": "...",
+            "total_entries": 2,
+            "entries": [
+                {
+                    "entry_index": 0,
+                    "meanings_summary": [
+                        {"part_of_speech": "noun", "definition_count": 6},
+                        {"part_of_speech": "adjective", "definition_count": 1}
+                    ],
+                    "total_senses": 7
+                },
+                {
+                    "entry_index": 1,
+                    "meanings_summary": [
+                        {"part_of_speech": "noun", "definition_count": 7},
+                        {"part_of_speech": "verb", "definition_count": 7}
+                    ],
+                    "total_senses": 14
+                }
+            ],
+            "total_senses": 21,
+            "data_source": "hybrid_api_ai",
+            "success": True
+        }
+        """
+        api_result = self._fetch_from_api(word)
+        
+        if api_result.get("success"):
+            logger.info(f"[{word}] Basic data: Using FREE API (hybrid_api_ai)")
+            entries_data = api_result["entries"]
             
-            if api_result.get("success"):
-                logger.info(f"[{word}] Detailed sense #{sense_index}: Using API basic data + AI enhancement (hybrid)")
-                discovery_data = self._convert_api_to_discovery(word, api_result["data"])
-            else:
-                logger.info(f"[{word}] Detailed sense #{sense_index}: Using AI only - API failed: {api_result.get('error', 'unknown')}")
-                discovery_result = self._discover_word_senses(word)
-                if not discovery_result.get("success"):
-                    return discovery_result
-                discovery_data = discovery_result["discovery_data"]
+            entries_info = []
+            total_senses = 0
             
-            # Determine which path to use
-            meanings = discovery_data.get("api_raw_meanings", [])
+            for entry_idx, entry in enumerate(entries_data):
+                meanings = entry.get("meanings", [])
+                meanings_summary = []
+                entry_senses = 0
+                
+                for meaning in meanings:
+                    pos = meaning.get("partOfSpeech", "unknown")
+                    definitions = meaning.get("definitions", [])
+                    def_count = len(definitions)
+                    entry_senses += def_count
+                    
+                    meanings_summary.append({
+                        "part_of_speech": pos,
+                        "definition_count": def_count
+                    })
+                
+                pronunciation_data = self._extract_pronunciation_data(entry)
+                
+                entries_info.append({
+                    "entry_index": entry_idx,
+                    "pronunciation": pronunciation_data["pronunciation"],
+                    "ipa": pronunciation_data["ipa"],
+                    "meanings_summary": meanings_summary,
+                    "total_senses": entry_senses
+                })
+                
+                total_senses += entry_senses
+            
+            return {
+                "headword": word,
+                "total_entries": len(entries_data),
+                "entries": entries_info,
+                "total_senses": total_senses,
+                "data_source": "hybrid_api_ai",
+                "execution_time": time.time() - start_time,
+                "success": True
+            }
+        else:
+            logger.info(f"[{word}] Basic data: Using AI (ai_only) - API failed: {api_result.get('error', 'unknown')}")
+            discovery_result = self._discover_word_senses(word)
+            if not discovery_result.get("success"):
+                return discovery_result
+            
+            discovery_data = discovery_result["discovery_data"]
             senses = discovery_data.get("senses", [])
-            is_from_api = bool(meanings)
+            ai_ipa = discovery_data.get("pronunciation", "")
             
-            # Validate sense_index
-            if is_from_api:
-                # Count total definitions across all meanings
-                total_senses = sum(len(m.get("definitions", [])) for m in meanings)
-            else:
-                total_senses = len(senses)
+            return {
+                "headword": word,
+                "total_entries": 1,
+                "entries": [{
+                    "entry_index": 0,
+                    "pronunciation": "",
+                    "ipa": ai_ipa,
+                    "meanings_summary": [{"part_of_speech": "mixed", "definition_count": len(senses)}],
+                    "total_senses": len(senses)
+                }],
+                "total_senses": len(senses),
+                "data_source": "ai_only",
+                "execution_time": time.time() - start_time,
+                "success": True
+            }
+    
+    def _extract_pronunciation_data(self, entry: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Extract pronunciation data (audio URL + IPA) from API entry
+        
+        Returns:
+        {
+            "pronunciation": "audio_url",  # Empty string if not found
+            "ipa": "/skrʌb/"                # Empty string if not found
+        }
+        """
+        phonetics = entry.get("phonetics", [])
+        audio_url = ""
+        ipa_text = ""
+        
+        # Extract audio URL (prefer UK > US > any)
+        for p in phonetics:
+            audio = p.get("audio", "")
+            if audio and ("-uk.mp3" in audio.lower() or "-uk-" in audio.lower()):
+                audio_url = audio
+                break
+        
+        if not audio_url:
+            for p in phonetics:
+                audio = p.get("audio", "")
+                if audio and ("-us.mp3" in audio.lower() or "-us-" in audio.lower()):
+                    audio_url = audio
+                    break
+        
+        if not audio_url:
+            for p in phonetics:
+                audio = p.get("audio", "")
+                if audio:
+                    audio_url = audio
+                    break
+        
+        # Extract IPA text
+        for p in phonetics:
+            if p.get("text"):
+                ipa_text = p["text"]
+                break
+        
+        if not ipa_text:
+            ipa_text = entry.get("phonetic", "")
+        
+        return {
+            "pronunciation": audio_url,
+            "ipa": ipa_text
+        }
+    
+    def _fetch_entry_level_section(self, word: str, section: str, entry_index: Optional[int], start_time: float) -> Dict[str, Any]:
+        """
+        Fetch entry-specific section (etymology, word_family, etc.)
+        
+        If entry_index is None, defaults to entry 0 for backward compatibility
+        """
+        if entry_index is not None and entry_index < 0:
+            return {
+                "error": f"entry_index must be >= 0, got {entry_index}",
+                "success": False
+            }
+        
+        api_result = self._fetch_from_api(word)
+        
+        if api_result.get("success"):
+            entries = api_result["entries"]
+            target_entry_index = entry_index if entry_index is not None else 0
             
-            if sense_index < 0 or sense_index >= total_senses:
+            if target_entry_index >= len(entries):
                 return {
-                    "error": f"Invalid sense_index {sense_index}. Word has {total_senses} senses (0-{total_senses-1})",
+                    "error": f"entry_index {target_entry_index} out of range. Word has {len(entries)} entries (0-{len(entries)-1})",
                     "success": False
                 }
             
-            # Fetch the specific sense
-            if is_from_api:
-                # API path: find the definition at sense_index
-                logger.info(f"[{word}] Detailed sense #{sense_index}: Using _fetch_enhanced_sense (API data + 4 AI agents)")
-                current_index = 0
+            logger.info(f"[{word}] {section} (entry #{target_entry_index}): Using API structure + AI")
+            context_entry = entries[target_entry_index]
+        else:
+            logger.info(f"[{word}] {section}: Using AI only - API failed")
+            target_entry_index = 0
+            context_entry = None
+        
+        section_method_map = {
+            'etymology': self._fetch_etymology,
+            'word_family': self._fetch_word_family,
+            'usage_context': self._fetch_usage_context,
+            'cultural_notes': self._fetch_cultural_notes,
+            'frequency': self._fetch_frequency
+        }
+        
+        method = section_method_map.get(section)
+        if not method:
+            return {
+                "error": f"Section '{section}' not implemented",
+                "success": False
+            }
+        
+        result = method(word, context_entry)
+        
+        if not result.get("success"):
+            return result
+        
+        response = {
+            "headword": word,
+            "entry_index": target_entry_index,
+            section: result[section],
+            "execution_time": time.time() - start_time,
+            "success": True
+        }
+        
+        return response
+    
+    def _fetch_single_detailed_sense_2d(self, word: str, entry_index: int, sense_index: int) -> Dict[str, Any]:
+        """
+        Fetch a single detailed sense using 2D indexing (entry_index, sense_index)
+        
+        Clean approach: entry_index=1, sense_index=0 means "entry 1, first sense"
+        """
+        try:
+            api_result = self._fetch_from_api(word)
+            
+            if api_result.get("success"):
+                logger.info(f"[{word}] Detailed sense (entry {entry_index}, sense {sense_index}): Using API + AI (hybrid)")
+                entries = api_result["entries"]
+                
+                if entry_index < 0 or entry_index >= len(entries):
+                    return {
+                        "error": f"Invalid entry_index {entry_index}. Word has {len(entries)} entries (0-{len(entries)-1})",
+                        "success": False
+                    }
+                
+                entry = entries[entry_index]
+                meanings = entry.get("meanings", [])
+                
+                current_sense_index = 0
                 for meaning in meanings:
                     part_of_speech = meaning.get("partOfSpeech", "")
                     definitions = meaning.get("definitions", [])
@@ -360,8 +528,7 @@ class DictionaryService:
                     meaning_antonyms = meaning.get("antonyms", [])
                     
                     for def_obj in definitions:
-                        if current_index == sense_index:
-                            # Found the target sense
+                        if current_sense_index == sense_index:
                             definition = def_obj.get("definition", "")
                             example = def_obj.get("example", "")
                             def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
@@ -376,15 +543,41 @@ class DictionaryService:
                             if sense_result.get("success"):
                                 return {
                                     "detailed_sense": sense_result["sense_detail"],
+                                    "entry_index": entry_index,
+                                    "sense_index": sense_index,
                                     "success": True
                                 }
                             else:
                                 return sense_result
                         
-                        current_index += 1
+                        current_sense_index += 1
+                
+                total_senses_in_entry = current_sense_index
+                return {
+                    "error": f"Invalid sense_index {sense_index}. Entry {entry_index} has {total_senses_in_entry} senses (0-{total_senses_in_entry-1})",
+                    "success": False
+                }
             else:
-                # AI path: direct index lookup
-                logger.info(f"[{word}] Detailed sense #{sense_index}: Using _fetch_detailed_sense (Pure AI with 4 agents)")
+                logger.info(f"[{word}] Detailed sense (entry {entry_index}, sense {sense_index}): Using AI only - API failed")
+                discovery_result = self._discover_word_senses(word)
+                if not discovery_result.get("success"):
+                    return discovery_result
+                
+                discovery_data = discovery_result["discovery_data"]
+                senses = discovery_data.get("senses", [])
+                
+                if entry_index != 0:
+                    return {
+                        "error": f"AI-only mode has single entry. Requested entry_index={entry_index}, but only entry 0 exists",
+                        "success": False
+                    }
+                
+                if sense_index < 0 or sense_index >= len(senses):
+                    return {
+                        "error": f"Invalid sense_index {sense_index}. Entry 0 has {len(senses)} senses (0-{len(senses)-1})",
+                        "success": False
+                    }
+                
                 sense_basic = senses[sense_index]
                 sense_result = self._fetch_detailed_sense(
                     word, sense_index, sense_basic["definition"]
@@ -393,15 +586,100 @@ class DictionaryService:
                 if sense_result.get("success"):
                     return {
                         "detailed_sense": sense_result["sense_detail"],
+                        "entry_index": 0,
+                        "sense_index": sense_index,
                         "success": True
                     }
                 else:
                     return sense_result
-            
+                
+        except Exception as e:
             return {
-                "error": f"Failed to fetch sense {sense_index}",
+                "error": str(e),
                 "success": False
             }
+    
+    def _fetch_single_detailed_sense_flat(self, word: str, flat_index: int) -> Dict[str, Any]:
+        """
+        DEPRECATED: Fetch a single detailed sense by flat index across all entries
+        
+        Sense indexing is flat: sense #7 might be in entry 1, not entry 0
+        Use _fetch_single_detailed_sense_2d instead
+        """
+        try:
+            api_result = self._fetch_from_api(word)
+            
+            if api_result.get("success"):
+                logger.info(f"[{word}] Detailed sense #{flat_index}: Using API basic data + AI enhancement (hybrid)")
+                entries = api_result["entries"]
+                
+                current_index = 0
+                for entry_idx, entry in enumerate(entries):
+                    meanings = entry.get("meanings", [])
+                    
+                    for meaning in meanings:
+                        part_of_speech = meaning.get("partOfSpeech", "")
+                        definitions = meaning.get("definitions", [])
+                        meaning_synonyms = meaning.get("synonyms", [])
+                        meaning_antonyms = meaning.get("antonyms", [])
+                        
+                        for def_obj in definitions:
+                            if current_index == flat_index:
+                                definition = def_obj.get("definition", "")
+                                example = def_obj.get("example", "")
+                                def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
+                                def_antonyms = def_obj.get("antonyms", []) or meaning_antonyms
+                                
+                                sense_result = self._fetch_enhanced_sense(
+                                    word, flat_index, part_of_speech,
+                                    [definition], def_synonyms, def_antonyms,
+                                    [example] if example else []
+                                )
+                                
+                                if sense_result.get("success"):
+                                    return {
+                                        "detailed_sense": sense_result["sense_detail"],
+                                        "entry_index": entry_idx,
+                                        "success": True
+                                    }
+                                else:
+                                    return sense_result
+                            
+                            current_index += 1
+                
+                total_senses = current_index
+                return {
+                    "error": f"Invalid flat_index {flat_index}. Word has {total_senses} senses (0-{total_senses-1})",
+                    "success": False
+                }
+            else:
+                logger.info(f"[{word}] Detailed sense #{flat_index}: Using AI only - API failed: {api_result.get('error', 'unknown')}")
+                discovery_result = self._discover_word_senses(word)
+                if not discovery_result.get("success"):
+                    return discovery_result
+                
+                discovery_data = discovery_result["discovery_data"]
+                senses = discovery_data.get("senses", [])
+                
+                if flat_index < 0 or flat_index >= len(senses):
+                    return {
+                        "error": f"Invalid flat_index {flat_index}. Word has {len(senses)} senses (0-{len(senses)-1})",
+                        "success": False
+                    }
+                
+                sense_basic = senses[flat_index]
+                sense_result = self._fetch_detailed_sense(
+                    word, flat_index, sense_basic["definition"]
+                )
+                
+                if sense_result.get("success"):
+                    return {
+                        "detailed_sense": sense_result["sense_detail"],
+                        "entry_index": 0,
+                        "success": True
+                    }
+                else:
+                    return sense_result
                 
         except Exception as e:
             return {
@@ -410,7 +688,16 @@ class DictionaryService:
             }
     
     def _fetch_from_api(self, word: str) -> Dict[str, Any]:
-        """Fetch basic dictionary data from free API"""
+        """
+        Fetch basic dictionary data from free API with entry-level structure
+        
+        Returns entry-aware structure:
+        {
+            "success": True,
+            "entries": [entry1, entry2, ...],  # Raw API entries
+            "total_entries": 2
+        }
+        """
         try:
             url = f"{self.DICTIONARY_API_BASE}/{word}"
             response = requests.get(url, timeout=5)
@@ -418,11 +705,10 @@ class DictionaryService:
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list) and len(data) > 0:
-                    # Get first entry
-                    entry = data[0]
                     return {
                         "success": True,
-                        "data": entry
+                        "entries": data,
+                        "total_entries": len(data)
                     }
             
             return {
@@ -441,82 +727,8 @@ class DictionaryService:
                 "error": str(e)
             }
     
-    def _convert_api_to_discovery(self, word: str, api_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert API response to WordSensesDiscovery schema format"""
-        try:
-            # Extract audio URL from phonetics
-            # Priority: UK audio > US audio > any other audio
-            phonetics = api_data.get("phonetics", [])
-            pronunciation = ""
-            
-            # First pass: look for UK audio
-            for p in phonetics:
-                audio = p.get("audio", "")
-                if audio and ("-uk.mp3" in audio.lower() or "-uk-" in audio.lower()):
-                    pronunciation = audio
-                    break
-            
-            # Second pass: look for US audio if UK not found
-            if not pronunciation:
-                for p in phonetics:
-                    audio = p.get("audio", "")
-                    if audio and ("-us.mp3" in audio.lower() or "-us-" in audio.lower()):
-                        pronunciation = audio
-                        break
-            
-            # Third pass: take any audio URL
-            if not pronunciation:
-                for p in phonetics:
-                    audio = p.get("audio", "")
-                    if audio:
-                        pronunciation = audio
-                        break
-            
-            # Fallback: use IPA if no audio found
-            if not pronunciation:
-                # Try to get IPA from phonetics with text
-                for p in phonetics:
-                    if p.get("text"):
-                        pronunciation = p["text"]
-                        break
-                
-                # Last resort: phonetic field
-                if not pronunciation:
-                    pronunciation = api_data.get("phonetic", "")
-            
-            # Convert meanings to senses (WordSenseBasic format)
-            senses = []
-            meanings = api_data.get("meanings", [])
-            sense_index = 0
-            
-            for meaning in meanings:
-                definitions = meaning.get("definitions", [])
-                for def_obj in definitions:
-                    definition = def_obj.get("definition", "")
-                    if definition:
-                        senses.append({
-                            "definition": definition,
-                            "sense_index": sense_index
-                        })
-                        sense_index += 1
-            
-            # Create discovery data
-            discovery_data = {
-                "headword": word,
-                "pronunciation": pronunciation,  # Audio URL (preferred) or IPA string (fallback)
-                "senses": senses,
-                "api_raw_meanings": meanings  # Keep original for detailed processing
-            }
-            
-            return discovery_data
-            
-        except Exception as e:
-            print(f"Error converting API response: {str(e)}")
-            raise
     
-
-    
-    def _fetch_frequency(self, word: str) -> Dict[str, Any]:
+    def _fetch_frequency(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch frequency estimation via AI"""
         try:
             prompt = get_frequency_prompt(word)
@@ -804,7 +1016,7 @@ class DictionaryService:
     
 
     
-    def _fetch_etymology(self, word: str) -> Dict[str, Any]:
+    def _fetch_etymology(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch etymology information"""
         try:
             prompt = get_etymology_prompt(word)
@@ -826,7 +1038,7 @@ class DictionaryService:
                 "error": str(e)
             }
     
-    def _fetch_word_family(self, word: str) -> Dict[str, Any]:
+    def _fetch_word_family(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch word family information"""
         try:
             prompt = get_word_family_prompt(word)
@@ -848,7 +1060,7 @@ class DictionaryService:
                 "error": str(e)
             }
     
-    def _fetch_usage_context(self, word: str) -> Dict[str, Any]:
+    def _fetch_usage_context(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch usage context information"""
         try:
             prompt = get_usage_context_prompt(word)
@@ -870,7 +1082,7 @@ class DictionaryService:
                 "error": str(e)
             }
     
-    def _fetch_cultural_notes(self, word: str) -> Dict[str, Any]:
+    def _fetch_cultural_notes(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch cultural notes information"""
         try:
             prompt = get_cultural_notes_prompt(word)

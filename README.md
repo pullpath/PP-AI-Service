@@ -7,6 +7,8 @@ AI-powered Flask web service providing dictionary lookups, audio transcription, 
 ### 🎯 Dictionary Service (Hybrid API + AI)
 - **60-70% faster** than pure AI (5-6s vs 15-18s)
 - **4-agent parallel architecture** for optimal performance
+- **Entry-aware architecture** with per-entry pronunciation
+- **Two-dimensional indexing** `(entry_index, sense_index)` for precise sense addressing
 - **Hybrid approach**: Free Dictionary API + DeepSeek AI enhancement
 - **Automatic fallback**: Pure AI mode if API fails
 - **Section-based loading**: Load only what you need

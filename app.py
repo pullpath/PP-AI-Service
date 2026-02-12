@@ -85,28 +85,32 @@ def image():
 @app.route('/api/dictionary', methods=['POST'])
 def dictionary_lookup():
     """
-    Dictionary lookup endpoint - section-based only (no full lookup)
+    Dictionary lookup endpoint - section-based with entry-level awareness
     
     Request body:
     {
-        "word": "hello",         # Required
-        "section": "etymology",  # Required: specific section to fetch
-        "index": 0               # Optional: for 'detailed_sense' section only
+        "word": "hello",          # Required
+        "section": "etymology",   # Required: specific section to fetch
+        "index": 0,               # Optional: DEPRECATED - use entry_index + sense_index
+        "entry_index": 0,         # Optional: for entry-specific sections
+        "sense_index": 0          # Optional: for 'detailed_sense' section (0-based within entry)
     }
     
     Valid sections:
-    - "basic": pronunciation, total_senses (fast, no AI)
-    - "etymology": word origin and root analysis
-    - "word_family": related words
-    - "usage_context": modern usage trends
-    - "cultural_notes": cultural and linguistic notes
-    - "frequency": word frequency estimation
-    - "detailed_sense": single sense detail (requires index, fast ~2-3s)
+    - "basic": Entry-level structure with counts (fast, no AI)
+    - "etymology": Word origin (requires entry_index for multi-entry words)
+    - "word_family": Related words (requires entry_index for multi-entry words)
+    - "usage_context": Modern usage trends (requires entry_index for multi-entry words)
+    - "cultural_notes": Cultural notes (requires entry_index for multi-entry words)
+    - "frequency": Word frequency (requires entry_index for multi-entry words)
+    - "detailed_sense": Single sense detail (requires entry_index + sense_index)
     
     Example requests:
-    - {"word": "run", "section": "basic"}  # Get basic info
-    - {"word": "run", "section": "etymology"}  # Get etymology only
-    - {"word": "run", "section": "detailed_sense", "index": 0}  # Get first sense
+    - {"word": "scrub", "section": "basic"}  # Get entry structure
+    - {"word": "scrub", "section": "etymology", "entry_index": 0}  # Get etymology for entry 0
+    - {"word": "scrub", "section": "etymology", "entry_index": 1}  # Get etymology for entry 1
+    - {"word": "scrub", "section": "detailed_sense", "entry_index": 1, "sense_index": 0}  # Entry 1, first sense
+    - {"word": "scrub", "section": "detailed_sense", "index": 14}  # DEPRECATED flat indexing
     """
     try:
         data = request.get_json()
@@ -137,9 +141,10 @@ def dictionary_lookup():
             }), 400
         
         index = data.get('index', None)
+        entry_index = data.get('entry_index', None)
+        sense_index = data.get('sense_index', None)
         
-        # Service layer handles all business logic
-        result = dictionary_service.lookup_section(word, section, index)
+        result = dictionary_service.lookup_section(word, section, sense_index, entry_index, index)
         return jsonify(result), 200
         
     except Exception as e:
