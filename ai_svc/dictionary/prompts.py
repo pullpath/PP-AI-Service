@@ -181,6 +181,33 @@ Focus on the most useful words/phrases that help learners expand vocabulary.
 Output must be valid JSON matching the SenseRelatedWords schema."""
 
 
+def get_common_phrases_prompt(word: str) -> str:
+    """Generate prompt for common phrases and collocations"""
+    return f"""You are a linguistic expert specializing in common English phrases and collocations.
+
+For the word "{word}", identify 1-3 commonly used phrases or collocations that CONTAIN this word.
+
+CRITICAL REQUIREMENT: Every phrase MUST actually include the word "{word}" as part of the phrase.
+
+Examples of what to include:
+- For "run": "run out of", "in the long run", "run up a bill"
+- For "pipe": "pipe down", "pipe dream", "put that in your pipe and smoke it"
+
+Examples of what to AVOID:
+- For "pipe": "smoke like a chimney" (does not contain "pipe")
+- For "run": "jogging" (does not contain "run")
+
+Consider:
+- If the word is typically used alone (e.g., "hello", "cat"), return just the word
+- If the word commonly appears in phrases (e.g., "run out of", "in the long run", "kick the bucket"), return those phrases
+- Focus on the most frequent, natural combinations that actually contain the target word
+- Include phrasal verbs, idioms, and common expressions that include the word
+
+Return exactly 1-3 phrases where each phrase contains the word "{word}". If the word is standalone, return just the word.
+
+Output must be valid JSON matching the CommonPhrases schema."""
+
+
 def get_sense_usage_notes_prompt(word: str, sense_index: int, basic_definition: str) -> str:
     """Generate prompt for usage notes and guidance (Agent 4) - parallel execution"""
     return f"""You are a linguistic expert specializing in usage guidance for language learners.

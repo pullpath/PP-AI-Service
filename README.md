@@ -58,6 +58,12 @@ OPENAI_API_KEY=your_openai_api_key
 OPENAI_API_BASE=your_proxy_url  # Optional
 X-PP-TOKEN=your_proxy_token     # Optional
 
+# Bilibili API (optional - for subtitle access in video search)
+# Get these from browser developer tools after logging into Bilibili
+BILIBILI_SESSDATA=your_sessdata_cookie
+BILIBILI_BILI_JCT=your_bili_jct_cookie
+BILIBILI_BUVID3=your_buvid3_cookie
+
 # Web Services
 SERPER_API_KEY=your_serper_api_key
 BROWSERLESS_API_KEY=your_browserless_api_key
@@ -120,13 +126,13 @@ curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
   -d '{"word":"run","section":"examples","entry_index":0,"sense_index":0}'
 
-# Usage notes (fast, ~1-1.5s) - NEW
+# Bilibili Videos (educational content with timestamps)
 curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
-  -d '{"word":"run","section":"usage_notes","entry_index":0,"sense_index":0}'
+  -d '{"word":"hello","section":"bilibili_videos"}'
 ```
 
-**Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`, `examples`, `usage_notes`
+**Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`, `examples`, `usage_notes`, `bilibili_videos`
 
 See [docs/API.md](docs/API.md) for complete API documentation.
 

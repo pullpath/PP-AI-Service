@@ -135,3 +135,36 @@ class SenseUsageNotes(BaseModel):
         default="",
         description="Critical guidance on when/how to use this sense and common pitfalls for learners."
     )
+
+
+class BilibiliVideoInfo(BaseModel):
+    """Bilibili video information for dictionary word explanations"""
+    bvid: str = Field(..., description="Bilibili video BV ID")
+    aid: int = Field(..., description="Bilibili video AV ID")
+    title: str = Field(..., description="Video title")
+    description: str = Field(default="", description="Video description")
+    pic: str = Field(default="", description="Video thumbnail URL")
+    author: str = Field(default="", description="Author/UP name")
+    mid: int = Field(default=0, description="Author UID")
+    view: int = Field(default=0, description="View count")
+    danmaku: int = Field(default=0, description="Danmaku count")
+    reply: int = Field(default=0, description="Comment count")
+    favorite: int = Field(default=0, description="Favorite count")
+    coin: int = Field(default=0, description="Coin count")
+    share: int = Field(default=0, description="Share count")
+    like: int = Field(default=0, description="Like count")
+    pubdate: int = Field(default=0, description="Publish timestamp")
+    duration: int = Field(default=0, description="Video duration in seconds")
+    start_time: float = Field(default=0.0, description="Start time in seconds for direct playback to relevant content")
+    matched_phrase: str = Field(default="", description="The word or phrase that was matched to find this video")
+    video_url: str = Field(default="", description="Composed Bilibili video URL with optional start time")
+
+
+class CommonPhrases(BaseModel):
+    """Common phrases and collocations for a word"""
+    phrases: List[str] = Field(
+        default_factory=list,
+        min_length=1,
+        max_length=3,
+        description="1-3 commonly used phrases or collocations. If word is standalone, just the word."
+    )

@@ -14,44 +14,66 @@ import concurrent.futures
 import requests
 import logging
 from dotenv import load_dotenv
+from bilibili_api import search, sync, video, Credential, video_zone
+
 
 # Import schemas and prompts
 from .schemas import (
-    EtymologyInfo, WordFamilyInfo, 
+    EtymologyInfo, WordFamilyInfo,
     UsageContextInfo, CulturalNotesInfo, DetailedWordSense, FrequencyInfo,
-    SenseCoreMetadata, SenseUsageExamples, SenseRelatedWords, SenseUsageNotes
+    SenseCoreMetadata, SenseUsageExamples, SenseRelatedWords, SenseUsageNotes,
+    BilibiliVideoInfo, CommonPhrases
 )
 from .prompts import (
     get_etymology_prompt,
     get_word_family_prompt, get_usage_context_prompt,
     get_cultural_notes_prompt, get_frequency_prompt,
     get_sense_core_metadata_prompt, get_sense_usage_examples_prompt,
-    get_sense_related_words_prompt, get_sense_usage_notes_prompt
+    get_sense_related_words_prompt, get_sense_usage_notes_prompt,
+    get_common_phrases_prompt
 )
 
-load_dotenv()
-
-# Configure logger
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 class DictionaryService:
-    """Dictionary service using hybrid API + AI architecture"""
-    
+    """Dictionary service with hybrid API + AI architecture"""
+
     DICTIONARY_API_BASE = "https://api.dictionaryapi.dev/api/v2/entries/en"
     
+    # Bilibili search configuration
+    BILIBILI_PAGE_SIZE = 50
+    MAX_VIDEOS_TO_CHECK_FOR_SUBTITLES = 50
+
     def __init__(self):
+        """Initialize the dictionary service with AI agents and credentials"""
+        # Load environment variables
+        load_dotenv()
+
+        # Set up Bilibili credentials for subtitle access
+        sessdata = os.getenv('BILIBILI_SESSDATA')
+        bili_jct = os.getenv('BILIBILI_BILI_JCT')
+        buvid3 = os.getenv('BILIBILI_BUVID3')
+
+        if sessdata and bili_jct:  # buvid3 is optional but recommended
+            self.bilibili_credential = Credential(sessdata=sessdata, bili_jct=bili_jct, buvid3=buvid3)
+            logger.info("Bilibili credentials configured for subtitle access")
+        else:
+            self.bilibili_credential = None
+            logger.warning("Bilibili credentials not configured - subtitle access will be limited")
+
         # Get DeepSeek API key from environment
         deepseek_api_key = os.getenv('DEEPSEEK_API_KEY')
-        
+
         if not deepseek_api_key:
             raise ValueError("DEEPSEEK_API_KEY environment variable is not set")
-        
+
         # Create DeepSeek models with different token limits for optimization
         # Simple tasks (frequency, word_family): 256 tokens
         # Medium tasks (etymology, cultural_notes, usage_context): 512 tokens
         # Complex tasks (detailed_sense): 1024 tokens
-        
+
         simple_model = DeepSeek(
             id="deepseek-chat",
             api_key=deepseek_api_key,
@@ -60,7 +82,7 @@ class DictionaryService:
             timeout=45.0,
             max_retries=0
         )
-        
+
         medium_model = DeepSeek(
             id="deepseek-chat",
             api_key=deepseek_api_key,
@@ -69,7 +91,7 @@ class DictionaryService:
             timeout=45.0,
             max_retries=0
         )
-        
+
         complex_model = DeepSeek(
             id="deepseek-chat",
             api_key=deepseek_api_key,
@@ -78,7 +100,7 @@ class DictionaryService:
             timeout=30.0,  # Reduced timeout to push for faster inference
             max_retries=0
         )
-        
+
         # Create specialized agents with appropriate models
         self.etymology_agent = Agent(
             name="EtymologyAgent",
@@ -87,7 +109,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=EtymologyInfo
         )
-        
+
         self.word_family_agent = Agent(
             name="WordFamilyAgent",
             model=simple_model,
@@ -95,7 +117,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=WordFamilyInfo
         )
-        
+
         self.usage_context_agent = Agent(
             name="UsageContextAgent",
             model=medium_model,
@@ -103,7 +125,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=UsageContextInfo
         )
-        
+
         self.cultural_notes_agent = Agent(
             name="CulturalNotesAgent",
             model=medium_model,
@@ -111,7 +133,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=CulturalNotesInfo
         )
-        
+
         self.detailed_sense_agent = Agent(
             name="DetailedSenseAgent",
             model=complex_model,
@@ -119,19 +141,27 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=DetailedWordSense
         )
-        
+
+        self.common_phrases_agent = Agent(
+            name="CommonPhrasesAgent",
+            model=simple_model,
+            description="Provides commonly used phrases for a word",
+            use_json_mode=True,
+            output_schema=CommonPhrases
+        )
+
         self.frequency_agent = Agent(
             name="FrequencyAgent",
             model=simple_model,
-            description="Estimates word frequency in modern usage",
+            description="Provides frequency estimation for a word",
             use_json_mode=True,
             output_schema=FrequencyInfo
         )
-        
+
         # Parallel execution agents for detailed sense (faster performance)
         # These agents split DetailedWordSense generation into 2 parallel tasks
         # Optimized models with reduced tokens for faster generation
-        
+
         # Agent 1: Core metadata WITHOUT definition (API always provides definition)
         core_metadata_model = DeepSeek(
             id="deepseek-chat",
@@ -141,7 +171,7 @@ class DictionaryService:
             timeout=30.0,
             max_retries=0
         )
-        
+
         # Agent 2: Examples and collocations (3 examples, 3 collocations) - medium tokens
         usage_examples_model = DeepSeek(
             id="deepseek-chat",
@@ -151,7 +181,7 @@ class DictionaryService:
             timeout=30.0,
             max_retries=0
         )
-        
+
         # Agent 3: Related words (3 synonyms, 3 antonyms, 3 phrases) - medium tokens
         related_words_model = DeepSeek(
             id="deepseek-chat",
@@ -161,7 +191,7 @@ class DictionaryService:
             timeout=30.0,
             max_retries=0
         )
-        
+
         # Agent 4: Usage notes (2-3 sentences) - smallest tokens
         usage_notes_model = DeepSeek(
             id="deepseek-chat",
@@ -171,7 +201,7 @@ class DictionaryService:
             timeout=30.0,
             max_retries=0
         )
-        
+
         self.sense_core_agent = Agent(
             name="SenseCoreMetadataAgent",
             model=core_metadata_model,
@@ -179,7 +209,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=SenseCoreMetadata
         )
-        
+
         self.sense_usage_agent = Agent(
             name="SenseUsageExamplesAgent",
             model=usage_examples_model,
@@ -187,7 +217,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=SenseUsageExamples
         )
-        
+
         self.sense_related_agent = Agent(
             name="SenseRelatedWordsAgent",
             model=related_words_model,
@@ -195,7 +225,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=SenseRelatedWords
         )
-        
+
         self.sense_usage_notes_agent = Agent(
             name="SenseUsageNotesAgent",
             model=usage_notes_model,
@@ -232,7 +262,7 @@ class DictionaryService:
             valid_sections = [
                 'etymology', 'word_family', 'usage_context', 
                 'cultural_notes', 'frequency', 'detailed_sense', 'basic',
-                'examples', 'usage_notes'
+                'examples', 'usage_notes', 'bilibili_videos'
             ]
             
             if section not in valid_sections:
@@ -302,7 +332,7 @@ class DictionaryService:
                     "success": True
                 }
             
-            entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']
+            entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']
             if section in entry_level_sections:
                 return self._fetch_entry_level_section(word, section, entry_index, start_time)
             
@@ -512,7 +542,8 @@ class DictionaryService:
             'word_family': self._fetch_word_family,
             'usage_context': self._fetch_usage_context,
             'cultural_notes': self._fetch_cultural_notes,
-            'frequency': self._fetch_frequency
+            'frequency': self._fetch_frequency,
+            'bilibili_videos': self._fetch_bilibili_videos
         }
         
         method = section_method_map.get(section)
@@ -649,6 +680,20 @@ class DictionaryService:
                 "error": str(e)
             }
     
+    
+    def _fetch_common_phrases(self, word: str) -> List[str]:
+        """Fetch common phrases for a word via AI"""
+        try:
+            prompt = get_common_phrases_prompt(word)
+            response = self.common_phrases_agent.run(prompt)
+            
+            if isinstance(response.content, CommonPhrases):
+                return response.content.phrases
+            else:
+                return [word]  # fallback to just the word
+        except Exception as e:
+            logger.error(f"Error fetching common phrases for '{word}': {str(e)}")
+            return [word]  # fallback
     
     def _fetch_frequency(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch frequency estimation via AI"""
@@ -1136,7 +1181,367 @@ class DictionaryService:
                 "error": str(e)
             }
     
+    def _fetch_bilibili_videos(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Fetch Bilibili videos related to the word's definition and explanation with phrase-based search"""
+        try:
+            # First, get common phrases for this word
+            phrases = self._fetch_common_phrases(word)
+            logger.info(f"[{word}] Generated phrases: {phrases}")
+            
+            all_videos = []
+            
+            # For each phrase, search Bilibili with improved filtering
+            for phrase in phrases:
+                logger.info(f"[{word}] Searching Bilibili for phrase: '{phrase}'")
+                
+                try:
+                    # First try KNOWLEDGE zone for educational content
+                    used_knowledge_zone = True
+                    search_result = sync(search.search_by_type(
+                        keyword=phrase, 
+                        search_type=search.SearchObjectType.VIDEO,
+                        order_type=search.OrderVideo.STOW,  # Sort by favorites for quality content
+                        video_zone_type=video_zone.VideoZoneTypes.KNOWLEDGE,  # KNOWLEDGE section for educational content
+                        page=1,
+                        page_size=self.BILIBILI_PAGE_SIZE  # Increased to get more results to filter
+                    ))
+                    
+                    videos = search_result.get('result', [])
+                    logger.info(f"[{word}] Found {len(videos)} videos in KNOWLEDGE zone for phrase '{phrase}'")
+                    
+                    # If no videos found in KNOWLEDGE zone, try general search
+                    if not videos:
+                        logger.info(f"[{word}] No videos in KNOWLEDGE zone for '{phrase}', trying general search")
+                        used_knowledge_zone = False
+                        search_result = sync(search.search_by_type(
+                            keyword=phrase, 
+                            search_type=search.SearchObjectType.VIDEO,
+                            order_type=search.OrderVideo.STOW,
+                            page=1,
+                            page_size=self.BILIBILI_PAGE_SIZE
+                        ))
+                        videos = search_result.get('result', [])
+                        logger.info(f"[{word}] Found {len(videos)} videos in general search for phrase '{phrase}'")
+                    
+                    # Process search results and filter videos
+                    filtered_videos = []
+                    for video in videos:
+                        # Parse duration
+                        duration = self._parse_duration(video.get('duration', '0'))
+                        
+                        # Apply filters
+                        if not (45 <= duration <= 1800):
+                            continue
+                        
+                        # Use different educational criteria based on search type
+                        if used_knowledge_zone:
+                            # Strict filtering for KNOWLEDGE zone
+                            if not self._is_educational_video(video):
+                                continue
+                        else:
+                            # Relaxed filtering for general search - just avoid bad content
+                            if self._has_avoid_tags(video):
+                                continue
+                        
+                        if video.get('play', 0) < 100:
+                            continue
+                        
+                        if video.get('favorites', 0) < 10:
+                            continue
+                        
+                        # Calculate quality score
+                        quality_score = self._calculate_quality_score(video)
+                        if quality_score < 0.01:
+                            continue
+                        
+                        filtered_videos.append({
+                            'video': video,
+                            'quality_score': quality_score
+                        })
+                    
+                    logger.info(f"[{word}] After filtering: {len(filtered_videos)} videos for phrase '{phrase}'")
+                     
+                    # Sort by quality score and check subtitles
+                    filtered_videos.sort(key=lambda x: x['quality_score'], reverse=True)
+                    
+                    best_video = None
+                    best_subtitle_occurrences = []
+                    best_score = 0
+                    
+                    # Check top 50 videos for subtitle matches
+                    for item in filtered_videos[:self.MAX_VIDEOS_TO_CHECK_FOR_SUBTITLES]:
+                        video = item['video']
+                        bvid = video.get('bvid', '')
+                        
+                        # Check for subtitle matches
+                        subtitle_occurrences = self._get_bilibili_subtitles(bvid, phrase)
+                        
+                        if subtitle_occurrences:
+                            logger.info(f"[{word}] Video {bvid} has {len(subtitle_occurrences)} subtitle matches for '{phrase}'")
+                            best_video = video
+                            best_subtitle_occurrences = subtitle_occurrences
+                            best_score = item['quality_score']
+                            break  # Take first video with subtitle matches
+                        else:
+                            logger.info(f"[{word}] Video {bvid} has no subtitle matches for '{phrase}' - will use anyway")
+                            # If no subtitle matches found, still use the video but with start_time=0
+                            best_video = video
+                            best_subtitle_occurrences = []
+                            best_score = item['quality_score']
+                            break  # Take first video even without subtitles
+                     
+                    # If we found a suitable video, add it
+                    if best_video:
+                        try:
+                            # Extract video information
+                            bvid = best_video.get('bvid', '')
+                            aid = best_video.get('aid', 0)
+                            title = best_video.get('title', '').replace('<em class="keyword">', '').replace('</em>', '')
+                            description = best_video.get('description', '')[:200]
+                            pic = best_video.get('pic', '')
+                            author = best_video.get('author', '')
+                            mid = best_video.get('mid', 0)
+                            view = best_video.get('play', 0)
+                            danmaku = best_video.get('video_review', 0)
+                            reply = best_video.get('review', 0)
+                            favorite = best_video.get('favorites', 0)
+                            coin = best_video.get('coin', 0)
+                            share = best_video.get('share', 0)
+                            like = best_video.get('like', 0)
+                            pubdate = best_video.get('pubdate', 0)
+                            duration_str = best_video.get('duration', '0')
+                            # Convert duration string like "5:0" to seconds
+                            try:
+                                if ':' in duration_str:
+                                    parts = duration_str.split(':')
+                                    if len(parts) == 2:
+                                        duration = int(parts[0]) * 60 + int(parts[1])
+                                    else:
+                                        duration = 0
+                                else:
+                                    duration = int(duration_str)
+                            except (ValueError, IndexError):
+                                duration = 0
+                            
+                            # Determine start time from subtitle matches (earliest occurrence)
+                            start_time = 0.0
+                            if best_subtitle_occurrences:
+                                start_time = min(occ['start'] for occ in best_subtitle_occurrences)
+                                logger.info(f"[{word}] Using start time {start_time}s for video {bvid} (phrase '{phrase}')")
+                            
+                            # Create video URL with optional start time
+                            video_url = f"https://www.bilibili.com/video/{bvid}"
+                            if start_time > 0:
+                                video_url += f"?t={start_time}"
+                            
+                            video_info = BilibiliVideoInfo(
+                                bvid=bvid,
+                                aid=aid,
+                                title=title,
+                                description=description,
+                                pic=pic,
+                                author=author,
+                                mid=mid,
+                                view=view,
+                                danmaku=danmaku,
+                                reply=reply,
+                                favorite=favorite,
+                                coin=coin,
+                                share=share,
+                                like=like,
+                                pubdate=pubdate,
+                                duration=duration,
+                                start_time=start_time,
+                                matched_phrase=phrase,
+                                video_url=video_url
+                            )
+                            all_videos.append(video_info.model_dump())
+                            logger.info(f"[{word}] Added Bilibili video for phrase '{phrase}': {bvid} (score: {best_score}, start: {start_time}s)")
+                        
+                        except Exception as e:
+                            logger.warning(f"[{word}] Error processing best video: {str(e)}")
+                    else:
+                        logger.info(f"[{word}] No suitable video found for phrase '{phrase}'")
+                except Exception as e:
+                    logger.warning(f"[{word}] Error searching Bilibili for phrase '{phrase}': {str(e)}")
+                    continue
+            
+            # Return videos found
+            return {
+                "success": True,
+                "bilibili_videos": all_videos
+            }
+            
+        except Exception as e:
+            logger.error(f"Error fetching Bilibili videos for '{word}': {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _get_bilibili_subtitles(self, bvid: str, phrase: str) -> List[Dict[str, Any]]:
+        """Get subtitle timestamps where the exact phrase appears in the Bilibili video"""
+        try:
+            logger.info(f"[Subtitle] Starting subtitle fetch for {bvid}, looking for phrase: '{phrase}'")
+            # Initialize video object with credentials if available
+            if self.bilibili_credential:
+                video_obj = video.Video(bvid=bvid, credential=self.bilibili_credential)
+                logger.info(f"[Subtitle] Using authenticated session for video {bvid}")
+            else:
+                video_obj = video.Video(bvid=bvid)
+                logger.warning(f"[Subtitle] No credentials available for video {bvid} - subtitles may not be accessible")
+            
+            # Get video info to find CID
+            info = sync(video_obj.get_info())
+            cid = info.get('cid', 0)
+            
+            if not cid:
+                logger.warning(f"[Subtitle] Could not get CID for video {bvid}")
+                return []
+            
+            logger.info(f"[Subtitle] Got CID {cid} for video {bvid}, fetching subtitle info...")
+            # Get subtitle information
+            subtitle_info = sync(video_obj.get_subtitle(cid=cid))
+            
+            if not subtitle_info or 'subtitles' not in subtitle_info:
+                logger.warning(f"[Subtitle] No subtitles available for video {bvid} (subtitle_info: {subtitle_info})")
+                return []
+            
+            logger.info(f"[Subtitle] Found {len(subtitle_info.get('subtitles', []))} subtitle tracks for video {bvid}")
+            
+            subtitle_url = None
+            found_lang = None
+            for sub in subtitle_info['subtitles']:
+                lang = sub.get('lan', '')
+                ai_status = sub.get('ai_status', 0)
+                logger.info(f"[Subtitle] Available subtitle language: {lang}, ai_status: {ai_status}")
+                if ai_status != 2:
+                    continue  # Only use completed AI subtitles
+                if lang.startswith('en') or 'en' in lang:
+                    subtitle_url = sub.get('subtitle_url')
+                    found_lang = lang
+                    break
+                elif ('zh' in lang or lang == 'ai-zh') and not subtitle_url:
+                    subtitle_url = sub.get('subtitle_url')
+                    found_lang = lang
+            
+            if not subtitle_url:
+                logger.warning(f"[Subtitle] No suitable subtitle language found for video {bvid}")
+                return []
+            
+            logger.info(f"[Subtitle] Using subtitle language '{found_lang}' for video {bvid}, URL: {subtitle_url}")
+            
+            # Handle protocol-relative URLs
+            if subtitle_url.startswith('//'):
+                subtitle_url = 'https:' + subtitle_url
+            
+            # Download subtitle content
+            response = requests.get(subtitle_url, timeout=10)
+            if response.status_code != 200:
+                logger.warning(f"[Subtitle] Failed to download subtitles for video {bvid}: {response.status_code}")
+                return []
+            
+            subtitle_data = response.json()
+            logger.info(f"[Subtitle] Downloaded subtitle data for {bvid}, entries: {len(subtitle_data.get('body', []))}")
+            
+            # Look for exact phrase matches in subtitle content
+            phrase_lower = phrase.lower()
+            occurrences = []
+            max_occurrences = 3
+            
+            if 'body' in subtitle_data:
+                for item in subtitle_data['body']:
+                    content = item.get('content', '')
+                    if phrase_lower in content.lower():
+                        logger.info(f"[Subtitle] Found phrase '{phrase}' in subtitle text: '{content}'")
+                        # Check if it's an exact phrase match (not just substring)
+                        import re
+                        pattern = r'\b' + re.escape(phrase_lower) + r'\b'
+                        if re.search(pattern, content.lower()):
+                            start = item.get('from', 0)
+                            duration = item.get('to', 0) - start
+                            end = item.get('to', start + duration)
+                            
+                            occurrences.append({
+                                'start': start,
+                                'end': end,
+                                'text': content.strip(),
+                                'phrase': phrase
+                            })
+                            logger.info(f"[Subtitle] Matched at {start}s: '{content}'")
+                            
+                            if len(occurrences) >= max_occurrences:
+                                break
+            
+            logger.info(f"[Subtitle] Total matches found for {bvid}: {len(occurrences)}")
+            return occurrences
+            
+        except Exception as e:
+            logger.warning(f"Could not fetch subtitles for video {bvid}: {str(e)}")
+            return []
 
+    def _parse_duration(self, duration_str: str) -> int:
+        """Convert duration string to seconds"""
+        try:
+            parts = duration_str.split(':')
+            if len(parts) == 2:  # MM:SS
+                return int(parts[0]) * 60 + int(parts[1])
+            elif len(parts) == 3:  # HH:MM:SS
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        except:
+            return 0
+        return 0
+
+    def _is_educational_video(self, video: dict) -> bool:
+        """Check if video has educational content based on tags and title"""
+        EDUCATIONAL_TAGS = ['英语学习', '英语', '学习', '教学', '教育', '课程', 
+                            'English', 'learning', '口语', '听力']
+        AVOID_TAGS = ['舞蹈', 'dance', '音乐', 'music', 'MV', '翻唱', 
+                      '街舞', '宅舞', '明星']
+        
+        tags = video.get('tag', '').lower()
+        title = video.get('title', '').lower().replace('<em class="keyword">', '').replace('</em>', '')
+        
+        has_edu_tags = any(tag.lower() in tags or tag.lower() in title 
+                           for tag in EDUCATIONAL_TAGS)
+        has_avoid_tags = any(tag.lower() in tags or tag.lower() in title 
+                             for tag in AVOID_TAGS)
+        
+        return has_edu_tags and not has_avoid_tags
+
+    def _has_avoid_tags(self, video: dict) -> bool:
+        """Check if video has tags/content to avoid (dance, music, entertainment)"""
+        AVOID_TAGS = ['舞蹈', 'dance', '音乐', 'music', 'MV', '翻唱', 
+                      '街舞', '宅舞', '明星']
+        
+        tags = video.get('tag', '').lower()
+        title = video.get('title', '').lower().replace('<em class="keyword">', '').replace('</em>', '')
+        
+        return any(tag.lower() in tags or tag.lower() in title 
+                   for tag in AVOID_TAGS)
+
+    def _calculate_quality_score(self, video: dict) -> float:
+        """Calculate quality score based on engagement metrics"""
+        views = video.get('play', 0)
+        likes = video.get('like', 0)
+        favorites = video.get('favorites', 0)
+        comments = video.get('review', 0)
+        
+        if views == 0:
+            return 0
+        
+        like_ratio = likes / views
+        favorite_ratio = favorites / views
+        engagement_ratio = (likes + favorites + comments) / views
+        
+        score = (
+            like_ratio * 0.3 +
+            favorite_ratio * 0.5 +
+            engagement_ratio * 0.2 +
+            min(views / 100000, 1.0) * 0.1
+        )
+        
+        return score
 
 
 # Global instance

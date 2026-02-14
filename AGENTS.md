@@ -176,6 +176,81 @@ The dictionary service uses a **hybrid API + AI architecture** for optimal perfo
 - ✅ Logging (track API vs AI decisions)
 - ✅ Unified response format (sections match full lookup structure)
 
+## Bilibili Video Search with Subtitle Timestamps
+
+The dictionary service includes Bilibili video search with automatic timestamp positioning based on subtitle matches. This feature requires authentication to access video subtitles.
+
+### How to Obtain Bilibili Credentials
+
+Bilibili requires authentication (SESSDATA cookie) to access video subtitles for timestamp extraction. Here's how to get the required credentials:
+
+#### Step-by-Step Browser Method:
+
+1. **Open Bilibili and Log In**
+   - Navigate to https://www.bilibili.com
+   - Log in to your account
+
+2. **Open Browser Developer Tools**
+   - **Chrome/Edge**: Press `F12` or right-click → "Inspect"
+   - **Firefox**: Press `F12` or right-click → "Inspect Element"
+
+3. **Navigate to Cookies**
+   - Click on **"Application"** tab (Chrome/Edge) or **"Storage"** tab (Firefox)
+   - In the left sidebar, expand **"Cookies"**
+   - Click on `https://www.bilibili.com`
+
+4. **Copy Cookie Values**
+   - Find and copy the following cookie values:
+     - **SESSDATA** (Required for subtitle access)
+     - **bili_jct** (Required for write operations)
+     - **buvid3** (Optional but recommended)
+
+5. **Add to Environment Variables**
+   ```env
+   # Add to your .env file
+   BILIBILI_SESSDATA=your_sessdata_value
+   BILIBILI_BILI_JCT=your_bili_jct_value
+   BILIBILI_BUVID3=your_buvid3_value
+   ```
+
+**Note**: SESSDATA cookies expire periodically. You'll need to refresh them if subtitle access stops working.
+
+### Authentication Setup in Code
+
+The service automatically detects and uses Bilibili credentials when available:
+
+```python
+# In DictionaryService.__init__()
+if sessdata and bili_jct and buvid3:
+    self.bilibili_credential = Credential(sessdata=sessdata, bili_jct=bili_jct, buvid3=buvid3)
+    logger.info("Bilibili credentials configured for subtitle access")
+else:
+    self.bilibili_credential = None
+    logger.warning("Bilibili credentials not configured - subtitle access will be limited")
+```
+
+### Video Search with Timestamps
+
+When credentials are available, the service:
+1. Searches Bilibili for videos related to dictionary terms
+2. Downloads subtitles for each video
+3. Finds exact phrase matches in subtitles
+4. Sets `start_time` to the earliest matching timestamp
+5. Returns video URLs with `?t={start_time}` parameter
+
+Without credentials, videos are found but `start_time` defaults to 0.
+
+### Testing Bilibili Integration
+
+```bash
+# Test video search
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"hello","section":"bilibili_videos"}'
+```
+
+Expected response includes video URLs with timestamps when subtitles match the search phrase.
+
 ## Important Gotchas
 
 1. **Dictionary Service**: Uses hybrid API + AI; falls back to AI-only if free API fails (logged)
