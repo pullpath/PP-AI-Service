@@ -166,39 +166,9 @@ class BilibiliVideoSearch:
         
         queries = []
         
-        # 1. Original phrase (normalized)
-        queries.append(normalized_phrase)
-        
-        # 2. Phrase + enhanced tags
+        # 1. Phrase + enhanced tags
         for tag in self.ENHANCED_SEARCH_TAGS:
             queries.append(f"{normalized_phrase} {tag}")
-        
-        # 3. "英语" + phrase for broader search
-        queries.append(f"英语 {normalized_phrase}")
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_queries = []
-        for query in queries:
-            if query not in seen:
-                seen.add(query)
-                unique_queries.append(query)
-        
-        logger.info(f"Generated enhanced search queries: {unique_queries}")
-        return unique_queries
-        """Generate enhanced search queries for better video discovery
-        
-        Args:
-            phrase: The original search phrase
-            
-        Returns:
-            List of enhanced search queries to try
-        """
-        queries = []
-        
-        # 1. Phrase + other relevant tags
-        for tag in self.ENHANCED_SEARCH_TAGS:
-                queries.append(f"{phrase} {tag}")
         
         # Remove duplicates while preserving order
         seen = set()
