@@ -14,7 +14,7 @@ import concurrent.futures
 import requests
 import logging
 from dotenv import load_dotenv
-from bilibili_api import Credential
+from bilibili_api import Credential, sync
 
 # Import local modules
 from .bilibili_search import BilibiliVideoSearch
@@ -35,8 +35,6 @@ from .prompts import (
     get_sense_related_words_prompt, get_sense_usage_notes_prompt,
     get_common_phrases_prompt
 )
-
-logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +73,22 @@ class DictionaryService:
         else:
             self.bilibili_credential = None
             logger.warning("Bilibili credentials not configured - subtitle access will be limited")
+
+        # check if credential needs to be refreshed (only if credentials exist)
+        if self.bilibili_credential:
+            should_refresh = sync(self.bilibili_credential.check_refresh())
+
+            try:
+                if should_refresh:
+                    sync(self.bilibili_credential.refresh())
+                    logger.info("Bilibili credentials refreshed successfully")
+                else:
+                    logger.info("Bilibili credentials are valid, no refresh needed")
+
+            except Exception as e:
+                logger.warning(f"Error refreshing Bilibili credentials: {str(e)}")
+        else:
+            logger.info("No Bilibili credentials to refresh")
 
         # Initialize Bilibili video search service
         self.bilibili_search = BilibiliVideoSearch(self.bilibili_credential)
@@ -1212,14 +1226,6 @@ class DictionaryService:
             
             # Use the decoupled Bilibili search service
             result = self.bilibili_search.search_videos_for_word(word, normalized_phrases)
-            
-            return result
-            # First, get common phrases for this word
-            phrases = self._fetch_common_phrases(word)
-            logger.info(f"[{word}] Generated phrases: {phrases}")
-            
-            # Use the decoupled Bilibili search service
-            result = self.bilibili_search.search_videos_for_word(word, phrases)
             
             return result
             
