@@ -3,7 +3,6 @@ from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
 from ai_svc import tool, openai
-from ai_svc.dictionary import dictionary_service
 import sys
 import logging
 from dotenv import load_dotenv
@@ -17,6 +16,8 @@ def configure_logging():
 
 # Configure logging to output to sys.stdout
 configure_logging()
+
+from ai_svc.dictionary import dictionary_service
 
 app = Flask(__name__)
 CORS(app)
