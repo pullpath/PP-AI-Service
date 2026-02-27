@@ -103,14 +103,24 @@ class BilibiliVideoSearch:
                         
                         logger.info(f"[{word}] Found {len(video_results)} videos in KNOWLEDGE zones for query '{search_query}'")
                         
-                        # Filter and process videos
-                        filtered_videos = self._filter_and_score_videos(video_results)
-                        logger.info(f"[{word}] After filtering: {len(filtered_videos)} videos for query '{search_query}'")
+                        # Filter videos that contain the whole phrase in title, description, or tags
+                        filtered_by_phrase = self._filter_videos_by_phrase(video_results, phrase)
+                        logger.info(f"[{word}] After phrase filtering: {len(filtered_by_phrase)} videos contain whole phrase '{phrase}'")
+                        
+                        if not filtered_by_phrase:
+                            logger.info(f"[{word}] No videos found containing whole phrase '{phrase}' - skipping")
+                            continue
+                        
+                        # Use filtered videos directly (phrase filtering only, no additional quality filters)
+                        # This allows videos that don't meet strict quality criteria but contain the exact phrase
+                        filtered_videos = [{'video': video, 'quality_score': 1.0} for video in filtered_by_phrase]
+                        
+                        logger.info(f"[{word}] After phrase filtering: {len(filtered_videos)} videos for query '{search_query}'")
                         
                         if not filtered_videos:
                             continue
                         
-                        # Sort by quality score
+                        # Sort by quality score (all have score 1.0, so order preserved)
                         filtered_videos.sort(key=lambda x: x['quality_score'], reverse=True)
                         
                         # Check top videos for subtitle matches
@@ -182,38 +192,88 @@ class BilibiliVideoSearch:
         return unique_queries
     
     def _search_in_knowledge_zones(self, query: str) -> List[Dict[str, Any]]:
-        """Search for videos in KNOWLEDGE zones
+        """Search for videos in KNOWLEDGE zones with multiple order types
         
         Args:
             query: Search query string
             
         Returns:
-            List of video search results
+            List of video search results from all zones and order types
         """
         all_videos = []
         
-        # Try each KNOWLEDGE zone
-        for zone_type in self.KNOWLEDGE_ZONES:
-            try:
-                search_result = sync(search.search_by_type(
-                    keyword=query,
-                    search_type=search.SearchObjectType.VIDEO,
-                    order_type=search.OrderVideo.STOW,  # Sort by favorites for quality content
-                    video_zone_type=zone_type,
-                    page=1,
-                    page_size=self.PAGE_SIZE
-                ))
-                
-                videos = search_result.get('result', [])
-                if videos:
-                    logger.info(f"Found {len(videos)} videos in zone {zone_type} for query '{query}'")
-                    all_videos.extend(videos)
-                    
-            except Exception as e:
-                logger.warning(f"Error searching in zone {zone_type} for query '{query}': {str(e)}")
-                continue
+        # Multiple order types for better coverage
+        order_types = [
+            search.OrderVideo.STOW,       # Favorites (收藏数)
+            # search.OrderVideo.CLICK,      # View count (播放数)
+            # search.OrderVideo.TOTALRANK   # Total ranking (综合排序)
+        ]
         
-        return all_videos
+        # Try each KNOWLEDGE zone with each order type
+        for zone_type in self.KNOWLEDGE_ZONES:
+            for order_type in order_types:
+                try:
+                    search_result = sync(search.search_by_type(
+                        keyword=query,
+                        search_type=search.SearchObjectType.VIDEO,
+                        order_type=order_type,
+                        video_zone_type=zone_type,
+                        page=1,
+                        page_size=self.PAGE_SIZE
+                    ))
+                    
+                    videos = search_result.get('result', [])
+                    if videos:
+                        logger.info(f"Found {len(videos)} videos in zone {zone_type} with order {order_type} for query '{query}'")
+                        all_videos.extend(videos)
+                        
+                except Exception as e:
+                    logger.warning(f"Error searching in zone {zone_type} with order {order_type} for query '{query}': {str(e)}")
+                    continue
+        
+        # Remove duplicates based on bvid
+        seen_bvids = set()
+        unique_videos = []
+        for video in all_videos:
+            bvid = video.get('bvid')
+            if bvid and bvid not in seen_bvids:
+                seen_bvids.add(bvid)
+                unique_videos.append(video)
+        
+        logger.info(f"Total unique videos found for query '{query}': {len(unique_videos)}")
+        return unique_videos
+    
+    def _filter_videos_by_phrase(self, videos: List[Dict[str, Any]], phrase: str) -> List[Dict[str, Any]]:
+        """Filter videos to only include those containing the whole phrase in title, description, or tags
+        
+        Args:
+            videos: List of video search results
+            phrase: The phrase to match (whole word/phrase)
+            
+        Returns:
+            List of videos that contain the whole phrase
+        """
+        filtered_videos = []
+        phrase_lower = phrase.lower().strip()
+        
+        # Create pattern for whole phrase match (word boundaries)
+        pattern = r'\b' + re.escape(phrase_lower) + r'\b'
+        
+        for video in videos:
+            # Get text fields to search (strip all HTML tags)
+            title = self._strip_html_tags(video.get('title', '')).lower()
+            description = self._strip_html_tags(video.get('description', '')).lower()
+            tags = video.get('tag', '').lower()
+            
+            # Combine all text for searching
+            combined_text = f"{title} {description} {tags}"
+            
+            # Check if whole phrase matches
+            if re.search(pattern, combined_text):
+                filtered_videos.append(video)
+        
+        return filtered_videos
+
     
     def _filter_and_score_videos(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Filter videos based on quality criteria and calculate quality scores
@@ -309,8 +369,8 @@ class BilibiliVideoSearch:
             # Extract video information
             bvid = video.get('bvid', '')
             aid = video.get('aid', 0)
-            title = video.get('title', '').replace('<em class="keyword">', '').replace('</em>', '')
-            description = video.get('description', '')[:200]
+            title = self._strip_html_tags(video.get('title', ''))
+            description = self._strip_html_tags(video.get('description', ''))[:200]
             pic = video.get('pic', '')
             author = video.get('author', '')
             mid = video.get('mid', 0)
@@ -486,6 +546,20 @@ class BilibiliVideoSearch:
         except Exception as e:
             logger.warning(f"Could not fetch subtitles for video {bvid}: {str(e)}")
             return []
+
+    def _strip_html_tags(self, text: str) -> str:
+        """Strip all HTML tags from text
+        
+        Args:
+            text: Text that may contain HTML tags
+            
+        Returns:
+            Text with all HTML tags removed
+        """
+        import re
+        # Remove all HTML tags
+        clean = re.sub(r'<[^>]+>', '', text)
+        return clean
     
     def _parse_duration(self, duration_str: str) -> int:
         """Convert duration string to seconds
