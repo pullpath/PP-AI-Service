@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dictionary Cache Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .controls select, .controls input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        .word-list {
+            margin-top: 20px;
+        }
+        
+        .word-item {
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            background: #fafafa;
+        }
+        
+        .word-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .word-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .word-name {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .word-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .entry-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border-left: 3px solid #17a2b8;
+        }
+        
+        .entry-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .entry-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #17a2b8;
+        }
+        
+        .sections-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .section-badge {
+            padding: 6px 12px;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 12px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .section-badge.stale {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .section-badge button {
+            padding: 0 4px;
+            font-size: 10px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .videos-section {
+            margin-top: 15px;
+        }
+        
+        .videos-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .videos-title {
+            font-weight: 600;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .video-item {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            display: flex;
+            gap: 15px;
+            align-items: flex-start;
+        }
+        
+        .video-thumbnail {
+            width: 120px;
+            height: 68px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        
+        .video-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .video-title {
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .video-meta {
+            font-size: 12px;
+            color: #999;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .video-actions {
+            display: flex;
+            gap: 5px;
+            flex-shrink: 0;
+        }
+        
+        .senses-section {
+            margin-top: 10px;
+            padding-left: 20px;
+        }
+        
+        .sense-item {
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        
+        .word-meta {
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        
+        .expand-toggle {
+            padding: 6px 12px;
+            font-size: 12px;
+            background: #6c757d;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .collapsed .videos-section,
+        .collapsed .senses-section {
+            display: none;
+        }
+        
+        .videos-section.collapsed-videos .videos-list {
+            display: none;
+        }
+        
+        .section-content {
+            margin-top: 10px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 3px solid #007bff;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .section-content h4 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .section-content ul {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+        
+        .section-content li {
+            margin: 3px 0;
+        }
+        
+        .section-toggle {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .section-toggle::before {
+            content: '▶';
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+        
+        .section-toggle.expanded::before {
+            transform: rotate(90deg);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 Dictionary Cache Manager</h1>
+        <p class="subtitle">Manage your dictionary cache with granular control over entries and videos</p>
+        
+        <!-- Statistics -->
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalWords">-</div>
+                <div class="stat-label">Total Words</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="hitRate">-</div>
+                <div class="stat-label">Cache Hit Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalHits">-</div>
+                <div class="stat-label">Cache Hits</div>
+            </div>
+        </div>
+        
+        <!-- Controls -->
+        <div class="controls">
+            <select id="sortBy">
+                <option value="last_accessed">Sort by Last Accessed</option>
+                <option value="word">Sort by Word</option>
+                <option value="created_at">Sort by Created</option>
+            </select>
+            
+            <input type="number" id="limitInput" placeholder="Limit" value="20" min="1" max="500" style="width: 80px;" />
+            
+            <button class="btn-primary" onclick="loadWords()">🔄 Refresh</button>
+            <button class="btn-secondary" onclick="loadStats()">📊 Update Stats</button>
+            <button class="btn-danger" onclick="clearAllCache()">🗑️ Clear All Cache</button>
+        </div>
+        
+        <!-- Word List -->
+        <div class="word-list" id="wordList">
+            <div class="loading">Loading...</div>
+        </div>
+        
+        <!-- Pagination -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+
+    <script>
+        let currentOffset = 0;
+        let currentLimit = 20;
+        let hasMore = false;
+        let adminToken = null;  // Store admin token globally
+
+        // ===== ADMIN TOKEN MANAGEMENT =====
+        
+        // Get token from sessionStorage or prompt user
+        async function getAdminToken() {
+            // Try to get from sessionStorage first
+            let token = sessionStorage.getItem('admin_token');
+            
+            if (token) {
+                return token;
+            }
+            
+            // Token not in session - prompt user to enter manually
+            const userToken = prompt(
+                '🔐 Admin Authentication Required\n\n' +
+                'This operation requires admin authentication.\n' +
+                'Please enter your admin token:' 
+            );
+            
+            if (userToken && userToken.trim()) {
+                // Return token but DON'T save yet - will save after successful auth
+                return userToken.trim();
+            } else {
+                throw new Error('Authentication cancelled by user');
+            }
+        }
+        
+        // Clear saved token (for testing or logout)
+        function clearAdminToken() {
+            sessionStorage.removeItem('admin_token');
+            console.log('✅ Admin token cleared from session');
+        }
+        
+        // Helper: Make authenticated fetch request
+        async function authenticatedFetch(url, options = {}) {
+            try {
+                // Get token (will prompt if not in session)
+                const token = await getAdminToken();
+                
+                // Add admin token to headers
+                options.headers = options.headers || {};
+                options.headers['X-Admin-Token'] = token;
+                
+                // Make the request
+                const response = await fetch(url, options);
+                
+                // Check authentication status
+                if (response.status === 401) {
+                    // Authentication failed - clear any saved token
+                    sessionStorage.removeItem('admin_token');
+                    throw new Error('Invalid admin token. Please try again.');
+                }
+                
+                // Authentication succeeded - save token to session for future use
+                if (response.ok) {
+                    sessionStorage.setItem('admin_token', token);
+                }
+                
+                return response;
+            } catch (error) {
+                // User cancelled or error occurred
+                throw error;
+            }
+        }
+        
+        // ===== END ADMIN TOKEN MANAGEMENT =====
+
+
+        // Load statistics
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/dictionary/cache/stats');
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    const db = data.metrics.database;
+                    const mem = data.metrics.in_memory_stats;
+                    
+                    document.getElementById('totalWords').textContent = db.total_words;
+                    document.getElementById('hitRate').textContent = 
+                        ((mem.cache_hit_rate || 0) * 100).toFixed(1) + '%';
+                    document.getElementById('totalHits').textContent = mem.cache_hits || 0;
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Load words
+        async function loadWords(offset = 0) {
+            currentOffset = offset;
+            currentLimit = parseInt(document.getElementById('limitInput').value) || 20;
+            const sortBy = document.getElementById('sortBy').value;
+            
+            document.getElementById('wordList').innerHTML = '<div class="loading">Loading...</div>';
+            
+            try {
+                const response = await fetch(
+                    `/api/dictionary/cache/words?limit=${currentLimit}&offset=${currentOffset}&sort_by=${sortBy}`
+                );
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    await renderWords(data.data);
+                    renderPagination(data.data);
+                }
+            } catch (error) {
+                console.error('Error loading words:', error);
+                document.getElementById('wordList').innerHTML = 
+                    '<div class="loading">Error loading words</div>';
+            }
+        }
+
+        // Render word list with detailed view
+        async function renderWords(data) {
+            const container = document.getElementById('wordList');
+            
+            if (data.words.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <h3>No cached words yet</h3>
+                        <p>Start using the dictionary to build your cache</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Load detailed info for each word
+            const detailedWords = await Promise.all(
+                data.words.map(async word => {
+                    try {
+                        const res = await fetch(`/api/dictionary/cache/words/${word.word}/details`);
+                        const detailData = await res.json();
+                        return detailData.status === 'ok' ? detailData.data : word;
+                    } catch {
+                        return word;
+                    }
+                })
+            );
+            
+            container.innerHTML = detailedWords.map(word => renderWordItem(word)).join('');
+        }
+
+        // Render individual word item
+        function renderWordItem(word) {
+            const hasDetails = word.entries && word.entries.length > 0;
+            
+            if (!hasDetails) {
+                // Fallback to simple view
+                return `
+                    <div class="word-item">
+                        <div class="word-header">
+                            <div class="word-title">
+                                <div class="word-name">${word.word}</div>
+                            </div>
+                            <div class="word-actions">
+                                <button class="btn-danger" onclick="deleteWord('${word.word}')">Delete All</button>
+                            </div>
+                        </div>
+                        <div class="word-meta">
+                            Created: ${word.created_at} | Last accessed: ${word.last_accessed_at}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            return `
+                <div class="word-item" id="word-${word.word}">
+                    <div class="word-header">
+                        <div class="word-title">
+                            <div class="word-name">${word.word}</div>
+                            ${word.basic_status ? `<span class="section-badge">${word.basic_status}</span>` : ''}
+                        </div>
+                        <div class="word-actions">
+                            <button class="expand-toggle btn-secondary btn-small" onclick="toggleExpand('${word.word}')">
+                                Collapse All
+                            </button>
+                            <button class="btn-danger" onclick="deleteWord('${word.word}')">Delete All</button>
+                        </div>
+                    </div>
+                    
+                    ${word.entries.map(entry => renderEntry(word.word, entry)).join('')}
+                    
+                    <div class="word-meta">
+                        Created: ${word.created_at} | Last accessed: ${word.last_accessed_at}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render entry section
+        function renderEntry(word, entry) {
+            const sections = Object.entries(entry.sections || {});
+            const videos = entry.videos || [];
+            const senses = entry.senses || [];
+            
+            return `
+                <div class="entry-section">
+                    <div class="entry-header">
+                        <div class="entry-title">📖 Entry ${entry.entry_index}</div>
+                    </div>
+                    
+                    ${sections.length > 0 ? `
+                        <div style="margin-top: 15px;">
+                            ${sections.map(([section, sectionData]) => renderSectionContent(word, section, sectionData, entry.entry_index)).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    ${videos.length > 0 ? `
+                        <div class="videos-section" id="videos-${word}-${entry.entry_index}">
+                            <div class="videos-header">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <button class="expand-toggle btn-secondary btn-small" onclick="toggleVideosSection('${word}', ${entry.entry_index})" id="videos-toggle-${word}-${entry.entry_index}">
+                                        Collapse
+                                    </button>
+                                    <div class="videos-title">🎥 Bilibili Videos (${videos.length})</div>
+                                </div>
+                                <button class="btn-danger btn-small" onclick="deleteSection('${word}', 'bilibili_videos', ${entry.entry_index})">
+                                    Delete All Videos
+                                </button>
+                            </div>
+                            <div class="videos-list" id="videos-list-${word}-${entry.entry_index}">
+                                ${videos.map((video, idx) => renderVideo(word, entry.entry_index, video, idx)).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    ${senses.length > 0 ? `
+                        <div class="senses-section">
+                            <div class="videos-title" style="margin-bottom: 10px;">💡 Senses (${senses.length})</div>
+                            ${senses.map(sense => renderSense(word, entry.entry_index, sense)).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Render section content with toggle
+        function renderSectionContent(word, section, sectionData, entryIndex) {
+            const status = sectionData.status || 'unknown';
+            const data = sectionData.data;
+            const sectionId = `section-${word}-${section}-${entryIndex}`;
+            
+            let contentHtml = '';
+            if (data) {
+                if (section === 'etymology') {
+                    // Handle nested structure: {etymology: {etymology: "...", root_analysis: "..."}}
+                    const etymObj = data.etymology || {};
+                    const etym = typeof etymObj === 'string' ? etymObj : (etymObj.etymology || 'N/A');
+                    const rootAnalysis = typeof etymObj === 'object' ? etymObj.root_analysis : '';
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            <p><strong>Etymology:</strong> ${etym}</p>
+                            ${rootAnalysis ? `<p><strong>Root Analysis:</strong> ${rootAnalysis}</p>` : ''}
+                        </div>
+                    `;
+                } else if (section === 'word_family') {
+                    // Handle nested structure: {word_family: {word_family: [...]}} or {word_family: [...]}
+                    const wordFamilyArray = Array.isArray(data.word_family) ? data.word_family : 
+                                           (data.word_family && Array.isArray(data.word_family.word_family) ? data.word_family.word_family : []);
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            <h4>Word Family:</h4>
+                            ${wordFamilyArray.length > 0 ? `<ul>${wordFamilyArray.map(w => `<li>${w}</li>`).join('')}</ul>` : '<p>No data</p>'}
+                        </div>
+                    `;
+                } else if (section === 'usage_context') {
+                    const modernRelevance = data.modern_relevance || (data.usage_context && data.usage_context.modern_relevance) || '';
+                    const commonConfusions = Array.isArray(data.common_confusions) ? data.common_confusions :
+                                            (data.usage_context && Array.isArray(data.usage_context.common_confusions) ? data.usage_context.common_confusions : []);
+                    const regionalVariations = Array.isArray(data.regional_variations) ? data.regional_variations :
+                                              (data.usage_context && Array.isArray(data.usage_context.regional_variations) ? data.usage_context.regional_variations : []);
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            ${modernRelevance ? `<p><strong>Modern Relevance:</strong> ${modernRelevance}</p>` : ''}
+                            ${commonConfusions.length > 0 ? `
+                                <h4>Common Confusions:</h4>
+                                <ul>${commonConfusions.map(c => `<li>${c}</li>`).join('')}</ul>
+                            ` : ''}
+                            ${regionalVariations.length > 0 ? `
+                                <h4>Regional Variations:</h4>
+                                <ul>${regionalVariations.map(r => `<li>${r}</li>`).join('')}</ul>
+                            ` : ''}
+                        </div>
+                    `;
+                } else if (section === 'cultural_notes') {
+                    const notes = data.notes || (data.cultural_notes && data.cultural_notes.notes) || 'N/A';
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            <p>${notes}</p>
+                        </div>
+                    `;
+                } else if (section === 'frequency') {
+                    const freq = data.frequency || (data.frequency_info && data.frequency_info.frequency) || 'N/A';
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            <p><strong>Frequency:</strong> ${freq}</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            return `
+                <div style="margin-bottom: 10px;">
+                    <div class="section-toggle" onclick="toggleSectionContent('${sectionId}', this)">
+                        <span class="section-badge ${status === 'stale' ? 'stale' : ''}" style="margin-right: 5px;">
+                            ${section}
+                            <button onclick="event.stopPropagation(); deleteSection('${word}', '${section}', ${entryIndex})" title="Delete this section">×</button>
+                        </span>
+                    </div>
+                    ${contentHtml}
+                </div>
+            `;
+        }
+
+        // Render sense with its sections
+        function renderSense(word, entryIndex, sense) {
+            const sections = Object.entries(sense.sections || {});
+            
+            return `
+                <div class="sense-item">
+                    <strong>Sense ${sense.sense_index}:</strong>
+                    
+                    <!-- Basic metadata from free API -->
+                    <div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-left: 3px solid #007bff;">
+                        <div><strong>Part of Speech:</strong> <code>${sense.part_of_speech || 'N/A'}</code></div>
+                        <div style="margin-top: 4px;"><strong>Definition:</strong> ${sense.definition || 'N/A'}</div>
+                        ${sense.example ? `<div style="margin-top: 4px;"><strong>Example:</strong> <em>${sense.example}</em></div>` : ''}
+                        ${sense.synonyms && sense.synonyms.length > 0 ? `<div style="margin-top: 4px;"><strong>Synonyms:</strong> ${sense.synonyms.join(', ')}</div>` : ''}
+                        ${sense.antonyms && sense.antonyms.length > 0 ? `<div style="margin-top: 4px;"><strong>Antonyms:</strong> ${sense.antonyms.join(', ')}</div>` : ''}
+                    </div>
+                    
+                    <!-- AI-enhanced sections -->
+                    <div style="margin-top: 8px;">
+                        ${sections.map(([section, sectionData]) => renderSenseSectionContent(word, section, sectionData, entryIndex, sense.sense_index)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render sense section content
+        function renderSenseSectionContent(word, section, sectionData, entryIndex, senseIndex) {
+            const status = sectionData.status || 'unknown';
+            const data = sectionData.data;
+            const sectionId = `sense-section-${word}-${section}-${entryIndex}-${senseIndex}`;
+            
+            let contentHtml = '';
+            if (data) {
+                if (section === 'detailed_sense') {
+                    // Access nested detailed_sense object
+                    const detailedSense = data.detailed_sense || {};
+                    const usageRegister = Array.isArray(detailedSense.usage_register) ? detailedSense.usage_register : [];
+                    const domain = Array.isArray(detailedSense.domain) ? detailedSense.domain : [];
+                    const synonyms = Array.isArray(detailedSense.synonyms) ? detailedSense.synonyms : [];
+                    const antonyms = Array.isArray(detailedSense.antonyms) ? detailedSense.antonyms : [];
+                    const phrases = Array.isArray(detailedSense.word_specific_phrases) ? detailedSense.word_specific_phrases : [];
+                    
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            ${usageRegister.length > 0 ? `<p><strong>Register:</strong> ${usageRegister.join(', ')}</p>` : ''}
+                            ${domain.length > 0 ? `<p><strong>Domain:</strong> ${domain.join(', ')}</p>` : ''}
+                            ${detailedSense.tone ? `<p><strong>Tone:</strong> ${detailedSense.tone}</p>` : ''}
+                            ${synonyms.length > 0 ? `<p><strong>AI Synonyms:</strong> ${synonyms.join(', ')}</p>` : ''}
+                            ${antonyms.length > 0 ? `<p><strong>AI Antonyms:</strong> ${antonyms.join(', ')}</p>` : ''}
+                            ${phrases.length > 0 ? `
+                                <h4>Phrases:</h4>
+                                <ul>${phrases.map(p => `<li>${p}</li>`).join('')}</ul>
+                            ` : ''}
+                        </div>
+                    `;
+                } else if (section === 'examples') {
+                    const examples = Array.isArray(data.examples) ? data.examples : [];
+                    const collocations = Array.isArray(data.collocations) ? data.collocations : [];
+                    
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            ${examples.length > 0 ? `
+                                <h4>Examples:</h4>
+                                <ul>${examples.map(e => `<li>${e}</li>`).join('')}</ul>
+                            ` : ''}
+                            ${collocations.length > 0 ? `
+                                <h4>Collocations:</h4>
+                                <ul>${collocations.map(c => `<li>${c}</li>`).join('')}</ul>
+                            ` : ''}
+                        </div>
+                    `;
+                } else if (section === 'usage_notes') {
+                    const usageNotes = data.usage_notes || '';
+                    contentHtml = `
+                        <div class="section-content" id="${sectionId}" style="display: none;">
+                            <p>${usageNotes || 'N/A'}</p>
+                        </div>
+                    `;
+                }
+            }
+            return `
+                <div style="margin-bottom: 5px;">
+                    <div class="section-toggle" onclick="toggleSectionContent('${sectionId}', this)">
+                        <span class="section-badge ${status === 'stale' ? 'stale' : ''}" style="margin-right: 5px;">
+                            ${section}
+                            <button onclick="event.stopPropagation(); deleteSection('${word}', '${section}', ${entryIndex}, ${senseIndex})" title="Delete">×</button>
+                        </span>
+                    </div>
+                    ${contentHtml}
+                </div>
+            `;
+        }
+
+        // Toggle section content visibility
+        function toggleSectionContent(sectionId, toggleElement) {
+            const content = document.getElementById(sectionId);
+            if (content) {
+                if (content.style.display === 'none') {
+                    content.style.display = 'block';
+                    toggleElement.classList.add('expanded');
+                } else {
+                    content.style.display = 'none';
+                    toggleElement.classList.remove('expanded');
+                }
+            }
+        }
+
+        // Render video item
+        function renderVideo(word, entryIndex, video, videoIndex) {
+            const thumbnail = video.pic.startsWith('//') ? 'https:' + video.pic : video.pic;
+            
+            return `
+                <div class="video-item">
+                    <img src="${thumbnail}" alt="thumbnail" class="video-thumbnail" referrerpolicy="no-referrer" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%2268%22%3E%3Crect fill=%22%23ddd%22 width=%22120%22 height=%2268%22/%3E%3C/svg%3E'" />
+                    <div class="video-info">
+                        <div class="video-title" title="${video.title}">${video.title}</div>
+                        <div class="video-meta">
+                            <span>👁 ${video.view.toLocaleString()}</span>
+                            <span>👍 ${video.like.toLocaleString()}</span>
+                            <span>⏱ ${Math.floor(video.duration / 60)}:${(video.duration % 60).toString().padStart(2, '0')}</span>
+                            <span>📅 ${new Date(video.pubdate * 1000).toLocaleDateString()}</span>
+                        </div>
+                    </div>
+                    <div class="video-actions">
+                        <button class="btn-secondary btn-small" onclick="window.open('${video.video_url}', '_blank')">
+                            Open
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Toggle expand/collapse
+        function toggleExpand(word) {
+            const elem = document.getElementById(`word-${word}`);
+            const btn = elem.querySelector('.expand-toggle');
+            
+            if (elem.classList.contains('collapsed')) {
+                elem.classList.remove('collapsed');
+                btn.textContent = 'Collapse All';
+            } else {
+                elem.classList.add('collapsed');
+                btn.textContent = 'Expand All';
+            }
+        }
+
+        // Toggle videos section expand/collapse
+        function toggleVideosSection(word, entryIndex) {
+            const section = document.getElementById(`videos-${word}-${entryIndex}`);
+            const btn = document.getElementById(`videos-toggle-${word}-${entryIndex}`);
+            
+            if (section.classList.contains('collapsed-videos')) {
+                section.classList.remove('collapsed-videos');
+                btn.textContent = 'Collapse';
+            } else {
+                section.classList.add('collapsed-videos');
+                btn.textContent = 'Expand';
+            }
+        }
+
+        // Render pagination
+        function renderPagination(data) {
+            const container = document.getElementById('pagination');
+            const totalPages = Math.ceil(data.total / currentLimit);
+            const currentPage = Math.floor(currentOffset / currentLimit) + 1;
+            
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            let html = '';
+            
+            if (currentPage > 1) {
+                html += `<button class="btn-secondary" onclick="loadWords(${(currentPage - 2) * currentLimit})">Previous</button>`;
+            }
+            
+            html += `<span style="padding: 10px;">Page ${currentPage} of ${totalPages}</span>`;
+            
+            if (data.has_more) {
+                html += `<button class="btn-secondary" onclick="loadWords(${currentPage * currentLimit})">Next</button>`;
+            }
+            
+            container.innerHTML = html;
+        }
+
+        // Delete entire word
+        async function deleteWord(word) {
+            if (!confirm(`Delete all cached data for "${word}"?`)) return;
+            
+            try {
+                const response = await authenticatedFetch(`/api/dictionary/cache/${word}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    alert(`✅ ${data.message}`);
+                    loadWords(currentOffset);
+                    loadStats();
+                } else {
+                    alert(`❌ Error: ${data.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Delete specific section
+        async function deleteSection(word, section, entryIndex, senseIndex) {
+            let url = `/api/dictionary/cache/${word}/section?section=${section}`;
+            if (entryIndex !== undefined) url += `&entry_index=${entryIndex}`;
+            if (senseIndex !== undefined) url += `&sense_index=${senseIndex}`;
+            
+            const sectionLabel = senseIndex !== undefined 
+                ? `${section} (entry ${entryIndex}, sense ${senseIndex})`
+                : `${section} (entry ${entryIndex})`;
+            
+            if (!confirm(`Delete "${sectionLabel}" for "${word}"?`)) return;
+            
+            try {
+                const response = await authenticatedFetch(url, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    loadWords(currentOffset);
+                    loadStats();
+                } else {
+                    alert(`❌ Error: ${data.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Clear all cache
+        async function clearAllCache() {
+            if (!confirm('⚠️ Delete ALL cached data? This cannot be undone!')) return;
+            
+            try {
+                const response = await authenticatedFetch('/api/dictionary/cache/clear', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    alert('✅ ' + data.message);
+                    loadWords(0);
+                    loadStats();
+                } else {
+                    alert('❌ Error: ' + data.message);
+                }
+            } catch (error) {
+                alert('❌ Error: ' + error.message);
+            }
+        }
+
+        // Initialize
+        // fetchToken() removed - using prompt-based auth instead
+        loadStats();
+        loadWords();
+        
+        // Auto-refresh stats every 30 seconds
+        setInterval(loadStats, 30000);
+        loadStats();
+        loadWords();
+        
+        // Auto-refresh stats every 30 seconds
+        setInterval(loadStats, 30000);
+    </script>
+</body>
+</html>

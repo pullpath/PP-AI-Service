@@ -167,3 +167,9 @@ static/uploads/*
 
 # autogen openai config
 OAI_CONFIG_LIST
+
+# Database files (SQLite caches)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

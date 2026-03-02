@@ -18,9 +18,15 @@ def configure_logging():
 configure_logging()
 
 from ai_svc.dictionary import dictionary_service
+from ai_svc.dictionary.cache_service import cache_service
+from ai_svc.dictionary.cache_routes import cache_bp
 
 app = Flask(__name__)
 CORS(app)
+
+# Register cache management blueprint
+app.register_blueprint(cache_bp)
+
 
 @app.route('/')
 def index():
@@ -30,6 +36,10 @@ def index():
 def page_not_found(error):
     return redirect(url_for('index'))
 
+@app.route('/cache-manager')
+def cache_manager():
+    """Cache management UI"""
+    return app.send_static_file('cache_manager.html')
 @app.route('/api/transcribe', methods=['POST'])
 def transcribe():
     data = request.files
@@ -144,12 +154,30 @@ def dictionary_lookup():
         entry_index = data.get('entry_index', None)
         sense_index = data.get('sense_index', None)
         
-        result = dictionary_service.lookup_section(word, section, sense_index, entry_index)
-        return jsonify(result), 200
+        # Auto-default entry_index for entry-level sections (bilibili_videos, etc.)
+        # Most entry-level sections are not entry-specific, so default to 0
+        if entry_index is None and section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
+            entry_index = 0
+            logging.debug(f"[{word}] Auto-defaulting entry_index to 0 for {section}")
         
+        # --- Cache orchestration (delegated to cache_service) ---
+        def fetch_from_service():
+            """Fetch function for cache miss"""
+            return dictionary_service.lookup_section(word, section, sense_index, entry_index)
+        
+        result, status_code = cache_service.lookup_with_cache(
+            word=word,
+            section=section,
+            entry_index=entry_index,
+            sense_index=sense_index,
+            fetch_func=fetch_from_service
+        )
+        
+        return jsonify(result), status_code
     except Exception as e:
+        logging.error(f"Error in dictionary lookup: {str(e)}")
         return jsonify({
-            "error": f"Internal server error: {str(e)}",
+            "error": str(e),
             "success": False
         }), 500
 
@@ -166,7 +194,7 @@ def dictionary_test():
         },
         "status": "ok"
     }), 200
-    
+
 @app.route('/api/search', methods=['GET'])
 def search():
     result = tool.google_search(request.args.get('keyword'))

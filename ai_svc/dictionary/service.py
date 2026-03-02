@@ -76,17 +76,15 @@ class DictionaryService:
 
         # check if credential needs to be refreshed (only if credentials exist)
         if self.bilibili_credential:
-            should_refresh = sync(self.bilibili_credential.check_refresh())
-
             try:
+                should_refresh = sync(self.bilibili_credential.check_refresh())
                 if should_refresh:
                     sync(self.bilibili_credential.refresh())
                     logger.info("Bilibili credentials refreshed successfully")
                 else:
                     logger.info("Bilibili credentials are valid, no refresh needed")
-
             except Exception as e:
-                logger.warning(f"Error refreshing Bilibili credentials: {str(e)}")
+                logger.warning(f"Error checking/refreshing Bilibili credentials: {str(e)} - continuing without Bilibili access")
         else:
             logger.info("No Bilibili credentials to refresh")
 
