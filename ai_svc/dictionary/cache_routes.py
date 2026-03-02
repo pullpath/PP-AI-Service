@@ -66,13 +66,16 @@ def check_admin_auth() -> bool:
     Set ADMIN_TOKEN in .env file (generates persistent random token if not set)
     """
     admin_token = get_admin_token()  # Get persistent token
+    logging.info(f"Checking admin auth. Expected token: {admin_token}")
     
     # Check header
     provided_token = request.headers.get('X-Admin-Token')
+    logging.info(f"Provided token from header: {provided_token}")
     
     # Check query param (fallback)
     if not provided_token:
         provided_token = request.args.get('admin_token')
+        logging.info(f"Provided token from query param: {provided_token}")
     
     return provided_token == admin_token
 
