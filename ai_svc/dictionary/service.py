@@ -66,9 +66,10 @@ class DictionaryService:
         sessdata = os.getenv('BILIBILI_SESSDATA')
         bili_jct = os.getenv('BILIBILI_BILI_JCT')
         buvid3 = os.getenv('BILIBILI_BUVID3')
+        ac_time_value = os.getenv('BILIBILI_AC_TIME_VALUE')
 
         if sessdata and bili_jct:  # buvid3 is optional but recommended
-            self.bilibili_credential = Credential(sessdata=sessdata, bili_jct=bili_jct, buvid3=buvid3)
+            self.bilibili_credential = Credential(sessdata=sessdata, bili_jct=bili_jct, buvid3=buvid3, ac_time_value=ac_time_value)
             logger.info("Bilibili credentials configured for subtitle access")
         else:
             self.bilibili_credential = None
