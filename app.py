@@ -20,9 +20,13 @@ configure_logging()
 from ai_svc.dictionary import dictionary_service
 from ai_svc.dictionary.cache_service import cache_service
 from ai_svc.dictionary.cache_routes import cache_bp
+from ai_svc.dictionary.suggest_service import suggestion_service
 
 app = Flask(__name__)
 CORS(app)
+
+from flask_caching import Cache
+cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 # Register cache management blueprint
 app.register_blueprint(cache_bp)
@@ -190,10 +194,62 @@ def dictionary_test():
         "message": "Dictionary agent API is working!",
         "endpoints": {
             "POST /api/dictionary": "Look up a word (requires JSON body with 'word' field)",
-            "GET /api/dictionary/test": "This test endpoint"
+            "GET /api/dictionary/test": "This test endpoint",
+            "GET /api/dictionary/suggest": "Get word suggestions (requires 'q' query param)"
         },
         "status": "ok"
     }), 200
+
+@app.route('/api/dictionary/suggest', methods=['GET'])
+@cache.cached(timeout=300, query_string=True)
+def dictionary_suggest():
+    """
+    Word suggestion endpoint for autocomplete
+    
+    Query params:
+        q: Search query (min 2 chars)
+        limit: Max suggestions (default 10, max 20)
+    
+    Returns:
+        {
+            "query": str,
+            "suggestions": List[str],
+            "source": "datamuse" | "local" | "cache",
+            "success": bool
+        }
+    """
+    try:
+        query = request.args.get('q', '').strip()
+        limit = min(int(request.args.get('limit', 10)), 20)
+        
+        if not query:
+            return jsonify({
+                "error": "Missing 'q' query parameter",
+                "success": False
+            }), 400
+        
+        if len(query) < 2:
+            return jsonify({
+                "query": query,
+                "suggestions": [],
+                "source": "none",
+                "success": True
+            }), 200
+        
+        result = suggestion_service.suggest(query, limit=limit)
+        return jsonify(result), 200
+        
+    except ValueError:
+        return jsonify({
+            "error": "Invalid 'limit' parameter (must be integer)",
+            "success": False
+        }), 400
+    except Exception as e:
+        logging.error(f"Error in dictionary suggest: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
 
 @app.route('/api/search', methods=['GET'])
 def search():
