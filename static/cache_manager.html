@@ -122,6 +122,11 @@
             border-radius: 6px;
             margin-bottom: 15px;
             background: #fafafa;
+            transition: all 0.2s;
+        }
+        
+        .word-item.collapsed {
+            padding: 12px 20px;
         }
         
         .word-header {
@@ -131,12 +136,50 @@
             margin-bottom: 15px;
             padding-bottom: 10px;
             border-bottom: 2px solid #e0e0e0;
+            user-select: none;
+        }
+        
+        .word-header:hover {
+            background: rgba(0, 123, 255, 0.05);
+            margin: -5px -10px 15px -10px;
+            padding: 5px 10px 10px 10px;
+            border-radius: 4px;
+        }
+        
+        .word-item.collapsed .word-header {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        
+        .word-item.collapsed .word-header:hover {
+            margin: -5px -10px -5px -10px;
+            padding: 5px 10px;
         }
         
         .word-title {
             display: flex;
             align-items: center;
             gap: 10px;
+        }
+        
+        .expand-arrow {
+            font-size: 12px;
+            transition: transform 0.2s;
+            color: #666;
+            display: inline-block;
+        }
+        
+        .word-item:not(.collapsed) .word-header .expand-arrow {
+            transform: rotate(90deg);
+        }
+        
+        .videos-section.collapsed-videos .expand-arrow {
+            transform: rotate(0deg);
+        }
+        
+        .videos-section:not(.collapsed-videos) .expand-arrow {
+            transform: rotate(90deg);
         }
         
         .word-name {
@@ -272,7 +315,10 @@
         
         .senses-section {
             margin-top: 10px;
-            padding-left: 20px;
+        }
+        
+        .senses-list {
+            margin-top: 10px;
         }
         
         .sense-item {
@@ -323,13 +369,48 @@
             cursor: pointer;
         }
         
-        .collapsed .videos-section,
-        .collapsed .senses-section {
+        .collapsed .entry-section,
+        .collapsed .word-meta {
             display: none;
         }
         
         .videos-section.collapsed-videos .videos-list {
             display: none;
+        }
+        
+        .senses-section.collapsed-senses .senses-list {
+            display: none;
+        }
+        
+        .senses-section.collapsed-senses .expand-arrow {
+            transform: rotate(0deg);
+        }
+        
+        .senses-section:not(.collapsed-senses) .expand-arrow {
+            transform: rotate(90deg);
+        }
+        
+        .videos-header {
+            transition: background 0.2s;
+        }
+        
+        .videos-header:hover {
+            background: rgba(0, 123, 255, 0.05);
+            margin: -5px -10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        
+        .senses-header {
+            transition: background 0.2s;
+            margin-bottom: 10px;
+        }
+        
+        .senses-header:hover {
+            background: rgba(0, 123, 255, 0.05);
+            margin: -5px -10px 5px -10px;
+            padding: 5px 10px;
+            border-radius: 4px;
         }
         
         .section-content {
@@ -595,17 +676,15 @@
             }
             
             return `
-                <div class="word-item" id="word-${word.word}">
-                    <div class="word-header">
+                <div class="word-item collapsed" id="word-${word.word}">
+                    <div class="word-header" onclick="toggleExpand('${word.word}')" style="cursor: pointer;">
                         <div class="word-title">
+                            <span class="expand-arrow">▶</span>
                             <div class="word-name">${word.word}</div>
                             ${word.basic_status ? `<span class="section-badge">${word.basic_status}</span>` : ''}
                         </div>
                         <div class="word-actions">
-                            <button class="expand-toggle btn-secondary btn-small" onclick="toggleExpand('${word.word}')">
-                                Collapse All
-                            </button>
-                            <button class="btn-danger" onclick="deleteWord('${word.word}')">Delete All</button>
+                            <button class="btn-danger" onclick="event.stopPropagation(); deleteWord('${word.word}')">Delete All</button>
                         </div>
                     </div>
                     
@@ -637,15 +716,13 @@
                     ` : ''}
                     
                     ${videos.length > 0 ? `
-                        <div class="videos-section" id="videos-${word}-${entry.entry_index}">
-                            <div class="videos-header">
+                        <div class="videos-section collapsed-videos" id="videos-${word}-${entry.entry_index}">
+                            <div class="videos-header" onclick="toggleVideosSection('${word}', ${entry.entry_index})" style="cursor: pointer; user-select: none;">
                                 <div style="display: flex; align-items: center; gap: 10px;">
-                                    <button class="expand-toggle btn-secondary btn-small" onclick="toggleVideosSection('${word}', ${entry.entry_index})" id="videos-toggle-${word}-${entry.entry_index}">
-                                        Collapse
-                                    </button>
+                                    <span class="expand-arrow">▶</span>
                                     <div class="videos-title">🎥 Bilibili Videos (${videos.length})</div>
                                 </div>
-                                <button class="btn-danger btn-small" onclick="deleteSection('${word}', 'bilibili_videos', ${entry.entry_index})">
+                                <button class="btn-danger btn-small" onclick="event.stopPropagation(); deleteSection('${word}', 'bilibili_videos', ${entry.entry_index})">
                                     Delete All Videos
                                 </button>
                             </div>
@@ -656,9 +733,16 @@
                     ` : ''}
                     
                     ${senses.length > 0 ? `
-                        <div class="senses-section">
-                            <div class="videos-title" style="margin-bottom: 10px;">💡 Senses (${senses.length})</div>
-                            ${senses.map(sense => renderSense(word, entry.entry_index, sense)).join('')}
+                        <div class="senses-section collapsed-senses" id="senses-${word}-${entry.entry_index}">
+                            <div class="senses-header" onclick="toggleSensesSection('${word}', ${entry.entry_index})" style="cursor: pointer; user-select: none;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span class="expand-arrow">▶</span>
+                                    <div class="videos-title">💡 Senses (${senses.length})</div>
+                                </div>
+                            </div>
+                            <div class="senses-list" id="senses-list-${word}-${entry.entry_index}">
+                                ${senses.map(sense => renderSense(word, entry.entry_index, sense)).join('')}
+                            </div>
                         </div>
                     ` : ''}
                 </div>
@@ -878,28 +962,33 @@
         // Toggle expand/collapse
         function toggleExpand(word) {
             const elem = document.getElementById(`word-${word}`);
-            const btn = elem.querySelector('.expand-toggle');
             
             if (elem.classList.contains('collapsed')) {
                 elem.classList.remove('collapsed');
-                btn.textContent = 'Collapse All';
             } else {
                 elem.classList.add('collapsed');
-                btn.textContent = 'Expand All';
             }
         }
 
         // Toggle videos section expand/collapse
         function toggleVideosSection(word, entryIndex) {
             const section = document.getElementById(`videos-${word}-${entryIndex}`);
-            const btn = document.getElementById(`videos-toggle-${word}-${entryIndex}`);
             
             if (section.classList.contains('collapsed-videos')) {
                 section.classList.remove('collapsed-videos');
-                btn.textContent = 'Collapse';
             } else {
                 section.classList.add('collapsed-videos');
-                btn.textContent = 'Expand';
+            }
+        }
+
+        // Toggle senses section expand/collapse
+        function toggleSensesSection(word, entryIndex) {
+            const section = document.getElementById(`senses-${word}-${entryIndex}`);
+            
+            if (section.classList.contains('collapsed-senses')) {
+                section.classList.remove('collapsed-senses');
+            } else {
+                section.classList.add('collapsed-senses');
             }
         }
 
