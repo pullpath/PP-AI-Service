@@ -375,7 +375,7 @@ class DictionaryService:
                 
         except Exception as e:
             return {
-                "headword": normalized_word,
+                "headword": word,
                 "error": str(e),
                 "success": False
             }

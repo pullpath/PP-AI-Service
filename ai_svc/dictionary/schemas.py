@@ -40,9 +40,17 @@ class UsageContextInfo(BaseModel):
 
 class CulturalNotesInfo(BaseModel):
     """Cultural and linguistic notes"""
-    notes: str = Field(
+    historical_context: str = Field(
         default="",
-        description="Any additional, overarching linguistic or cultural notes about the word."
+        description="Historical origin, evolution, and development of the word's cultural usage (1-2 sentences)."
+    )
+    cultural_associations: List[str] = Field(
+        default_factory=list,
+        description="Modern cultural contexts, media associations, or social domains where this word appears (e.g., 'social media humor', 'professional settings', 'pop culture')."
+    )
+    social_perceptions: List[str] = Field(
+        default_factory=list,
+        description="How the word is perceived or interpreted in different contexts (e.g., 'can convey intelligence', 'may be perceived as rude', 'shows wit')."
     )
 
 

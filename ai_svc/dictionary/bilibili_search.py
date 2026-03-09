@@ -78,78 +78,17 @@ class BilibiliVideoSearch:
             
             all_videos = []
             
-            # For each phrase, search Bilibili with enhanced queries
             for phrase in phrases:
-                logger.info(f"[{word}] Searching Bilibili for phrase: '{phrase}'")
-                
-                try:
-                    # Generate enhanced search queries
-                    search_queries = self._generate_enhanced_search_queries(phrase)
-                    
-                    best_video = None
-                    best_subtitle_occurrences = []
-                    best_score = 0
-                    
-                    # Try each search query until we find a good video
-                    for search_query in search_queries:
-                        logger.info(f"[{word}] Trying search query: '{search_query}'")
-                        
-                        # Search in KNOWLEDGE zones first
-                        video_results = self._search_in_knowledge_zones(search_query)
-                        
-                        if not video_results:
-                            logger.info(f"[{word}] No videos found in KNOWLEDGE zones for query '{search_query}'")
-                            continue
-                        
-                        logger.info(f"[{word}] Found {len(video_results)} videos in KNOWLEDGE zones for query '{search_query}'")
-                        
-                        # Filter videos that contain the whole phrase in title, description, or tags
-                        filtered_by_phrase = self._filter_videos_by_phrase(video_results, phrase)
-                        logger.info(f"[{word}] After phrase filtering: {len(filtered_by_phrase)} videos contain whole phrase '{phrase}'")
-                        
-                        if not filtered_by_phrase:
-                            logger.info(f"[{word}] No videos found containing whole phrase '{phrase}' - skipping")
-                            continue
-                        
-                        # Use filtered videos directly (phrase filtering only, no additional quality filters)
-                        # This allows videos that don't meet strict quality criteria but contain the exact phrase
-                        filtered_videos = [{'video': video, 'quality_score': 1.0} for video in filtered_by_phrase]
-                        
-                        logger.info(f"[{word}] After phrase filtering: {len(filtered_videos)} videos for query '{search_query}'")
-                        
-                        if not filtered_videos:
-                            continue
-                        
-                        # Sort by quality score (all have score 1.0, so order preserved)
-                        filtered_videos.sort(key=lambda x: x['quality_score'], reverse=True)
-                        
-                        # Check top videos for subtitle matches
-                        video_found = self._find_best_video_with_subtitles(
-                            filtered_videos, phrase, word
-                        )
-                        
-                        if video_found:
-                            best_video = video_found['video']
-                            best_subtitle_occurrences = video_found['subtitle_occurrences']
-                            best_score = video_found['score']
-                            break  # Found a good video, stop trying other queries
-                    
-                    # If we found a suitable video, add it
-                    if best_video:
-                        video_info = self._create_video_info(
-                            best_video, phrase, best_subtitle_occurrences, best_score, word
-                        )
-                        if video_info:
-                            all_videos.append(video_info)
-                            logger.info(f"[{word}] Added Bilibili video for phrase '{phrase}': {best_video.get('bvid')} (score: {best_score})")
-                    else:
-                        logger.info(f"[{word}] No suitable video found for phrase '{phrase}'")
-                        
-                except Exception as e:
-                    logger.warning(f"[{word}] Error searching Bilibili for phrase '{phrase}': {str(e)}")
-                    continue
+                video_info = self._search_videos_for_phrase(word, phrase)
+                if video_info:
+                    all_videos.append(video_info)
             
-            # Return videos found
+            if not all_videos:
+                logger.info(f"[{word}] No videos found for any phrases. Falling back to search with original word")
+                video_info = self._search_videos_for_phrase(word, word, is_fallback=True)
+                if video_info:
+                    all_videos.append(video_info)
+            
             return {
                 "success": True,
                 "bilibili_videos": all_videos
@@ -161,6 +100,81 @@ class BilibiliVideoSearch:
                 "success": False,
                 "error": str(e)
             }
+    
+    def _search_videos_for_phrase(self, word: str, phrase: str, is_fallback: bool = False) -> Optional[Dict[str, Any]]:
+        """Search Bilibili videos for a specific phrase
+        
+        Args:
+            word: The original word being looked up
+            phrase: The phrase to search for (could be the word itself in fallback)
+            is_fallback: Whether this is a fallback search
+            
+        Returns:
+            Video info dictionary if found, None otherwise
+        """
+        log_prefix = f"[{word}] Fallback -" if is_fallback else f"[{word}]"
+        
+        try:
+            logger.info(f"{log_prefix} Searching Bilibili for phrase: '{phrase}'")
+            
+            search_queries = self._generate_enhanced_search_queries(phrase)
+            
+            best_video = None
+            best_subtitle_occurrences = []
+            best_score = 0
+            
+            for search_query in search_queries:
+                logger.info(f"{log_prefix} Trying search query: '{search_query}'")
+                
+                video_results = self._search_in_knowledge_zones(search_query)
+                
+                if not video_results:
+                    logger.info(f"{log_prefix} No videos found in KNOWLEDGE zones for query '{search_query}'")
+                    continue
+                
+                logger.info(f"{log_prefix} Found {len(video_results)} videos in KNOWLEDGE zones for query '{search_query}'")
+                
+                filtered_by_phrase = self._filter_videos_by_phrase(video_results, phrase)
+                logger.info(f"{log_prefix} After phrase filtering: {len(filtered_by_phrase)} videos contain whole phrase '{phrase}'")
+                
+                if not filtered_by_phrase:
+                    logger.info(f"{log_prefix} No videos found containing whole phrase '{phrase}' - skipping")
+                    continue
+                
+                filtered_videos = [{'video': video, 'quality_score': 1.0} for video in filtered_by_phrase]
+                
+                logger.info(f"{log_prefix} After phrase filtering: {len(filtered_videos)} videos for query '{search_query}'")
+                
+                if not filtered_videos:
+                    continue
+                
+                filtered_videos.sort(key=lambda x: x['quality_score'], reverse=True)
+                
+                video_found = self._find_best_video_with_subtitles(
+                    filtered_videos, phrase, word
+                )
+                
+                if video_found:
+                    best_video = video_found['video']
+                    best_subtitle_occurrences = video_found['subtitle_occurrences']
+                    best_score = video_found['score']
+                    break
+            
+            if best_video:
+                video_info = self._create_video_info(
+                    best_video, phrase, best_subtitle_occurrences, best_score, word
+                )
+                if video_info:
+                    logger.info(f"{log_prefix} Added Bilibili video for phrase '{phrase}': {best_video.get('bvid')} (score: {best_score})")
+                    return video_info
+            else:
+                logger.info(f"{log_prefix} No suitable video found for phrase '{phrase}'")
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"{log_prefix} Error searching Bilibili for phrase '{phrase}': {str(e)}")
+            return None
     
     def _generate_enhanced_search_queries(self, phrase: str) -> List[str]:
         """Generate enhanced search queries for better video discovery

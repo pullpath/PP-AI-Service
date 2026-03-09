@@ -50,7 +50,11 @@ def get_cultural_notes_prompt(word: str) -> str:
     """Generate prompt for cultural and linguistic notes"""
     return f"""Provide cultural notes for "{word}":
 
-Include cultural associations, historical significance, or sociolinguistic observations (2-3 sentences).
+1. **historical_context**: Historical origin, evolution, and development of the word's cultural usage (1-2 sentences)
+2. **cultural_associations**: List of 2-4 modern cultural contexts, media associations, or social domains where this word appears (e.g., "social media humor", "professional settings", "sitcoms and TV shows")
+3. **social_perceptions**: List of 2-3 ways the word is perceived or interpreted in different contexts (e.g., "conveys intelligence", "may be perceived as rude", "shows wit and sarcasm")
+
+Focus on helping learners understand the cultural and social dimensions of this word.
 
 Return valid JSON matching CulturalNotesInfo schema."""
 
