@@ -21,6 +21,7 @@ from ai_svc.dictionary import dictionary_service
 from ai_svc.dictionary.cache_service import cache_service
 from ai_svc.dictionary.cache_routes import cache_bp
 from ai_svc.dictionary.suggest_service import suggestion_service
+from ai_svc.dictionary.video_task_service import video_task_service
 
 app = Flask(__name__)
 CORS(app)
@@ -165,6 +166,17 @@ def dictionary_lookup():
         entry_index = data.get('entry_index', None)
         sense_index = data.get('sense_index', None)
         phrase = data.get('phrase', None)
+        task_id = data.get('task_id', None)
+        
+        if section == 'video_status':
+            if not task_id:
+                return jsonify({
+                    "error": "video_status section requires 'task_id' parameter",
+                    "success": False
+                }), 400
+            result = dictionary_service.get_video_status(task_id)
+            status_code = 200 if result.get('success') else 404
+            return jsonify(result), status_code
         
         # Auto-default entry_index for entry-level sections
         # Most entry-level sections are not entry-specific, so default to 0
@@ -255,6 +267,66 @@ def dictionary_suggest():
         }), 400
     except Exception as e:
         logging.error(f"Error in dictionary suggest: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
+
+@app.route('/api/ai_phrase_videos', methods=['GET'])
+def get_ai_phrase_videos():
+    """
+    List all AI-generated phrase videos for a given phrase
+    
+    Query params:
+        word: Word being looked up (required)
+        phrase: Phrase to find videos for (required)
+        status: Filter by status (optional) - "pending", "processing", "completed", "failed"
+    
+    Returns:
+        {
+            "word": str,
+            "phrase": str,
+            "videos": [
+                {
+                    "task_id": str,
+                    "video_url": str | None,
+                    "status": str,
+                    "style": str,
+                    "duration": int,
+                    "resolution": str,
+                    "ratio": str,
+                    "created_at": str,
+                    "completed_at": str | None
+                }
+            ],
+            "count": int,
+            "success": bool
+        }
+    """
+    try:
+        word = request.args.get('word', '').strip()
+        phrase = request.args.get('phrase', '').strip()
+        status = request.args.get('status', '').strip()
+        
+        if not word or not phrase:
+            return jsonify({
+                "error": "Missing 'word' and/or 'phrase' query parameters",
+                "success": False
+            }), 400
+        
+        status_filter = [status] if status else None
+        videos = cache_service.list_ai_phrase_videos(word, phrase, status_filter)
+        
+        return jsonify({
+            "word": word,
+            "phrase": phrase,
+            "videos": videos,
+            "count": len(videos),
+            "success": True
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error in get_ai_phrase_videos: {str(e)}")
         return jsonify({
             "error": str(e),
             "success": False

@@ -16,9 +16,8 @@ import logging
 from dotenv import load_dotenv
 from bilibili_api import Credential, sync
 
-# Import local modules
 from .bilibili_search import BilibiliVideoSearch
-from ..video import video_service
+from .video_task_service import video_task_service
 
 
 # Import schemas and prompts
@@ -301,7 +300,7 @@ class DictionaryService:
                 'etymology', 'word_family', 'usage_context', 
                 'cultural_notes', 'frequency', 'detailed_sense', 'basic',
                 'examples', 'usage_notes', 'bilibili_videos', 'common_phrases',
-                'ai_generated_phrase_video'
+                'ai_generated_phrase_video', 'video_status'
             ]
             
             if section not in valid_sections:
@@ -391,7 +390,13 @@ class DictionaryService:
                         "success": False,
                         "execution_time": time.time() - start_time
                     }
-                return self._fetch_phrase_video_section(phrase, entry_index, start_time)
+                return self._fetch_phrase_video_section(normalized_word, phrase, entry_index, start_time)
+            
+            if section == 'video_status':
+                return {
+                    "error": "video_status section should not be called directly from lookup_section. Use dedicated method.",
+                    "success": False
+                }
             
             entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']
             if section in entry_level_sections:
@@ -1277,15 +1282,11 @@ class DictionaryService:
             "success": True
         }
     
-    def _fetch_phrase_video_section(self, phrase: str, entry_index: Optional[int], start_time: float) -> Dict[str, Any]:
+    def _fetch_phrase_video_section(self, word: str, phrase: str, entry_index: Optional[int], start_time: float) -> Dict[str, Any]:
         """
-        Generate AI video for a phrase using video_service
+        Generate AI video for a phrase using async task service
         
-        Parameters extracted from entry_index as encoded params:
-        - If entry_index is None, use defaults
-        - Otherwise, decode entry_index to extract: style, duration, resolution, ratio
-        
-        For now, use defaults from entry_index parameter or simple defaults
+        Returns task information for frontend to poll for progress
         """
         if not phrase:
             return {
@@ -1294,51 +1295,56 @@ class DictionaryService:
             }
         
         style = "kids_cartoon"
-        duration = 4
+        duration = 5
         resolution = "480p"
         ratio = "16:9"
-        timeout = 300
         
-        logger.info(f"[ai_generated_phrase_video] Generating video for phrase: '{phrase}' (style={style}, duration={duration}s, resolution={resolution}, subtitles=english_burned_in, audio=english_only)")
+        logger.info(f"[ai_generated_phrase_video] Creating async task for phrase: '{phrase}' (style={style}, duration={duration}s)")
         
         try:
-            result = video_service.generate_phrase_video(
+            task_id = video_task_service.create_task(
                 phrase=phrase,
                 style=style,
                 duration=duration,
                 resolution=resolution,
-                ratio=ratio,
-                context=None,
-                timeout_seconds=timeout
+                ratio=ratio
             )
             
-            if result.get("success"):
-                return {
-                    "phrase": phrase,
-                    "ai_generated_phrase_video": {
-                        "task_id": result.get("task_id"),
-                        "video_url": result.get("video_url"),
-                        "status": result.get("status"),
-                        "style": result.get("style"),
-                        "duration": result.get("duration"),
-                        "resolution": result.get("resolution"),
-                        "ratio": result.get("ratio")
+            from .cache_service import cache_service
+            cache_service.set_ai_phrase_video(
+                word=word,
+                phrase=phrase,
+                task_id=task_id,
+                style=style,
+                duration=duration,
+                resolution=resolution,
+                ratio=ratio,
+                video_url=None,
+                status="pending"
+            )
+            logger.info(f"[ai_generated_phrase_video] Cached task {task_id} for '{word}' - phrase: '{phrase}'")
+            
+            video_task_service.start_video_generation(task_id)
+            
+            return {
+                "phrase": phrase,
+                "ai_generated_phrase_video": {
+                    "task_id": task_id,
+                    "status": "pending",
+                    "poll_url": f"/api/dictionary",
+                    "poll_params": {
+                        "section": "video_status",
+                        "task_id": task_id
                     },
-                    "data_source": "ai",
-                    "execution_time": time.time() - start_time,
-                    "success": True
-                }
-            else:
-                return {
-                    "phrase": phrase,
-                    "error": result.get("message", "Video generation failed"),
-                    "status": result.get("status"),
-                    "execution_time": time.time() - start_time,
-                    "success": False
-                }
+                    "message": "Video generation started. Poll using /api/dictionary with section=video_status and task_id parameter."
+                },
+                "data_source": "ai",
+                "execution_time": time.time() - start_time,
+                "success": True
+            }
                 
         except Exception as e:
-            logger.error(f"Error generating video for phrase '{phrase}': {str(e)}")
+            logger.error(f"Error creating video task for phrase '{phrase}': {str(e)}")
             return {
                 "phrase": phrase,
                 "error": str(e),
@@ -1381,6 +1387,44 @@ class DictionaryService:
                 "error": str(e)
             }
     
+    def get_video_status(self, task_id: str) -> Dict[str, Any]:
+        try:
+            task = video_task_service.get_task_status(task_id)
+            
+            if not task:
+                return {
+                    "error": f"Task {task_id} not found",
+                    "success": False
+                }
+            
+            response = {
+                "task_id": task['task_id'],
+                "phrase": task['phrase'],
+                "status": task['status'],
+                "progress": task['progress'],
+                "created_at": task['created_at'],
+                "updated_at": task['updated_at'],
+                "success": True
+            }
+            
+            if task['video_url']:
+                response['video_url'] = task['video_url']
+                response['style'] = task['style']
+                response['duration'] = task['duration']
+            
+            if task['error_message']:
+                response['error_message'] = task['error_message']
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error getting video task status: {str(e)}")
+            return {
+                "error": str(e),
+                "success": False
+            }
+    
+
 
 
 # Global instance

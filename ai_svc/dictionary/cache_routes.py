@@ -400,6 +400,59 @@ def invalidate_phrase_videos(word: str, phrase: str):
         }), 500
 
 
+@cache_bp.route('/<word>/ai-phrase-video/<phrase>/<task_id>', methods=['DELETE'])
+def invalidate_ai_phrase_video(word: str, phrase: str, task_id: str):
+    """
+    Delete specific AI-generated phrase video by task_id
+    
+    Requires admin authentication.
+    
+    Example:
+        DELETE /api/dictionary/cache/hello/ai-phrase-video/break%20the%20ice/20240315abc123
+    
+    Response:
+        {
+            "status": "ok",
+            "message": "AI video deleted: hello - break the ice (task: 20240315abc123)"
+        }
+    """
+    if not check_admin_auth():
+        return jsonify({
+            "status": "error",
+            "message": "Unauthorized"
+        }), 401
+    
+    try:
+        with cache_service._write_lock:
+            conn = cache_service._read_connection()
+            try:
+                normalized = cache_service._normalize_word(word)
+                cursor = conn.execute(
+                    "DELETE FROM ai_phrase_video_cache WHERE word = ? AND phrase = ? AND task_id = ?",
+                    (normalized, phrase, task_id)
+                )
+                conn.commit()
+                
+                if cursor.rowcount == 0:
+                    return jsonify({
+                        "status": "error",
+                        "message": f"AI video not found: {word} - {phrase} (task: {task_id})"
+                    }), 404
+                
+                return jsonify({
+                    "status": "ok",
+                    "message": f"AI video deleted: {word} - {phrase} (task: {task_id})"
+                }), 200
+            finally:
+                conn.close()
+    except Exception as e:
+        logging.error(f"Error deleting AI phrase video: {e}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
 @cache_bp.route('/words/<word>/details', methods=['GET'])
 def get_word_details(word: str):
     """

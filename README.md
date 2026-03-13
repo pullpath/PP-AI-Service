@@ -145,6 +145,13 @@ curl -X POST http://localhost:8000/api/dictionary \
 curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
   -d '{"word":"hello","section":"ai_generated_phrase_video","phrase":"pipe down"}'
+
+# List AI Phrase Videos (NEW)
+# Get all generated videos for a specific phrase
+curl "http://localhost:8000/api/ai_phrase_videos?word=hello&phrase=pipe%20down"
+
+# List with status filter
+curl "http://localhost:8000/api/ai_phrase_videos?word=hello&phrase=pipe%20down&status=completed"
 ```
 
 **Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`, `examples`, `usage_notes`, `bilibili_videos`, `ai_generated_phrase_video`
@@ -157,6 +164,7 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 - `POST /api/image` - Image analysis
 - `GET /api/search?q=query` - Web search
 - `GET /api/scrape?url=url` - Web scraping
+- `GET /api/ai_phrase_videos` - List AI-generated videos for a phrase
 
 ## Performance
 

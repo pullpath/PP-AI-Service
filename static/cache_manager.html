@@ -656,8 +656,9 @@
             const hasDetails = word.entries && word.entries.length > 0;
             const hasCommonPhrases = word.common_phrases && word.common_phrases.common_phrases && word.common_phrases.common_phrases.length > 0;
             const hasPhraseVideos = word.phrase_videos && word.phrase_videos.length > 0;
+            const hasAIPhraseVideos = word.ai_phrase_videos && word.ai_phrase_videos.length > 0;
             
-            if (!hasDetails && !hasCommonPhrases && !hasPhraseVideos) {
+            if (!hasDetails && !hasCommonPhrases && !hasPhraseVideos && !hasAIPhraseVideos) {
                 return `
                     <div class="word-item">
                         <div class="word-header">
@@ -684,6 +685,7 @@
                             ${word.basic_status ? `<span class="section-badge">${word.basic_status}</span>` : ''}
                             ${hasCommonPhrases ? `<span class="section-badge">📝 ${word.common_phrases.common_phrases.length} phrases</span>` : ''}
                             ${hasPhraseVideos ? `<span class="section-badge" style="background: #ffebee; color: #c62828;">🎥 ${word.phrase_videos.length} cached</span>` : ''}
+                            ${hasAIPhraseVideos ? `<span class="section-badge" style="background: #f3e5f5; color: #6a1b9a;">🤖 ${word.ai_phrase_videos.length} AI videos</span>` : ''}
                         </div>
                         <div class="word-actions">
                             <button class="btn-danger" onclick="event.stopPropagation(); deleteWord('${word.word}')">Delete All</button>
@@ -693,6 +695,8 @@
                     ${hasCommonPhrases ? renderCommonPhrases(word.word, word.common_phrases) : ''}
                     
                     ${hasPhraseVideos ? renderPhraseVideos(word.word, word.phrase_videos) : ''}
+                    
+                    ${hasAIPhraseVideos ? renderAIPhraseVideos(word.word, word.ai_phrase_videos) : ''}
                     
                     ${word.entries.map(entry => renderEntry(word.word, entry)).join('')}
                     
@@ -792,6 +796,109 @@
                             Open
                         </button>
                         <button class="btn-danger btn-small" onclick="deletePhraseVideos('${word}', '${item.phrase.replace(/'/g, "\\'")}')">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render AI-generated phrase videos section
+        function renderAIPhraseVideos(word, aiPhraseVideos) {
+            if (!aiPhraseVideos || aiPhraseVideos.length === 0) {
+                return '';
+            }
+            
+            const totalVideos = aiPhraseVideos.reduce((sum, pv) => sum + pv.videos.length, 0);
+            const allVideosWithPhrase = [];
+            
+            aiPhraseVideos.forEach(pv => {
+                pv.videos.forEach(video => {
+                    allVideosWithPhrase.push({
+                        video: video,
+                        phrase: pv.phrase
+                    });
+                });
+            });
+            
+            return `
+                <div class="entry-section" style="border-left-color: #9c27b0;">
+                    <div class="entry-header">
+                        <div class="entry-title" style="color: #9c27b0;">🤖 AI-Generated Phrase Videos (${totalVideos} total)</div>
+                    </div>
+                    <div class="videos-section collapsed-videos" id="ai-phrase-videos-${word}">
+                        <div class="videos-header" onclick="toggleAllAIPhraseVideos('${word}')" style="cursor: pointer; user-select: none; background: #f3e5f5; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="expand-arrow">▶</span>
+                                <div class="videos-title">Show All AI Videos</div>
+                            </div>
+                        </div>
+                        <div class="videos-list" id="ai-phrase-videos-list-${word}">
+                            ${allVideosWithPhrase.map((item, idx) => renderAIPhraseVideoItem(word, item, idx)).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderAIPhraseVideoItem(word, item, index) {
+            const video = item.video;
+            const statusColors = {
+                'completed': '#4caf50',
+                'processing': '#ff9800',
+                'pending': '#2196f3',
+                'failed': '#f44336'
+            };
+            const statusColor = statusColors[video.status] || '#999';
+            const hasVideo = video.status === 'completed' && video.video_url;
+            
+            return `
+                <div class="video-item" style="position: relative; background: #fafafa; border-left: 3px solid ${statusColor};">
+                    ${hasVideo ? `
+                        <video 
+                            controls 
+                            class="video-thumbnail" 
+                            style="width: 120px; height: 68px; object-fit: cover;"
+                            preload="metadata"
+                        >
+                            <source src="${video.video_url}" type="video/mp4">
+                            Your browser does not support video playback.
+                        </video>
+                    ` : `
+                        <div class="video-thumbnail" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 24px;">
+                            ${video.status === 'processing' ? '⏳' : video.status === 'pending' ? '⏱️' : video.status === 'failed' ? '❌' : '🤖'}
+                        </div>
+                    `}
+                    <div class="video-info">
+                        <div class="video-title" title="AI-generated video for '${item.phrase}'">
+                            <strong style="color: ${statusColor};">${video.status.toUpperCase()}</strong>
+                            ${hasVideo ? ' - Ready to play' : ''}
+                        </div>
+                        <div style="font-size: 11px; color: #666; margin-top: 4px; font-style: italic;">
+                            📝 Phrase: "${item.phrase}"
+                        </div>
+                        <div class="video-meta">
+                            <span>🎨 ${video.style}</span>
+                            <span>⏱ ${video.duration}s</span>
+                            <span>📐 ${video.resolution}</span>
+                            <span>📏 ${video.ratio}</span>
+                        </div>
+                        <div style="font-size: 10px; color: #999; margin-top: 4px;">
+                            ${video.created_at ? `Created: ${video.created_at}` : ''}
+                            ${video.completed_at ? ` | Completed: ${video.completed_at}` : ''}
+                        </div>
+                    </div>
+                    <div class="video-actions" style="display: flex; flex-direction: column; gap: 5px;">
+                        ${hasVideo ? `
+                            <button class="btn-secondary btn-small" onclick="window.open('${video.video_url}', '_blank')">
+                                Open
+                            </button>
+                        ` : `
+                            <button class="btn-secondary btn-small" disabled style="opacity: 0.5; cursor: not-allowed;">
+                                N/A
+                            </button>
+                        `}
+                        <button class="btn-danger btn-small" onclick="deleteAIPhraseVideo('${word}', '${item.phrase.replace(/'/g, "\\'")}', '${video.task_id}')">
                             Delete
                         </button>
                     </div>
@@ -1121,6 +1228,16 @@
                 section.classList.add('collapsed-videos');
             }
         }
+        
+        function toggleAllAIPhraseVideos(word) {
+            const section = document.getElementById(`ai-phrase-videos-${word}`);
+            
+            if (section.classList.contains('collapsed-videos')) {
+                section.classList.remove('collapsed-videos');
+            } else {
+                section.classList.add('collapsed-videos');
+            }
+        }
 
         // Render pagination
         function renderPagination(data) {
@@ -1196,6 +1313,25 @@
             
             try {
                 const url = `/api/dictionary/cache/${word}/phrase/${encodeURIComponent(phrase)}`;
+                const response = await authenticatedFetch(url, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    loadWords(currentOffset);
+                    loadStats();
+                } else {
+                    alert(`❌ Error: ${data.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function deleteAIPhraseVideo(word, phrase, taskId) {
+            if (!confirm(`Delete AI-generated video for phrase "${phrase}"?`)) return;
+            
+            try {
+                const url = `/api/dictionary/cache/${word}/ai-phrase-video/${encodeURIComponent(phrase)}/${taskId}`;
                 const response = await authenticatedFetch(url, { method: 'DELETE' });
                 const data = await response.json();
                 

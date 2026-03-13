@@ -247,6 +247,30 @@ class DictionaryCacheService:
             )
         """)
         
+        # AI-generated phrase video cache (links to video_tasks.db)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_phrase_video_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL,
+                phrase TEXT NOT NULL,
+                style TEXT NOT NULL,
+                duration INTEGER NOT NULL,
+                resolution TEXT NOT NULL,
+                ratio TEXT NOT NULL,
+                
+                task_id TEXT NOT NULL,
+                video_url TEXT,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+                
+                created_at INTEGER NOT NULL,
+                last_accessed_at INTEGER NOT NULL,
+                completed_at INTEGER,
+                
+                UNIQUE(word, phrase, style, duration, resolution, ratio),
+                FOREIGN KEY (word) REFERENCES word_cache(word) ON DELETE CASCADE
+            )
+        """)
+        
         # User feedback (future extensibility)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_feedback (
@@ -283,6 +307,8 @@ class DictionaryCacheService:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_entry_cache_word ON entry_cache(word)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sense_cache_word_entry ON sense_cache(word, entry_index)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_phrase_cache_word_phrase ON phrase_cache(word, phrase)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_phrase_video_cache_word_phrase ON ai_phrase_video_cache(word, phrase)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_phrase_video_cache_task_id ON ai_phrase_video_cache(task_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_word ON user_feedback(word, section_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON cache_metrics(timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_word_cache_accessed ON word_cache(last_accessed_at)")
@@ -617,6 +643,174 @@ class DictionaryCacheService:
         
         logger.info(f"[{word}] Cached phrase '{phrase}' videos - status: {status}")
     
+    def get_ai_phrase_video(
+        self,
+        word: str,
+        phrase: str,
+        style: str = "kids_cartoon",
+        duration: int = 4,
+        resolution: str = "480p",
+        ratio: str = "16:9"
+    ) -> Optional[Dict[str, Any]]:
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+        
+        try:
+            row = conn.execute("""
+                SELECT task_id, video_url, status, created_at, completed_at
+                FROM ai_phrase_video_cache
+                WHERE word = ? AND phrase = ? AND style = ? AND duration = ? AND resolution = ? AND ratio = ?
+            """, (normalized, phrase, style, duration, resolution, ratio)).fetchone()
+            
+            if not row:
+                return None
+            
+            conn.execute("""
+                UPDATE ai_phrase_video_cache
+                SET last_accessed_at = ?
+                WHERE word = ? AND phrase = ? AND style = ? AND duration = ? AND resolution = ? AND ratio = ?
+            """, (int(time.time()), normalized, phrase, style, duration, resolution, ratio))
+            conn.commit()
+            
+            return {
+                'task_id': row['task_id'],
+                'video_url': row['video_url'],
+                'status': row['status'],
+                'created_at': row['created_at'],
+                'completed_at': row['completed_at'],
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+    
+    def set_ai_phrase_video(
+        self,
+        word: str,
+        phrase: str,
+        task_id: str,
+        style: str = "kids_cartoon",
+        duration: int = 4,
+        resolution: str = "480p",
+        ratio: str = "16:9",
+        video_url: Optional[str] = None,
+        status: str = "pending"
+    ):
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+        
+        with self._write_transaction() as conn:
+            conn.execute("""
+                INSERT INTO ai_phrase_video_cache (
+                    word, phrase, style, duration, resolution, ratio,
+                    task_id, video_url, status, created_at, last_accessed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(word, phrase, style, duration, resolution, ratio) DO UPDATE SET
+                    task_id = excluded.task_id,
+                    video_url = excluded.video_url,
+                    status = excluded.status,
+                    last_accessed_at = excluded.last_accessed_at
+            """, (normalized, phrase, style, duration, resolution, ratio, task_id, video_url, status, now, now))
+        
+        logger.info(f"[{word}] Cached AI phrase video task '{phrase}' - task_id: {task_id}, status: {status}")
+    
+    def update_ai_phrase_video_status(
+        self,
+        task_id: str,
+        status: str,
+        video_url: Optional[str] = None
+    ):
+        now = int(time.time())
+        
+        with self._write_transaction() as conn:
+            if status in ('completed', 'failed'):
+                conn.execute("""
+                    UPDATE ai_phrase_video_cache
+                    SET status = ?, video_url = ?, completed_at = ?, last_accessed_at = ?
+                    WHERE task_id = ?
+                """, (status, video_url, now, now, task_id))
+            else:
+                conn.execute("""
+                    UPDATE ai_phrase_video_cache
+                    SET status = ?, video_url = ?, last_accessed_at = ?
+                    WHERE task_id = ?
+                """, (status, video_url, now, task_id))
+        
+        logger.info(f"Updated AI phrase video task {task_id} - status: {status}")
+    
+    def list_ai_phrase_videos(
+        self,
+        word: str,
+        phrase: str,
+        status_filter: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List all AI-generated videos for a specific phrase
+        
+        Args:
+            word: The word being looked up
+            phrase: The phrase to filter by
+            status_filter: Optional list of statuses to filter by (e.g., ['completed'], ['processing', 'pending'])
+                          If None, returns all videos regardless of status
+        
+        Returns:
+            List of video dictionaries with task_id, status, parameters, timestamps
+            Sorted by created_at DESC (newest first)
+        """
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+        
+        try:
+            if status_filter:
+                placeholders = ', '.join(['?' for _ in status_filter])
+                query = f"""
+                    SELECT task_id, video_url, status, style, duration, resolution, ratio,
+                           created_at, completed_at, last_accessed_at
+                    FROM ai_phrase_video_cache
+                    WHERE word = ? AND phrase = ? AND status IN ({placeholders})
+                    ORDER BY created_at DESC
+                """
+                params = [normalized, phrase] + status_filter
+            else:
+                query = """
+                    SELECT task_id, video_url, status, style, duration, resolution, ratio,
+                           created_at, completed_at, last_accessed_at
+                    FROM ai_phrase_video_cache
+                    WHERE word = ? AND phrase = ?
+                    ORDER BY created_at DESC
+                """
+                params = [normalized, phrase]
+            
+            rows = conn.execute(query, params).fetchall()
+            
+            results = []
+            for row in rows:
+                results.append({
+                    'task_id': row['task_id'],
+                    'video_url': row['video_url'],
+                    'status': row['status'],
+                    'style': row['style'],
+                    'duration': row['duration'],
+                    'resolution': row['resolution'],
+                    'ratio': row['ratio'],
+                    'created_at': row['created_at'],
+                    'completed_at': row['completed_at'],
+                    'last_accessed_at': row['last_accessed_at']
+                })
+            
+            if results:
+                conn.execute("""
+                    UPDATE ai_phrase_video_cache
+                    SET last_accessed_at = ?
+                    WHERE word = ? AND phrase = ?
+                """, (int(time.time()), normalized, phrase))
+                conn.commit()
+            
+            logger.info(f"[{word}] Listed {len(results)} AI videos for phrase '{phrase}' (status_filter={status_filter})")
+            return results
+            
+        finally:
+            conn.close()
+    
     def set_entry_section(self, word: str, entry_index: int, section: str, data: Dict[str, Any], status: str = 'fresh'):
         """Cache entry-level section data"""
         normalized = self._normalize_word(word)
@@ -694,6 +888,7 @@ class DictionaryCacheService:
             conn.execute("DELETE FROM sense_cache")
             conn.execute("DELETE FROM entry_cache")
             conn.execute("DELETE FROM phrase_cache")
+            conn.execute("DELETE FROM ai_phrase_video_cache")
             conn.execute("DELETE FROM word_cache")
             conn.execute("DELETE FROM cache_metrics")
             logger.info("All cache entries and metrics cleared")
@@ -704,6 +899,7 @@ class DictionaryCacheService:
             conn.execute("DELETE FROM sense_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM entry_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM phrase_cache WHERE word = ?", (word,))
+            conn.execute("DELETE FROM ai_phrase_video_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM word_cache WHERE word = ?", (word,))
             logger.info(f"Cache invalidated for word: {word}")
     
@@ -1073,12 +1269,52 @@ class DictionaryCacheService:
                 except:
                     pass
             
+            # Get AI-generated phrase videos
+            ai_videos = conn.execute("""
+                SELECT phrase, task_id, video_url, status, style, duration, resolution, ratio,
+                       datetime(created_at, 'unixepoch', 'localtime') as created_at,
+                       datetime(completed_at, 'unixepoch', 'localtime') as completed_at,
+                       datetime(last_accessed_at, 'unixepoch', 'localtime') as last_accessed_at
+                FROM ai_phrase_video_cache
+                WHERE word = ?
+                ORDER BY phrase, created_at DESC
+            """, (normalized,)).fetchall()
+            
+            # Group AI videos by phrase
+            ai_videos_by_phrase = {}
+            for av_row in ai_videos:
+                phrase = av_row['phrase']
+                if phrase not in ai_videos_by_phrase:
+                    ai_videos_by_phrase[phrase] = []
+                
+                ai_videos_by_phrase[phrase].append({
+                    'task_id': av_row['task_id'],
+                    'video_url': av_row['video_url'],
+                    'status': av_row['status'],
+                    'style': av_row['style'],
+                    'duration': av_row['duration'],
+                    'resolution': av_row['resolution'],
+                    'ratio': av_row['ratio'],
+                    'created_at': av_row['created_at'],
+                    'completed_at': av_row['completed_at'],
+                    'last_accessed_at': av_row['last_accessed_at']
+                })
+            
+            # Convert to list format
+            ai_phrase_videos_list = []
+            for phrase, videos in ai_videos_by_phrase.items():
+                ai_phrase_videos_list.append({
+                    'phrase': phrase,
+                    'videos': videos
+                })
+            
             return {
                 'word': word_row['word'],
                 'basic_status': word_row['basic_status'],
                 'common_phrases_status': word_row['common_phrases_status'],
                 'common_phrases': common_phrases_data,
                 'phrase_videos': phrase_videos_list,
+                'ai_phrase_videos': ai_phrase_videos_list,
                 'created_at': word_row['created_at'],
                 'last_accessed_at': word_row['last_accessed_at'],
                 'entries': entries
@@ -1097,6 +1333,7 @@ class DictionaryCacheService:
                     (SELECT COUNT(*) FROM entry_cache) as total_entries,
                     (SELECT COUNT(*) FROM sense_cache) as total_senses,
                     (SELECT COUNT(*) FROM phrase_cache) as total_phrase_videos,
+                    (SELECT COUNT(*) FROM ai_phrase_video_cache) as total_ai_phrase_videos,
                     (SELECT COUNT(*) FROM cache_metrics) as total_metrics
             """).fetchone()
             
