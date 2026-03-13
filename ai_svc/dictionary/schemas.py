@@ -176,3 +176,27 @@ class CommonPhrases(BaseModel):
         max_length=6,
         description="1-6 commonly used phrases or collocations. If word is standalone, just the word."
     )
+
+
+class DialogueLine(BaseModel):
+    """Single line of dialogue in a conversation"""
+    character: str = Field(..., description="Character name speaking this line")
+    text: str = Field(..., description="The dialogue text")
+
+
+class ConversationScript(BaseModel):
+    """Educational conversation script for video generation"""
+    scenario: str = Field(
+        ..., 
+        description="Brief scenario/setting description (1-2 sentences) providing context for the conversation"
+    )
+    dialogue: List[DialogueLine] = Field(
+        ...,
+        min_length=2,
+        max_length=6,
+        description="2-6 dialogue lines demonstrating the phrase in natural context"
+    )
+    phrase_explanation: str = Field(
+        ...,
+        description="Brief explanation (1 sentence) of how the phrase is used in this context"
+    )

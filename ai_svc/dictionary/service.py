@@ -25,7 +25,7 @@ from .schemas import (
     EtymologyInfo, WordFamilyInfo,
     UsageContextInfo, CulturalNotesInfo, DetailedWordSense, FrequencyInfo,
     SenseCoreMetadata, SenseUsageExamples, SenseRelatedWords, SenseUsageNotes,
-    BilibiliVideoInfo, CommonPhrases
+    BilibiliVideoInfo, CommonPhrases, ConversationScript
 )
 from .prompts import (
     get_etymology_prompt,
@@ -33,7 +33,7 @@ from .prompts import (
     get_cultural_notes_prompt, get_frequency_prompt,
     get_sense_core_metadata_prompt, get_sense_usage_examples_prompt,
     get_sense_related_words_prompt, get_sense_usage_notes_prompt,
-    get_common_phrases_prompt
+    get_common_phrases_prompt, get_conversation_script_prompt
 )
 
 logger = logging.getLogger(__name__)
@@ -262,9 +262,26 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=SenseUsageNotes
         )
+        
+        conversation_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0.7,
+            max_tokens=512,
+            timeout=45.0,
+            max_retries=0
+        )
+        
+        self.conversation_agent = Agent(
+            name="ConversationScriptAgent",
+            model=conversation_model,
+            description="Generates educational conversation scripts for phrase learning",
+            use_json_mode=True,
+            output_schema=ConversationScript
+        )
     
     
-    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None) -> Dict[str, Any]:
+    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
         """
         Look up specific section of word data with entry-level awareness
         
@@ -390,7 +407,7 @@ class DictionaryService:
                         "success": False,
                         "execution_time": time.time() - start_time
                     }
-                return self._fetch_phrase_video_section(normalized_word, phrase, entry_index, start_time)
+                return self._fetch_phrase_video_section(normalized_word, phrase, entry_index, start_time, style, duration, resolution, ratio)
             
             if section == 'video_status':
                 return {
@@ -1282,9 +1299,14 @@ class DictionaryService:
             "success": True
         }
     
-    def _fetch_phrase_video_section(self, word: str, phrase: str, entry_index: Optional[int], start_time: float) -> Dict[str, Any]:
+    def _fetch_phrase_video_section(self, word: str, phrase: str, entry_index: Optional[int], start_time: float, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
         """
-        Generate AI video for a phrase using async task service
+        Generate AI video for a phrase using async task service with conversation pre-generation
+        
+        Flow:
+        1. Generate educational conversation script for the phrase (Stage 1)
+        2. Use conversation script to generate video (Stage 2)
+        3. Return task info for frontend polling
         
         Returns task information for frontend to poll for progress
         """
@@ -1294,16 +1316,37 @@ class DictionaryService:
                 "success": False
             }
         
-        style = "kids_cartoon"
-        duration = 5
-        resolution = "480p"
-        ratio = "16:9"
+        logger.info(f"[ai_generated_phrase_video] Stage 1: Generating conversation script for phrase: '{phrase}' (style={style})")
         
-        logger.info(f"[ai_generated_phrase_video] Creating async task for phrase: '{phrase}' (style={style}, duration={duration}s)")
+        try:
+            conversation_result = self._generate_conversation_script(phrase, style)
+            
+            if not conversation_result.get("success"):
+                return {
+                    "phrase": phrase,
+                    "error": f"Failed to generate conversation: {conversation_result.get('error', 'Unknown error')}",
+                    "execution_time": time.time() - start_time,
+                    "success": False
+                }
+            
+            conversation_script = conversation_result["conversation_script"]
+            logger.info(f"[ai_generated_phrase_video] Stage 1 complete: {len(conversation_script['dialogue'])} dialogue lines generated")
+            
+        except Exception as e:
+            logger.error(f"Error generating conversation for phrase '{phrase}': {str(e)}")
+            return {
+                "phrase": phrase,
+                "error": f"Conversation generation failed: {str(e)}",
+                "execution_time": time.time() - start_time,
+                "success": False
+            }
+        
+        logger.info(f"[ai_generated_phrase_video] Stage 2: Creating async video task (style={style}, duration={duration}s)")
         
         try:
             task_id = video_task_service.create_task(
                 phrase=phrase,
+                conversation_script=conversation_script,
                 style=style,
                 duration=duration,
                 resolution=resolution,
@@ -1315,6 +1358,7 @@ class DictionaryService:
                 word=word,
                 phrase=phrase,
                 task_id=task_id,
+                conversation_script=conversation_script,
                 style=style,
                 duration=duration,
                 resolution=resolution,
@@ -1328,6 +1372,7 @@ class DictionaryService:
             
             return {
                 "phrase": phrase,
+                "conversation_script": conversation_script,
                 "ai_generated_phrase_video": {
                     "task_id": task_id,
                     "status": "pending",
@@ -1347,9 +1392,46 @@ class DictionaryService:
             logger.error(f"Error creating video task for phrase '{phrase}': {str(e)}")
             return {
                 "phrase": phrase,
+                "conversation_script": conversation_script,
                 "error": str(e),
                 "execution_time": time.time() - start_time,
                 "success": False
+            }
+    
+    def _generate_conversation_script(self, phrase: str, style: str = "kids_cartoon") -> Dict[str, Any]:
+        """
+        Generate educational conversation script for a phrase
+        
+        Args:
+            phrase: The phrase to demonstrate
+            style: Video style (affects conversation tone and setting)
+            
+        Returns:
+            Dictionary with conversation_script data or error
+        """
+        try:
+            prompt = get_conversation_script_prompt(phrase, style)
+            response = self.conversation_agent.run(prompt)
+            
+            if isinstance(response.content, ConversationScript):
+                script_data = response.content.model_dump()
+                
+                logger.info(f"[ConversationScript] Generated for '{phrase}': {len(script_data['dialogue'])} lines, scenario: '{script_data['scenario'][:50]}...'")
+                
+                return {
+                    "success": True,
+                    "conversation_script": script_data
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to parse conversation script"
+                }
+        except Exception as e:
+            logger.error(f"Error generating conversation script for '{phrase}': {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
             }
     
     def _fetch_bilibili_videos(self, word: str, phrase: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1406,6 +1488,9 @@ class DictionaryService:
                 "updated_at": task['updated_at'],
                 "success": True
             }
+            
+            if task.get('conversation_script'):
+                response['conversation_script'] = task['conversation_script']
             
             if task['video_url']:
                 response['video_url'] = task['video_url']

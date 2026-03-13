@@ -97,47 +97,54 @@ class VideoGenerationService:
     def _build_prompt(
         self,
         phrase: str,
+        conversation_script: Optional[Dict[str, Any]] = None,
         style: VideoStyle = VideoStyle.KIDS_CARTOON,
         duration: int = 4,
         resolution: VideoResolution = VideoResolution.P480,
         ratio: VideoRatio = VideoRatio.LANDSCAPE,
         context: Optional[str] = None
     ) -> str:
-        """
-        Build a prompt for video generation based on phrase and style
-        
-        Args:
-            phrase: The English phrase to feature in the video
-            style: Visual style of the video
-            duration: Video duration in seconds (4-12)
-            resolution: Video resolution
-            ratio: Aspect ratio
-            context: Optional additional context
-            
-        Returns:
-            Complete prompt string for video generation
-        """
         template = self.STYLE_TEMPLATES[style]
         
-        # Build scene description based on phrase and style
-        scene_parts = [
-            template["prefix"],
-            template["scene_context"],
-            f"\n\nA short dialogue scene demonstrating the English phrase '{phrase}' in natural conversation.",
-            f"Characters speak ONLY English, using the phrase '{phrase}' clearly and naturally within 2 short sentences of dialogue.",
-            "STRICT LANGUAGE RULE: no Chinese characters, no Chinese words, no code-switching, no bilingual speech.",
-            "The scene should help English learners understand the phrase's meaning and proper usage through visual context.",
-            "Keep shots simple and static with minimal camera movement for faster generation.",
-            "Use a single background and no scene cuts.",
-            template["character_style"],
-            f"\n\n{template['tone']}"
-        ]
+        if conversation_script:
+            scenario = conversation_script.get("scenario", "")
+            dialogue_lines = conversation_script.get("dialogue", [])
+            
+            dialogue_text = "\n".join([
+                f"{line['character']}: {line['text']}"
+                for line in dialogue_lines
+            ])
+            
+            scene_parts = [
+                template["prefix"],
+                template["scene_context"],
+                f"\n\nScene: {scenario}",
+                f"\n\nDialogue script to animate:\n{dialogue_text}",
+                "STRICT LANGUAGE RULE: Animate EXACTLY this dialogue with no changes, additions, or translations.",
+                "Use ONLY English dialogue as written above. No Chinese characters, no Chinese words, no code-switching.",
+                "Focus on clear facial expressions and body language to convey the meaning.",
+                "Keep shots simple and static with minimal camera movement for faster generation.",
+                "Use a single background and no scene cuts.",
+                template["character_style"],
+                f"\n\n{template['tone']}"
+            ]
+        else:
+            scene_parts = [
+                template["prefix"],
+                template["scene_context"],
+                f"\n\nA short dialogue scene demonstrating the English phrase '{phrase}' in natural conversation.",
+                f"Characters speak ONLY English, using the phrase '{phrase}' clearly and naturally within 2 short sentences of dialogue.",
+                "STRICT LANGUAGE RULE: no Chinese characters, no Chinese words, no code-switching, no bilingual speech.",
+                "The scene should help English learners understand the phrase's meaning and proper usage through visual context.",
+                "Keep shots simple and static with minimal camera movement for faster generation.",
+                "Use a single background and no scene cuts.",
+                template["character_style"],
+                f"\n\n{template['tone']}"
+            ]
         
-        # Add custom context if provided
         if context:
             scene_parts.append(f"\n\nAdditional context: {context}")
         
-        # Build complete prompt with technical parameters
         prompt_parts = [
             " ".join(scene_parts),
             f"--ratio {ratio.value}",
@@ -150,7 +157,7 @@ class VideoGenerationService:
         
         complete_prompt = " ".join(prompt_parts)
         
-        logger.info(f"Built prompt for phrase '{phrase}' with style '{style.value}': {len(complete_prompt)} chars")
+        logger.info(f"Built prompt for phrase '{phrase}' with {'conversation script' if conversation_script else 'style'} '{style.value}': {len(complete_prompt)} chars")
         return complete_prompt
     
     def _poll_task_status(
@@ -219,6 +226,7 @@ class VideoGenerationService:
     def generate_phrase_video(
         self,
         phrase: str,
+        conversation_script: Optional[Dict[str, Any]] = None,
         style: str = "kids_cartoon",
         duration: int = 4,
         resolution: str = "480p",
@@ -226,32 +234,6 @@ class VideoGenerationService:
         context: Optional[str] = None,
         timeout_seconds: int = 300
     ) -> Dict[str, Any]:
-        """
-        Generate a video demonstrating an English phrase
-        
-        Args:
-            phrase: The English phrase to feature (required)
-            style: Video style ('kids_cartoon', 'business_professional', 'realistic', 'anime')
-            duration: Video duration in seconds (4-12)
-            resolution: Video resolution ('480p', '720p', '1080p')
-            ratio: Aspect ratio ('16:9', '9:16', '1:1')
-            context: Optional additional context about the scenario
-            timeout_seconds: Maximum wait time for video generation
-            
-        Returns:
-            Dictionary with:
-                - success: bool
-                - task_id: str
-                - video_url: str (if successful)
-                - status: str
-                - message: str
-                
-        Raises:
-            ValueError: If invalid parameters provided
-            TimeoutError: If generation takes too long
-            RuntimeError: If generation fails
-        """
-        # Validate inputs
         if not phrase or not phrase.strip():
             raise ValueError("Phrase cannot be empty")
         
@@ -273,9 +255,9 @@ class VideoGenerationService:
         if not (4 <= duration <= 12):
             raise ValueError("Duration must be between 4 and 12 seconds")
         
-        # Build prompt
         prompt = self._build_prompt(
             phrase=phrase.strip(),
+            conversation_script=conversation_script,
             style=style_enum,
             duration=duration,
             resolution=resolution_enum,
@@ -283,9 +265,8 @@ class VideoGenerationService:
             context=context
         )
         
-        logger.info(f"Starting video generation for phrase: '{phrase}'")
+        logger.info(f"Starting video generation for phrase: '{phrase}'" + (f" with conversation script" if conversation_script else ""))
         
-        # Create video generation task
         try:
             create_result = self.client.content_generation.tasks.create(
                 model=self.MODEL_ID,
@@ -304,7 +285,6 @@ class VideoGenerationService:
             logger.error(f"Error creating video generation task: {str(e)}")
             raise RuntimeError(f"Failed to create video generation task: {str(e)}")
         
-        # Poll for completion
         try:
             result = self._poll_task_status(task_id, timeout_seconds)
             

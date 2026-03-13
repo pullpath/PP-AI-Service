@@ -253,6 +253,7 @@ class DictionaryCacheService:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 word TEXT NOT NULL,
                 phrase TEXT NOT NULL,
+                conversation_script TEXT,
                 style TEXT NOT NULL,
                 duration INTEGER NOT NULL,
                 resolution TEXT NOT NULL,
@@ -308,6 +309,12 @@ class DictionaryCacheService:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sense_cache_word_entry ON sense_cache(word, entry_index)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_phrase_cache_word_phrase ON phrase_cache(word, phrase)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_phrase_video_cache_word_phrase ON ai_phrase_video_cache(word, phrase)")
+        
+        try:
+            conn.execute("SELECT conversation_script FROM ai_phrase_video_cache LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating database: adding conversation_script column to ai_phrase_video_cache")
+            conn.execute("ALTER TABLE ai_phrase_video_cache ADD COLUMN conversation_script TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_phrase_video_cache_task_id ON ai_phrase_video_cache(task_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_word ON user_feedback(word, section_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON cache_metrics(timestamp)")
@@ -688,6 +695,7 @@ class DictionaryCacheService:
         word: str,
         phrase: str,
         task_id: str,
+        conversation_script: Optional[Dict[str, Any]] = None,
         style: str = "kids_cartoon",
         duration: int = 4,
         resolution: str = "480p",
@@ -695,23 +703,28 @@ class DictionaryCacheService:
         video_url: Optional[str] = None,
         status: str = "pending"
     ):
+        import json
+        
         normalized = self._normalize_word(word)
         now = int(time.time())
+        
+        conversation_json = json.dumps(conversation_script) if conversation_script else None
         
         with self._write_transaction() as conn:
             conn.execute("""
                 INSERT INTO ai_phrase_video_cache (
-                    word, phrase, style, duration, resolution, ratio,
+                    word, phrase, conversation_script, style, duration, resolution, ratio,
                     task_id, video_url, status, created_at, last_accessed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(word, phrase, style, duration, resolution, ratio) DO UPDATE SET
+                    conversation_script = excluded.conversation_script,
                     task_id = excluded.task_id,
                     video_url = excluded.video_url,
                     status = excluded.status,
                     last_accessed_at = excluded.last_accessed_at
-            """, (normalized, phrase, style, duration, resolution, ratio, task_id, video_url, status, now, now))
+            """, (normalized, phrase, conversation_json, style, duration, resolution, ratio, task_id, video_url, status, now, now))
         
-        logger.info(f"[{word}] Cached AI phrase video task '{phrase}' - task_id: {task_id}, status: {status}")
+        logger.info(f"[{word}] Cached AI phrase video task '{phrase}' with conversation script - task_id: {task_id}, status: {status}")
     
     def update_ai_phrase_video_status(
         self,

@@ -17,10 +17,12 @@ AI-powered Flask web service providing dictionary lookups, audio transcription, 
 - **Comprehensive data**: Etymology, word family, usage context, cultural notes, detailed sense analysis
 
 ### 🎬 AI Video Generation
-- Educational phrase videos with audio (Volcengine Ark)
-- Kids-friendly animated style
-- 4-12 second duration range
-- Automatic audio generation (enabled by default)
+- **Conversation-based video generation** with 2-stage architecture (NEW)
+- Educational phrase videos with contextual scenarios
+- 4 style options: kids_cartoon, business_professional, realistic, anime
+- Parameterized: style, duration (4-12s), resolution, aspect ratio
+- Automatic audio generation with lip-sync
+- See [docs/CONVERSATION_VIDEO_GENERATION.md](docs/CONVERSATION_VIDEO_GENERATION.md) for details
 
 ### 🎙️ Audio Transcription
 - OpenAI Whisper integration

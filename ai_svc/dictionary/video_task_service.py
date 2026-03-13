@@ -41,8 +41,6 @@ class VideoTaskService:
         logger.info(f"VideoTaskService initialized with DB: {db_path}")
     
     def _init_db(self):
-        """Initialize SQLite database with tasks table"""
-        # Ensure data directory exists
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
         with sqlite3.connect(self.db_path) as conn:
@@ -50,6 +48,7 @@ class VideoTaskService:
                 CREATE TABLE IF NOT EXISTS video_tasks (
                     task_id TEXT PRIMARY KEY,
                     phrase TEXT NOT NULL,
+                    conversation_script TEXT,
                     style TEXT NOT NULL,
                     duration INTEGER NOT NULL,
                     resolution TEXT NOT NULL,
@@ -63,6 +62,13 @@ class VideoTaskService:
                     completed_at TEXT
                 )
             """)
+            
+            try:
+                conn.execute("SELECT conversation_script FROM video_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                logger.info("Migrating database: adding conversation_script column")
+                conn.execute("ALTER TABLE video_tasks ADD COLUMN conversation_script TEXT")
+            
             conn.commit()
             
         logger.info("Video tasks database initialized")
@@ -70,46 +76,32 @@ class VideoTaskService:
     def create_task(
         self,
         phrase: str,
+        conversation_script: Optional[Dict[str, Any]] = None,
         style: str = "kids_cartoon",
         duration: int = 4,
         resolution: str = "480p",
         ratio: str = "16:9"
     ) -> str:
-        """Create a new video generation task
-        
-        Args:
-            phrase: The phrase to generate video for
-            style: Video style
-            duration: Video duration in seconds
-            resolution: Video resolution
-            ratio: Video aspect ratio
-            
-        Returns:
-            task_id: Unique task identifier
-        """
         task_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()
+        
+        import json
+        conversation_json = json.dumps(conversation_script) if conversation_script else None
         
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO video_tasks 
-                (task_id, phrase, style, duration, resolution, ratio, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (task_id, phrase, style, duration, resolution, ratio, "pending", now, now))
+                (task_id, phrase, conversation_script, style, duration, resolution, ratio, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (task_id, phrase, conversation_json, style, duration, resolution, ratio, "pending", now, now))
             conn.commit()
         
-        logger.info(f"Created video task {task_id} for phrase '{phrase}'")
+        logger.info(f"Created video task {task_id} for phrase '{phrase}' with conversation script")
         return task_id
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Get current status of a video task
+        import json
         
-        Args:
-            task_id: Task identifier
-            
-        Returns:
-            Task status dictionary or None if not found
-        """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
@@ -118,7 +110,14 @@ class VideoTaskService:
             row = cursor.fetchone()
             
             if row:
-                return dict(row)
+                task_dict = dict(row)
+                if task_dict.get('conversation_script'):
+                    try:
+                        task_dict['conversation_script'] = json.loads(task_dict['conversation_script'])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse conversation_script JSON for task {task_id}")
+                        task_dict['conversation_script'] = None
+                return task_dict
             return None
     
     def update_task_status(
@@ -191,12 +190,6 @@ class VideoTaskService:
         logger.info(f"Started background video generation for task {task_id}")
     
     def _generate_video_background(self, task_id: str, task: Dict[str, Any]):
-        """Background worker for video generation
-        
-        Args:
-            task_id: Task identifier
-            task: Task details dictionary
-        """
         try:
             self.update_task_status(task_id, "processing", progress=10)
             
@@ -206,6 +199,7 @@ class VideoTaskService:
             
             result = video_service.generate_phrase_video(
                 phrase=task['phrase'],
+                conversation_script=task.get('conversation_script'),
                 style=task['style'],
                 duration=task['duration'],
                 resolution=task['resolution'],

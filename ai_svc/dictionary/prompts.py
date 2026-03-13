@@ -213,7 +213,6 @@ Return valid JSON: {{"phrases": ["phrase1", "phrase2", ...]}}"""
 
 
 def get_sense_usage_notes_prompt(word: str, sense_index: int, basic_definition: str) -> str:
-    """Generate prompt for usage notes and guidance (Agent 4) - parallel execution"""
     return f"""You are a linguistic expert specializing in usage guidance for language learners.
 
 Analyze sense #{sense_index + 1} of "{word}": "{basic_definition}"
@@ -224,3 +223,88 @@ Provide:
 Focus on practical advice that helps learners avoid mistakes.
 
 Output must be valid JSON matching the SenseUsageNotes schema."""
+
+
+def get_conversation_script_prompt(phrase: str, style: str = "kids_cartoon") -> str:
+    style_contexts = {
+        "kids_cartoon": {
+            "setting": "bright, friendly children's environment (playground, home, school)",
+            "characters": "2-3 cute cartoon characters (like Peppa Pig style)",
+            "tone": "cheerful, simple, age-appropriate for 5-8 year olds",
+            "complexity": "very simple vocabulary and short sentences"
+        },
+        "business_professional": {
+            "setting": "professional workplace (office, meeting room, conference)",
+            "characters": "2-3 business professionals in work attire",
+            "tone": "professional, clear, suitable for workplace",
+            "complexity": "professional vocabulary and complete sentences"
+        },
+        "realistic": {
+            "setting": "everyday real-world location (cafe, park, home)",
+            "characters": "2-3 people in casual daily situations",
+            "tone": "natural, conversational, relatable",
+            "complexity": "everyday vocabulary and natural speech patterns"
+        },
+        "anime": {
+            "setting": "dynamic anime-style environment",
+            "characters": "2-3 anime-style characters with expressive personalities",
+            "tone": "engaging, energetic, expressive",
+            "complexity": "varied vocabulary with emotion and expression"
+        }
+    }
+    
+    context = style_contexts.get(style, style_contexts["kids_cartoon"])
+    
+    return f"""You are an expert in educational content design and English language teaching.
+
+Your task: Create a short, natural conversation that demonstrates the English phrase "{phrase}" in a clear, memorable context.
+
+STYLE REQUIREMENTS:
+- Setting: {context['setting']}
+- Characters: {context['characters']}
+- Tone: {context['tone']}
+- Language complexity: {context['complexity']}
+
+CRITICAL RULES:
+1. The conversation MUST include the exact phrase "{phrase}" used naturally by one of the characters
+2. The scenario should make the phrase's meaning obvious through context
+3. Keep dialogue realistic and natural - avoid forced or artificial usage
+4. 2-4 dialogue exchanges (each character speaks 1-2 times)
+5. Each line should be short (1-2 sentences maximum)
+6. The situation should be relatable and easy to visualize
+7. Ensure the phrase is used correctly and appropriately for the style
+
+OUTPUT FORMAT:
+- scenario: 1-2 sentence description of the setting and situation
+- dialogue: Array of {{character, text}} objects (2-6 lines total)
+- phrase_explanation: 1 sentence explaining how the phrase is used in this context
+
+EXAMPLES:
+
+Phrase: "pipe down"
+Style: kids_cartoon
+{{
+  "scenario": "At Peppa's playroom. George is being too loud while Daddy Pig is working.",
+  "dialogue": [
+    {{"character": "Daddy Pig", "text": "George, could you pipe down a bit? I'm trying to concentrate."}},
+    {{"character": "George", "text": "Okay, Daddy. I'll play quietly."}},
+    {{"character": "Peppa", "text": "Come on George, let's do a puzzle instead!"}}
+  ],
+  "phrase_explanation": "Pipe down means to be quiet or make less noise, used when someone is being too loud."
+}}
+
+Phrase: "break the ice"
+Style: business_professional
+{{
+  "scenario": "First day at the office. Sarah joins a new team meeting.",
+  "dialogue": [
+    {{"character": "Manager", "text": "Welcome Sarah! Let's break the ice with a quick round of introductions."}},
+    {{"character": "Sarah", "text": "Thank you! I'm excited to meet everyone."}},
+    {{"character": "Colleague", "text": "I'll start - I'm Mike from the design team."}}
+  ],
+  "phrase_explanation": "Break the ice means to make people feel more comfortable in an awkward or formal situation."
+}}
+
+Now generate a conversation script for the phrase "{phrase}" in {style} style.
+
+Output must be valid JSON matching the ConversationScript schema."""
