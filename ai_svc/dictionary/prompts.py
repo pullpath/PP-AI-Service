@@ -186,30 +186,30 @@ Output must be valid JSON matching the SenseRelatedWords schema."""
 
 
 def get_common_phrases_prompt(word: str) -> str:
-    """Generate prompt for common phrases and collocations"""
-    return f"""You are a linguistic expert specializing in common English phrases and collocations.
+    """Generate prompt for common phrases - return 1-6 phrases"""
+    return f"""You are a linguistic expert. For the word "{word}", return the 1-6 MOST COMMON phrases or collocations that native English speakers actually use.
 
-For the word "{word}", identify 1-3 commonly used phrases or collocations that CONTAIN this word.
+CRITICAL RULES:
+1. Each phrase MUST contain the exact word "{word}"
+2. ONLY include phrases that are frequently used in real English
+3. Prioritize: phrasal verbs > idioms > common collocations > standalone word
 
-CRITICAL REQUIREMENT: Every phrase MUST actually include the word "{word}" as part of the phrase.
+Good examples:
+- For "run": ["run", "run out of", "in the long run", "run into", "run away", "run over"]
+- For "take": ["take", "take care of", "take place", "take a look", "take advantage", "take time"]
+- For "hello": ["hello"] (standalone, rarely in phrases)
+- For "cat": ["cat"] (standalone, rarely in phrases)
 
-Examples of what to include:
-- For "run": "run out of", "in the long run", "run up a bill"
-- For "pipe": "pipe down", "pipe dream", "put that in your pipe and smoke it"
+Bad examples (NEVER do this):
+- For "run": ["jogging", "sprint"] (synonyms, not phrases with "run")
+- For "hello": ["hi there", "greetings"] (doesn't contain "hello")
 
-Examples of what to AVOID:
-- For "pipe": "smoke like a chimney" (does not contain "pipe")
-- For "run": "jogging" (does not contain "run")
+Strategy:
+1. If word is rarely used in phrases (like "hello", "cat", "table"), return just ["{word}"]
+2. If word has common phrasal verbs or idioms, return up to 6 most frequent ones
+3. Always include the standalone word as the first phrase
 
-Consider:
-- If the word is typically used alone (e.g., "hello", "cat"), return just the word
-- If the word commonly appears in phrases (e.g., "run out of", "in the long run", "kick the bucket"), return those phrases
-- Focus on the most frequent, natural combinations that actually contain the target word
-- Include phrasal verbs, idioms, and common expressions that include the word
-
-Return exactly 1-3 phrases where each phrase contains the word "{word}". If the word is standalone, return just the word.
-
-Output must be valid JSON matching the CommonPhrases schema."""
+Return valid JSON: {{"phrases": ["phrase1", "phrase2", ...]}}"""
 
 
 def get_sense_usage_notes_prompt(word: str, sense_index: int, basic_definition: str) -> str:

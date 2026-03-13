@@ -92,6 +92,7 @@ class DictionaryCacheService:
     # TTL values (seconds) based on content stability research
     FIELD_TTL = {
         'basic': 7 * 24 * 3600,           # 7 days (API data, stable)
+        'common_phrases': 30 * 24 * 3600,  # 30 days (phrases are stable like word_family)
         'etymology': 30 * 24 * 3600,       # 30 days (linguistic, very stable)
         'word_family': 30 * 24 * 3600,     # 30 days
         'usage_context': 7 * 24 * 3600,    # 7 days (modern usage evolves)
@@ -155,6 +156,10 @@ class DictionaryCacheService:
                 basic_data TEXT,
                 basic_updated_at INTEGER,
                 basic_status TEXT DEFAULT 'empty' CHECK(basic_status IN ('empty', 'fetching', 'fresh', 'stale', 'failed')),
+                
+                common_phrases_data TEXT,
+                common_phrases_updated_at INTEGER,
+                common_phrases_status TEXT DEFAULT 'empty' CHECK(common_phrases_status IN ('empty', 'fetching', 'fresh', 'stale', 'failed')),
                 
                 api_success BOOLEAN DEFAULT TRUE,
                 api_last_attempt INTEGER,
@@ -223,6 +228,25 @@ class DictionaryCacheService:
             )
         """)
         
+        # Phrase-level cache (for phrase-specific videos)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS phrase_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL,
+                phrase TEXT NOT NULL,
+                
+                bilibili_videos_data TEXT,
+                bilibili_videos_updated_at INTEGER,
+                bilibili_videos_status TEXT DEFAULT 'empty',
+                
+                created_at INTEGER NOT NULL,
+                last_accessed_at INTEGER NOT NULL,
+                
+                UNIQUE(word, phrase),
+                FOREIGN KEY (word) REFERENCES word_cache(word) ON DELETE CASCADE
+            )
+        """)
+        
         # User feedback (future extensibility)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_feedback (
@@ -258,20 +282,49 @@ class DictionaryCacheService:
         # Indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_entry_cache_word ON entry_cache(word)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sense_cache_word_entry ON sense_cache(word, entry_index)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_phrase_cache_word_phrase ON phrase_cache(word, phrase)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_word ON user_feedback(word, section_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON cache_metrics(timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_word_cache_accessed ON word_cache(last_accessed_at)")
         
+        # Migration: Add common_phrases columns if they don't exist (for existing databases)
+        self._migrate_add_common_phrases_columns(conn)
+        
         conn.commit()
+    
+    def _migrate_add_common_phrases_columns(self, conn: sqlite3.Connection):
+        try:
+            cursor = conn.execute("PRAGMA table_info(word_cache)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'common_phrases_data' not in columns:
+                logger.info("Migrating database: adding common_phrases columns...")
+                conn.execute("""
+                    ALTER TABLE word_cache 
+                    ADD COLUMN common_phrases_data TEXT
+                """)
+                conn.execute("""
+                    ALTER TABLE word_cache 
+                    ADD COLUMN common_phrases_updated_at INTEGER
+                """)
+                conn.execute("""
+                    ALTER TABLE word_cache 
+                    ADD COLUMN common_phrases_status TEXT DEFAULT 'empty'
+                """)
+                logger.info("Migration complete: common_phrases columns added")
+        except Exception as e:
+            logger.warning(f"Migration warning (may be expected): {e}")
     
     
     def _make_cache_key(self, word: str, section: str, entry_index: int = None, sense_index: int = None) -> str:
         """Generate unique cache key for tracking in-flight requests"""
         if section == 'basic':
             return f"{word}:basic"
+        elif section == 'common_phrases':
+            return f"{word}:common_phrases"
         elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
             return f"{word}:entry:{entry_index}:{section}"
-        else:  # sense-level sections
+        else:
             return f"{word}:sense:{entry_index}:{sense_index}:{section}"
     
     def mark_inflight(self, cache_key: str) -> bool:
@@ -470,6 +523,100 @@ class DictionaryCacheService:
         
         logger.info(f"[{word}] Cached 'basic' section - status: {status}")
     
+    def get_common_phrases(self, word: str) -> Optional[Dict[str, Any]]:
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+        
+        try:
+            row = conn.execute("""
+                SELECT common_phrases_data, common_phrases_updated_at, common_phrases_status
+                FROM word_cache
+                WHERE word = ?
+            """, (normalized,)).fetchone()
+            
+            if not row:
+                return None
+            
+            if not row['common_phrases_data'] or row['common_phrases_status'] not in ('fresh', 'stale'):
+                return None
+            
+            is_stale = self._is_stale(row['common_phrases_updated_at'], 'common_phrases')
+            
+            return {
+                'data': json.loads(row['common_phrases_data']),
+                'updated_at': row['common_phrases_updated_at'],
+                'is_stale': is_stale,
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+    
+    def set_common_phrases(self, word: str, data: Dict[str, Any], status: str = 'fresh'):
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+        
+        with self._write_transaction() as conn:
+            conn.execute("""
+                INSERT INTO word_cache (
+                    word, normalized_word, common_phrases_data, common_phrases_updated_at, common_phrases_status,
+                    created_at, last_accessed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(word) DO UPDATE SET
+                    common_phrases_data = excluded.common_phrases_data,
+                    common_phrases_updated_at = excluded.common_phrases_updated_at,
+                    common_phrases_status = excluded.common_phrases_status,
+                    last_accessed_at = excluded.last_accessed_at
+            """, (normalized, normalized, json.dumps(data), now, status, now, now))
+        
+        logger.info(f"[{word}] Cached 'common_phrases' section - status: {status}")
+    
+    def get_phrase_videos(self, word: str, phrase: str) -> Optional[Dict[str, Any]]:
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+        
+        try:
+            row = conn.execute("""
+                SELECT bilibili_videos_data, bilibili_videos_updated_at, bilibili_videos_status
+                FROM phrase_cache
+                WHERE word = ? AND phrase = ?
+            """, (normalized, phrase)).fetchone()
+            
+            if not row:
+                return None
+            
+            if not row['bilibili_videos_data'] or row['bilibili_videos_status'] not in ('fresh', 'stale'):
+                return None
+            
+            is_stale = self._is_stale(row['bilibili_videos_updated_at'], 'bilibili_videos')
+            
+            return {
+                'data': json.loads(row['bilibili_videos_data']),
+                'updated_at': row['bilibili_videos_updated_at'],
+                'is_stale': is_stale,
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+    
+    def set_phrase_videos(self, word: str, phrase: str, data: Dict[str, Any], status: str = 'fresh'):
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+        
+        with self._write_transaction() as conn:
+            conn.execute("""
+                INSERT INTO phrase_cache (
+                    word, phrase, bilibili_videos_data, bilibili_videos_updated_at, bilibili_videos_status,
+                    created_at, last_accessed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(word, phrase) DO UPDATE SET
+                    bilibili_videos_data = excluded.bilibili_videos_data,
+                    bilibili_videos_updated_at = excluded.bilibili_videos_updated_at,
+                    bilibili_videos_status = excluded.bilibili_videos_status,
+                    last_accessed_at = excluded.last_accessed_at
+            """, (normalized, phrase, json.dumps(data), now, status, now, now))
+        
+        logger.info(f"[{word}] Cached phrase '{phrase}' videos - status: {status}")
+    
     def set_entry_section(self, word: str, entry_index: int, section: str, data: Dict[str, Any], status: str = 'fresh'):
         """Cache entry-level section data"""
         normalized = self._normalize_word(word)
@@ -546,6 +693,7 @@ class DictionaryCacheService:
         with self._write_transaction() as conn:
             conn.execute("DELETE FROM sense_cache")
             conn.execute("DELETE FROM entry_cache")
+            conn.execute("DELETE FROM phrase_cache")
             conn.execute("DELETE FROM word_cache")
             conn.execute("DELETE FROM cache_metrics")
             logger.info("All cache entries and metrics cleared")
@@ -555,6 +703,7 @@ class DictionaryCacheService:
         with self._write_transaction() as conn:
             conn.execute("DELETE FROM sense_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM entry_cache WHERE word = ?", (word,))
+            conn.execute("DELETE FROM phrase_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM word_cache WHERE word = ?", (word,))
             logger.info(f"Cache invalidated for word: {word}")
     
@@ -601,6 +750,16 @@ class DictionaryCacheService:
                         WHERE word = ?
                     """, (normalized,))
                     logger.info(f"Cache invalidated: {word} - {section} (all entries)")
+            
+            elif section == 'common_phrases':
+                # Word-level section (separate from basic)
+                conn.execute("""
+                    UPDATE word_cache
+                    SET common_phrases_data = NULL, common_phrases_updated_at = NULL, 
+                        common_phrases_status = 'empty'
+                    WHERE word = ?
+                """, (normalized,))
+                logger.info(f"Cache invalidated: {word} - {section}")
                     
             elif section in ['detailed_sense', 'examples', 'usage_notes']:
                 # Sense-level section
@@ -688,6 +847,16 @@ class DictionaryCacheService:
                     'basic': row['basic_status']
                 }
                 
+                # Word-level common_phrases section
+                common_phrases_status = conn.execute("""
+                    SELECT common_phrases_status
+                    FROM word_cache
+                    WHERE word = ?
+                """, (word,)).fetchone()
+                
+                if common_phrases_status and common_phrases_status['common_phrases_status'] not in ('empty', None):
+                    sections['common_phrases'] = common_phrases_status['common_phrases_status']
+                
                 # Entry-level sections
                 for entry_row in entry_sections:
                     entry_idx = entry_row['entry_index']
@@ -736,6 +905,7 @@ class DictionaryCacheService:
             # Get basic word info
             word_row = conn.execute("""
                 SELECT word, basic_status, basic_data,
+                       common_phrases_status, common_phrases_data,
                        datetime(created_at, 'unixepoch', 'localtime') as created_at,
                        datetime(last_accessed_at, 'unixepoch', 'localtime') as last_accessed_at
                 FROM word_cache
@@ -865,9 +1035,50 @@ class DictionaryCacheService:
                     'senses': senses
                 })
             
+            common_phrases_data = None
+            if word_row['common_phrases_data']:
+                try:
+                    common_phrases_data = json.loads(word_row['common_phrases_data'])
+                except:
+                    pass
+            
+            phrase_videos = conn.execute("""
+                SELECT phrase, bilibili_videos_data, bilibili_videos_status,
+                       datetime(last_accessed_at, 'unixepoch', 'localtime') as last_accessed_at
+                FROM phrase_cache
+                WHERE word = ?
+                ORDER BY last_accessed_at DESC
+            """, (normalized,)).fetchall()
+            
+            phrase_videos_list = []
+            for pv_row in phrase_videos:
+                try:
+                    videos_data = json.loads(pv_row['bilibili_videos_data']) if pv_row['bilibili_videos_data'] else {}
+                    
+                    # Handle both single video (dict) and array formats
+                    bilibili_videos = videos_data.get('bilibili_videos', [])
+                    if isinstance(bilibili_videos, dict):
+                        # Single video - wrap in array
+                        bilibili_videos = [bilibili_videos]
+                    elif not isinstance(bilibili_videos, list):
+                        # Invalid format - use empty array
+                        bilibili_videos = []
+                    
+                    phrase_videos_list.append({
+                        'phrase': pv_row['phrase'],
+                        'videos': bilibili_videos,
+                        'status': pv_row['bilibili_videos_status'],
+                        'last_accessed_at': pv_row['last_accessed_at']
+                    })
+                except:
+                    pass
+            
             return {
                 'word': word_row['word'],
                 'basic_status': word_row['basic_status'],
+                'common_phrases_status': word_row['common_phrases_status'],
+                'common_phrases': common_phrases_data,
+                'phrase_videos': phrase_videos_list,
                 'created_at': word_row['created_at'],
                 'last_accessed_at': word_row['last_accessed_at'],
                 'entries': entries
@@ -885,6 +1096,7 @@ class DictionaryCacheService:
                     (SELECT COUNT(*) FROM word_cache) as total_words,
                     (SELECT COUNT(*) FROM entry_cache) as total_entries,
                     (SELECT COUNT(*) FROM sense_cache) as total_senses,
+                    (SELECT COUNT(*) FROM phrase_cache) as total_phrase_videos,
                     (SELECT COUNT(*) FROM cache_metrics) as total_metrics
             """).fetchone()
             
@@ -907,7 +1119,7 @@ class DictionaryCacheService:
         finally:
             conn.close()
 
-    def lookup_with_cache(self, word, section, entry_index, sense_index, fetch_func):
+    def lookup_with_cache(self, word, section, entry_index, sense_index, phrase, fetch_func):
         """
         Unified cache orchestration for dictionary lookups.
         
@@ -923,6 +1135,7 @@ class DictionaryCacheService:
             section: Section to fetch
             entry_index: Entry index (for entry-level sections)
             sense_index: Sense index (for sense-level sections)
+            phrase: Phrase for bilibili_videos section (optional)
             fetch_func: Function to call on cache miss. Should accept no args and return dict.
         
         Returns:
@@ -935,9 +1148,14 @@ class DictionaryCacheService:
         cached = None
         if section == 'basic':
             cached = self.get_basic(word)
-        elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
+        elif section == 'common_phrases':
+            cached = self.get_common_phrases(word)
+        elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
             if entry_index is not None:
                 cached = self.get_entry_section(word, entry_index, section)
+        elif section == 'bilibili_videos':
+            if phrase:
+                cached = self.get_phrase_videos(word, phrase)
         elif section in ['detailed_sense', 'examples', 'usage_notes']:
             if entry_index is not None and sense_index is not None:
                 cached = self.get_sense_section(word, entry_index, sense_index, section)
@@ -994,9 +1212,14 @@ class DictionaryCacheService:
                 # Re-check cache
                 if section == 'basic':
                     cached = self.get_basic(word)
-                elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
+                elif section == 'common_phrases':
+                    cached = self.get_common_phrases(word)
+                elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
                     if entry_index is not None:
                         cached = self.get_entry_section(word, entry_index, section)
+                elif section == 'bilibili_videos':
+                    if phrase:
+                        cached = self.get_phrase_videos(word, phrase)
                 elif section in ['detailed_sense', 'examples', 'usage_notes']:
                     if entry_index is not None and sense_index is not None:
                         cached = self.get_sense_section(word, entry_index, sense_index, section)
@@ -1026,9 +1249,14 @@ class DictionaryCacheService:
                 try:
                     if section == 'basic':
                         self.set_basic(word, result)
-                    elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
+                    elif section == 'common_phrases':
+                        self.set_common_phrases(word, result)
+                    elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
                         if entry_index is not None:
                             self.set_entry_section(word, entry_index, section, result)
+                    elif section == 'bilibili_videos':
+                        if phrase:
+                            self.set_phrase_videos(word, phrase, result)
                     elif section in ['detailed_sense', 'examples', 'usage_notes']:
                         if entry_index is not None and sense_index is not None:
                             self.set_sense_section(word, entry_index, sense_index, section, result)

@@ -392,25 +392,24 @@
         
         .videos-header {
             transition: background 0.2s;
+            padding: 5px 10px;
+            margin: -5px -10px;
+            border-radius: 4px;
         }
         
         .videos-header:hover {
             background: rgba(0, 123, 255, 0.05);
-            margin: -5px -10px;
-            padding: 5px 10px;
-            border-radius: 4px;
         }
         
         .senses-header {
             transition: background 0.2s;
-            margin-bottom: 10px;
+            margin: -5px -10px 5px -10px;
+            padding: 5px 10px;
+            border-radius: 4px;
         }
         
         .senses-header:hover {
             background: rgba(0, 123, 255, 0.05);
-            margin: -5px -10px 5px -10px;
-            padding: 5px 10px;
-            border-radius: 4px;
         }
         
         .section-content {
@@ -461,7 +460,7 @@
 <body>
     <div class="container">
         <h1>📚 Dictionary Cache Manager</h1>
-        <p class="subtitle">Manage your dictionary cache with granular control over entries and videos</p>
+        <p class="subtitle">Manage your dictionary cache - view word entries, common phrases, and phrase-specific videos</p>
         
         <!-- Statistics -->
         <div class="stats" id="stats">
@@ -655,9 +654,10 @@
         // Render individual word item
         function renderWordItem(word) {
             const hasDetails = word.entries && word.entries.length > 0;
+            const hasCommonPhrases = word.common_phrases && word.common_phrases.common_phrases && word.common_phrases.common_phrases.length > 0;
+            const hasPhraseVideos = word.phrase_videos && word.phrase_videos.length > 0;
             
-            if (!hasDetails) {
-                // Fallback to simple view
+            if (!hasDetails && !hasCommonPhrases && !hasPhraseVideos) {
                 return `
                     <div class="word-item">
                         <div class="word-header">
@@ -682,16 +682,118 @@
                             <span class="expand-arrow">▶</span>
                             <div class="word-name">${word.word}</div>
                             ${word.basic_status ? `<span class="section-badge">${word.basic_status}</span>` : ''}
+                            ${hasCommonPhrases ? `<span class="section-badge">📝 ${word.common_phrases.common_phrases.length} phrases</span>` : ''}
+                            ${hasPhraseVideos ? `<span class="section-badge" style="background: #ffebee; color: #c62828;">🎥 ${word.phrase_videos.length} cached</span>` : ''}
                         </div>
                         <div class="word-actions">
                             <button class="btn-danger" onclick="event.stopPropagation(); deleteWord('${word.word}')">Delete All</button>
                         </div>
                     </div>
                     
+                    ${hasCommonPhrases ? renderCommonPhrases(word.word, word.common_phrases) : ''}
+                    
+                    ${hasPhraseVideos ? renderPhraseVideos(word.word, word.phrase_videos) : ''}
+                    
                     ${word.entries.map(entry => renderEntry(word.word, entry)).join('')}
                     
                     <div class="word-meta">
                         Created: ${word.created_at} | Last accessed: ${word.last_accessed_at}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render common phrases section (word-level)
+        function renderCommonPhrases(word, commonPhrasesData) {
+            const phrases = commonPhrasesData.common_phrases || [];
+            const status = commonPhrasesData.status || 'unknown';
+            const phrasesId = `phrases-${word}`;
+            
+            return `
+                <div class="entry-section" style="border-left-color: #28a745;">
+                    <div class="entry-header">
+                        <div class="entry-title" style="color: #28a745;">📝 Common Phrases (${phrases.length})</div>
+                        <button class="btn-danger btn-small" onclick="event.stopPropagation(); deleteCommonPhrases('${word}')">
+                            Delete Phrases
+                        </button>
+                    </div>
+                    <div class="section-content" style="border-left-color: #28a745;">
+                        <p style="margin-bottom: 8px;"><strong>Most common phrases with "${word}":</strong></p>
+                        <ul style="margin: 0; padding-left: 20px;">
+                            ${phrases.map(phrase => `<li style="margin: 4px 0;">${phrase}</li>`).join('')}
+                        </ul>
+                        ${status === 'stale' ? `<p style="margin-top: 8px; color: #f57c00; font-size: 12px;">⚠️ Stale - needs refresh</p>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Render phrase videos section (flat list, not grouped by phrase)
+        function renderPhraseVideos(word, phraseVideos) {
+            if (!phraseVideos || phraseVideos.length === 0) {
+                return '';
+            }
+            
+            const totalVideos = phraseVideos.reduce((sum, pv) => sum + pv.videos.length, 0);
+            const allVideosWithPhrase = [];
+            
+            phraseVideos.forEach(pv => {
+                pv.videos.forEach(video => {
+                    allVideosWithPhrase.push({
+                        video: video,
+                        phrase: pv.phrase,
+                        status: pv.status,
+                        last_accessed_at: pv.last_accessed_at
+                    });
+                });
+            });
+            
+            return `
+                <div class="entry-section" style="border-left-color: #ff6b6b;">
+                    <div class="entry-header">
+                        <div class="entry-title" style="color: #ff6b6b;">🎥 Cached Phrase Videos (${totalVideos} total)</div>
+                    </div>
+                    <div class="videos-section collapsed-videos" id="phrase-videos-${word}">
+                        <div class="videos-header" onclick="toggleAllPhraseVideos('${word}')" style="cursor: pointer; user-select: none; background: #fff5f5; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="expand-arrow">▶</span>
+                                <div class="videos-title">Show All Videos</div>
+                            </div>
+                        </div>
+                        <div class="videos-list" id="phrase-videos-list-${word}">
+                            ${allVideosWithPhrase.map((item, idx) => renderPhraseVideoItem(word, item, idx)).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderPhraseVideoItem(word, item, index) {
+            const video = item.video;
+            const thumbnail = video.pic.startsWith('//') ? 'https:' + video.pic : video.pic;
+            
+            return `
+                <div class="video-item" style="position: relative;">
+                    <img src="${thumbnail}" alt="thumbnail" class="video-thumbnail" referrerpolicy="no-referrer" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%2268%22%3E%3Crect fill=%22%23ddd%22 width=%22120%22 height=%2268%22/%3E%3C/svg%3E'" />
+                    <div class="video-info">
+                        <div class="video-title" title="${video.title}">${video.title}</div>
+                        <div style="font-size: 11px; color: #666; margin-top: 4px; font-style: italic;">
+                            📝 Phrase: "${item.phrase}"
+                        </div>
+                        <div class="video-meta">
+                            <span>👁 ${video.view.toLocaleString()}</span>
+                            <span>👍 ${video.like.toLocaleString()}</span>
+                            <span>⏱ ${Math.floor(video.duration / 60)}:${(video.duration % 60).toString().padStart(2, '0')}</span>
+                            <span>📅 ${new Date(video.pubdate * 1000).toLocaleDateString()}</span>
+                        </div>
+                    </div>
+                    <div class="video-actions" style="display: flex; flex-direction: column; gap: 5px;">
+                        <button class="btn-secondary btn-small" onclick="window.open('${video.video_url}', '_blank')">
+                            Open
+                        </button>
+                        <button class="btn-danger btn-small" onclick="deletePhraseVideos('${word}', '${item.phrase.replace(/'/g, "\\'")}')">
+                            Delete
+                        </button>
                     </div>
                 </div>
             `;
@@ -722,9 +824,12 @@
                                     <span class="expand-arrow">▶</span>
                                     <div class="videos-title">🎥 Bilibili Videos (${videos.length})</div>
                                 </div>
-                                <button class="btn-danger btn-small" onclick="event.stopPropagation(); deleteSection('${word}', 'bilibili_videos', ${entry.entry_index})">
-                                    Delete All Videos
-                                </button>
+                                <div style="display: flex; gap: 5px; align-items: center;">
+                                    <span style="font-size: 11px; color: #999; font-style: italic;">Legacy (pre-phrase-split)</span>
+                                    <button class="btn-danger btn-small" onclick="event.stopPropagation(); deleteSection('${word}', 'bilibili_videos', ${entry.entry_index})">
+                                        Delete All Videos
+                                    </button>
+                                </div>
                             </div>
                             <div class="videos-list" id="videos-list-${word}-${entry.entry_index}">
                                 ${videos.map((video, idx) => renderVideo(word, entry.entry_index, video, idx)).join('')}
@@ -798,10 +903,24 @@
                         </div>
                     `;
                 } else if (section === 'cultural_notes') {
-                    const notes = data.notes || (data.cultural_notes && data.cultural_notes.notes) || 'N/A';
+                    // Handle nested structure: {cultural_notes: {historical_context, cultural_associations, social_perceptions}}
+                    const culturalData = data.cultural_notes || data;
+                    const historicalContext = culturalData.historical_context || '';
+                    const culturalAssociations = Array.isArray(culturalData.cultural_associations) ? culturalData.cultural_associations : [];
+                    const socialPerceptions = Array.isArray(culturalData.social_perceptions) ? culturalData.social_perceptions : [];
+                    
                     contentHtml = `
                         <div class="section-content" id="${sectionId}" style="display: none;">
-                            <p>${notes}</p>
+                            ${historicalContext ? `<p><strong>Historical Context:</strong> ${historicalContext}</p>` : ''}
+                            ${culturalAssociations.length > 0 ? `
+                                <h4>Cultural Associations:</h4>
+                                <ul>${culturalAssociations.map(a => `<li>${a}</li>`).join('')}</ul>
+                            ` : ''}
+                            ${socialPerceptions.length > 0 ? `
+                                <h4>Social Perceptions:</h4>
+                                <ul>${socialPerceptions.map(p => `<li>${p}</li>`).join('')}</ul>
+                            ` : ''}
+                            ${!historicalContext && culturalAssociations.length === 0 && socialPerceptions.length === 0 ? '<p>N/A</p>' : ''}
                         </div>
                     `;
                 } else if (section === 'frequency') {
@@ -991,6 +1110,17 @@
                 section.classList.add('collapsed-senses');
             }
         }
+        
+        // Toggle phrase videos section expand/collapse
+        function toggleAllPhraseVideos(word) {
+            const section = document.getElementById(`phrase-videos-${word}`);
+            
+            if (section.classList.contains('collapsed-videos')) {
+                section.classList.remove('collapsed-videos');
+            } else {
+                section.classList.add('collapsed-videos');
+            }
+        }
 
         // Render pagination
         function renderPagination(data) {
@@ -1030,6 +1160,46 @@
                 
                 if (data.status === 'ok') {
                     alert(`✅ ${data.message}`);
+                    loadWords(currentOffset);
+                    loadStats();
+                } else {
+                    alert(`❌ Error: ${data.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+
+        // Delete common phrases section (word-level)
+        async function deleteCommonPhrases(word) {
+            if (!confirm(`Delete common phrases for "${word}"?`)) return;
+            
+            try {
+                const url = `/api/dictionary/cache/${word}/section?section=common_phrases`;
+                const response = await authenticatedFetch(url, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    loadWords(currentOffset);
+                    loadStats();
+                } else {
+                    alert(`❌ Error: ${data.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+        
+        // Delete phrase-specific videos
+        async function deletePhraseVideos(word, phrase) {
+            if (!confirm(`Delete videos for phrase "${phrase}"?`)) return;
+            
+            try {
+                const url = `/api/dictionary/cache/${word}/phrase/${encodeURIComponent(phrase)}`;
+                const response = await authenticatedFetch(url, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
                     loadWords(currentOffset);
                     loadStats();
                 } else {

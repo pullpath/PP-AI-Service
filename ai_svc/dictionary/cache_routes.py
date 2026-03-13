@@ -356,6 +356,50 @@ def invalidate_section(word: str):
         }), 500
 
 
+@cache_bp.route('/<word>/phrase/<phrase>', methods=['DELETE'])
+def invalidate_phrase_videos(word: str, phrase: str):
+    """
+    Invalidate phrase-specific video cache
+    
+    Requires admin authentication.
+    
+    Example:
+        DELETE /api/dictionary/cache/hello/phrase/hello%20world
+    
+    Response:
+        {
+            "status": "ok",
+            "message": "Phrase videos deleted: hello - hello world"
+        }
+    """
+    if not check_admin_auth():
+        return jsonify({
+            "status": "error",
+            "message": "Unauthorized"
+        }), 401
+    
+    try:
+        with cache_service._write_lock:
+            conn = cache_service._read_connection()
+            try:
+                normalized = cache_service._normalize_word(word)
+                conn.execute("DELETE FROM phrase_cache WHERE word = ? AND phrase = ?", (normalized, phrase))
+                conn.commit()
+                
+                return jsonify({
+                    "status": "ok",
+                    "message": f"Phrase videos deleted: {word} - {phrase}"
+                }), 200
+            finally:
+                conn.close()
+    except Exception as e:
+        logging.error(f"Error deleting phrase videos: {e}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
 @cache_bp.route('/words/<word>/details', methods=['GET'])
 def get_word_details(word: str):
     """

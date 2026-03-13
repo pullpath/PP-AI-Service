@@ -18,6 +18,7 @@ from bilibili_api import Credential, sync
 
 # Import local modules
 from .bilibili_search import BilibiliVideoSearch
+from ..video import video_service
 
 
 # Import schemas and prompts
@@ -264,7 +265,7 @@ class DictionaryService:
         )
     
     
-    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None) -> Dict[str, Any]:
+    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None) -> Dict[str, Any]:
         """
         Look up specific section of word data with entry-level awareness
         
@@ -273,17 +274,22 @@ class DictionaryService:
         - section: Section to fetch
         - sense_index: Sense index within an entry (0-based, for 'detailed_sense')
         - entry_index: Entry index (0-based, for entry-specific sections and 'detailed_sense')
+        - phrase: Phrase to search for (required for 'bilibili_videos' section)
         
         Sections:
         - basic: Returns entry-level structure (no parameters needed)
+        - common_phrases: Returns common phrases for the word
         - etymology, word_family, usage_context, cultural_notes, frequency: 
             Require entry_index (defaults to 0)
         - detailed_sense: Requires BOTH entry_index AND sense_index
+        - bilibili_videos: Requires phrase parameter
         
         Examples:
         - {"word": "scrub", "section": "basic"}
+        - {"word": "scrub", "section": "common_phrases"}
         - {"word": "scrub", "section": "etymology", "entry_index": 1}
         - {"word": "scrub", "section": "detailed_sense", "entry_index": 1, "sense_index": 0}
+        - {"word": "scrub", "section": "bilibili_videos", "phrase": "scrub away"}
         """
         try:
             # Normalize the word (trim + lowercase)
@@ -294,7 +300,8 @@ class DictionaryService:
             valid_sections = [
                 'etymology', 'word_family', 'usage_context', 
                 'cultural_notes', 'frequency', 'detailed_sense', 'basic',
-                'examples', 'usage_notes', 'bilibili_videos'
+                'examples', 'usage_notes', 'bilibili_videos', 'common_phrases',
+                'ai_generated_phrase_video'
             ]
             
             if section not in valid_sections:
@@ -342,6 +349,7 @@ class DictionaryService:
                     "sense_index": sense_index,
                     "examples": result["examples"],
                     "collocations": result["collocations"],
+                    "data_source": "hybrid",
                     "execution_time": time.time() - start_time,
                     "success": True
                 }
@@ -360,11 +368,32 @@ class DictionaryService:
                     "entry_index": entry_index,
                     "sense_index": sense_index,
                     "usage_notes": result["usage_notes"],
+                    "data_source": "ai",
                     "execution_time": time.time() - start_time,
                     "success": True
                 }
             
-            entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']
+            if section == 'common_phrases':
+                return self._fetch_common_phrases_section(normalized_word, start_time)
+            
+            if section == 'bilibili_videos':
+                if not phrase:
+                    return {
+                        "error": "bilibili_videos section requires 'phrase' parameter",
+                        "success": False
+                    }
+                return self._fetch_bilibili_videos_section(normalized_word, phrase, start_time)
+            
+            if section == 'ai_generated_phrase_video':
+                if not phrase:
+                    return {
+                        "error": "Missing required parameter: phrase",
+                        "success": False,
+                        "execution_time": time.time() - start_time
+                    }
+                return self._fetch_phrase_video_section(phrase, entry_index, start_time)
+            
+            entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']
             if section in entry_level_sections:
                 return self._fetch_entry_level_section(normalized_word, section, entry_index, start_time)
             
@@ -573,8 +602,7 @@ class DictionaryService:
             'word_family': self._fetch_word_family,
             'usage_context': self._fetch_usage_context,
             'cultural_notes': self._fetch_cultural_notes,
-            'frequency': self._fetch_frequency,
-            'bilibili_videos': self._fetch_bilibili_videos
+            'frequency': self._fetch_frequency
         }
         
         method = section_method_map.get(section)
@@ -593,6 +621,7 @@ class DictionaryService:
             "headword": word,
             "entry_index": target_entry_index,
             section: result[section],
+            "data_source": "ai",
             "execution_time": time.time() - start_time,
             "success": True
         }
@@ -646,6 +675,7 @@ class DictionaryService:
                                     "detailed_sense": sense_result["sense_detail"],
                                     "entry_index": entry_index,
                                     "sense_index": sense_index,
+                                    "data_source": "hybrid",
                                     "success": True
                                 }
                             else:
@@ -711,6 +741,25 @@ class DictionaryService:
                 "error": str(e)
             }
     
+    
+    def _fetch_common_phrases_section(self, word: str, start_time: float) -> Dict[str, Any]:
+        """Fetch common phrases for a word as a standalone section"""
+        try:
+            phrases = self._fetch_common_phrases(word)
+            
+            return {
+                "headword": word,
+                "common_phrases": phrases,
+                "data_source": "ai",
+                "execution_time": time.time() - start_time,
+                "success": True
+            }
+        except Exception as e:
+            return {
+                "headword": word,
+                "error": str(e),
+                "success": False
+            }
     
     def _fetch_common_phrases(self, word: str) -> List[str]:
         """Fetch common phrases for a word via AI"""
@@ -1212,24 +1261,121 @@ class DictionaryService:
                 "error": str(e)
             }
     
-    def _fetch_bilibili_videos(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Fetch Bilibili videos related to the word using the decoupled search module"""
-        try:
-            # First, get common phrases for this word
-            phrases = self._fetch_common_phrases(word)
-            logger.info(f"[{word}] Generated phrases: {phrases}")
-            
-            # Normalize phrases (trim + lowercase)
-            normalized_phrases = [self._normalize_word(phrase) for phrase in phrases]
-            logger.info(f"[{word}] Normalized phrases: {normalized_phrases}")
-            
-            # Use the decoupled Bilibili search service
-            result = self.bilibili_search.search_videos_for_word(word, normalized_phrases)
-            
+    def _fetch_bilibili_videos_section(self, word: str, phrase: str, start_time: float) -> Dict[str, Any]:
+        """Fetch Bilibili videos section with phrase parameter"""
+        result = self._fetch_bilibili_videos(word, phrase)
+        
+        if not result.get("success"):
             return result
+        
+        return {
+            "headword": word,
+            "phrase": phrase,
+            "bilibili_videos": result["bilibili_videos"],
+            "data_source": "api",
+            "execution_time": time.time() - start_time,
+            "success": True
+        }
+    
+    def _fetch_phrase_video_section(self, phrase: str, entry_index: Optional[int], start_time: float) -> Dict[str, Any]:
+        """
+        Generate AI video for a phrase using video_service
+        
+        Parameters extracted from entry_index as encoded params:
+        - If entry_index is None, use defaults
+        - Otherwise, decode entry_index to extract: style, duration, resolution, ratio
+        
+        For now, use defaults from entry_index parameter or simple defaults
+        """
+        if not phrase:
+            return {
+                "error": "ai_generated_phrase_video section requires 'phrase' parameter",
+                "success": False
+            }
+        
+        style = "kids_cartoon"
+        duration = 4
+        resolution = "480p"
+        ratio = "16:9"
+        timeout = 300
+        
+        logger.info(f"[ai_generated_phrase_video] Generating video for phrase: '{phrase}' (style={style}, duration={duration}s, resolution={resolution}, subtitles=english_burned_in, audio=english_only)")
+        
+        try:
+            result = video_service.generate_phrase_video(
+                phrase=phrase,
+                style=style,
+                duration=duration,
+                resolution=resolution,
+                ratio=ratio,
+                context=None,
+                timeout_seconds=timeout
+            )
+            
+            if result.get("success"):
+                return {
+                    "phrase": phrase,
+                    "ai_generated_phrase_video": {
+                        "task_id": result.get("task_id"),
+                        "video_url": result.get("video_url"),
+                        "status": result.get("status"),
+                        "style": result.get("style"),
+                        "duration": result.get("duration"),
+                        "resolution": result.get("resolution"),
+                        "ratio": result.get("ratio")
+                    },
+                    "data_source": "ai",
+                    "execution_time": time.time() - start_time,
+                    "success": True
+                }
+            else:
+                return {
+                    "phrase": phrase,
+                    "error": result.get("message", "Video generation failed"),
+                    "status": result.get("status"),
+                    "execution_time": time.time() - start_time,
+                    "success": False
+                }
+                
+        except Exception as e:
+            logger.error(f"Error generating video for phrase '{phrase}': {str(e)}")
+            return {
+                "phrase": phrase,
+                "error": str(e),
+                "execution_time": time.time() - start_time,
+                "success": False
+            }
+    
+    def _fetch_bilibili_videos(self, word: str, phrase: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Fetch Bilibili videos for a specific phrase using the decoupled search module
+        
+        Args:
+            word: The original word being looked up
+            phrase: The specific phrase to search videos for
+            context_entry: Optional API entry context (unused)
+            
+        Returns:
+            Dictionary with video info or error
+        """
+        try:
+            normalized_phrase = self._normalize_word(phrase)
+            logger.info(f"[{word}] Searching Bilibili for phrase: '{normalized_phrase}'")
+            
+            video_info = self.bilibili_search._search_videos_for_phrase(word, normalized_phrase)
+            
+            if video_info:
+                return {
+                    "success": True,
+                    "bilibili_videos": video_info
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No videos found for phrase '{phrase}'"
+                }
             
         except Exception as e:
-            logger.error(f"Error fetching Bilibili videos for '{word}': {str(e)}")
+            logger.error(f"Error fetching Bilibili videos for '{word}' with phrase '{phrase}': {str(e)}")
             return {
                 "success": False,
                 "error": str(e)

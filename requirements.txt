@@ -11,3 +11,4 @@ bilibili-api-python==17.4.1
 python-datamuse>=2.0.1
 rapidfuzz>=3.0.0
 Flask-Caching>=2.1.0
+volcengine-python-sdk==5.0.16

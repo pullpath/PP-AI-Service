@@ -16,6 +16,12 @@ AI-powered Flask web service providing dictionary lookups, audio transcription, 
 - **Section-based loading**: Load only what you need
 - **Comprehensive data**: Etymology, word family, usage context, cultural notes, detailed sense analysis
 
+### 🎬 AI Video Generation
+- Educational phrase videos with audio (Volcengine Ark)
+- Kids-friendly animated style
+- 4-12 second duration range
+- Automatic audio generation (enabled by default)
+
 ### 🎙️ Audio Transcription
 - OpenAI Whisper integration
 - High-quality audio-to-text conversion
@@ -52,6 +58,9 @@ Create `.env` file:
 ```env
 # Dictionary Service
 DEEPSEEK_API_KEY=your_deepseek_api_key
+
+# AI Video Generation (optional - for ai_generated_phrase_video section)
+ARK_API_KEY=your_volcengine_api_key
 
 # OpenAI Services
 OPENAI_API_KEY=your_openai_api_key
@@ -130,9 +139,15 @@ curl -X POST http://localhost:8000/api/dictionary \
 curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
   -d '{"word":"hello","section":"bilibili_videos"}'
+
+# AI-Generated Phrase Video (NEW - requires ARK_API_KEY)
+# Generates educational videos with audio (4-12 seconds)
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"hello","section":"ai_generated_phrase_video","phrase":"pipe down"}'
 ```
 
-**Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`, `examples`, `usage_notes`, `bilibili_videos`
+**Available sections**: `basic`, `etymology`, `word_family`, `usage_context`, `cultural_notes`, `frequency`, `detailed_sense`, `examples`, `usage_notes`, `bilibili_videos`, `ai_generated_phrase_video`
 
 See [docs/API.md](docs/API.md) for complete API documentation.
 
@@ -196,10 +211,23 @@ PP-AI-Service/
 
 ## Documentation
 
+### Core Features
 - **[Architecture](docs/ARCHITECTURE.md)** - System design, 2+1+1 agent architecture, progressive loading
-- **[API Guide](docs/API.md)** - Complete API reference with examples
-- **[Frontend Migration](docs/FRONTEND_MIGRATION_EXAMPLES_SPLIT.md)** - Guide for updating frontend to new split endpoints
-- **[Deployment](docs/DEPLOYMENT.md)** - Production deployment (Docker, GCP, HTTPS)
+- **[API Reference](docs/API.md)** - Complete API documentation with examples
+- **[Deployment](docs/DEPLOYMENT.md)** - Production deployment (Docker, GCP, HTTPS, Nginx)
+
+### Dictionary Features
+- **[Bilibili Search](docs/BILIBILI_SEARCH_ANALYSIS.md)** - Video search with subtitle timestamps
+- **[Word Suggestions](docs/WORD_SUGGESTION_FEATURE.md)** - Smart word suggestions feature
+- **[AI Video Generation](docs/AI_VIDEO_GENERATION.md)** - Generate educational videos for phrases
+
+### Cache Management
+- **[Cache Quick Start](docs/CACHE_QUICK_START.md)** - Quick guide to cache management
+- **[Cache Management](docs/CACHE_MANAGEMENT.md)** - Detailed cache system documentation
+- **[Cache Collision Fix](docs/CACHE_COLLISION_FIX_SUMMARY.md)** - Collision resolution details
+- **[Cache Collision Visual](docs/CACHE_COLLISION_VISUAL.md)** - Visual guide to collision handling
+
+### Development
 - **[AGENTS.md](AGENTS.md)** - Guide for AI agents working on this codebase
 
 ## Technology Stack

@@ -108,23 +108,30 @@ def dictionary_lookup():
         "section": "etymology",   # Required: specific section to fetch
         "index": 0,               # Optional: DEPRECATED - use entry_index + sense_index
         "entry_index": 0,         # Optional: for entry-specific sections
-        "sense_index": 0          # Optional: for 'detailed_sense' section (0-based within entry)
+        "sense_index": 0,         # Optional: for 'detailed_sense' section (0-based within entry)
+        "phrase": "hello world"   # Optional: required for 'bilibili_videos' and 'ai_generated_phrase_video' sections
     }
     
     Valid sections:
     - "basic": Entry-level structure with counts (fast, no AI)
+    - "common_phrases": Common phrases for the word (AI-generated, 1-6 phrases)
     - "etymology": Word origin (requires entry_index for multi-entry words)
     - "word_family": Related words (requires entry_index for multi-entry words)
     - "usage_context": Modern usage trends (requires entry_index for multi-entry words)
     - "cultural_notes": Cultural notes (requires entry_index for multi-entry words)
     - "frequency": Word frequency (requires entry_index for multi-entry words)
     - "detailed_sense": Single sense detail (requires entry_index + sense_index)
+    - "bilibili_videos": Videos for specific phrase (requires phrase parameter)
+    - "ai_generated_phrase_video": AI-generated educational video for phrase (requires phrase parameter)
     
     Example requests:
     - {"word": "scrub", "section": "basic"}  # Get entry structure
+    - {"word": "scrub", "section": "common_phrases"}  # Get common phrases
     - {"word": "scrub", "section": "etymology", "entry_index": 0}  # Get etymology for entry 0
     - {"word": "scrub", "section": "etymology", "entry_index": 1}  # Get etymology for entry 1
     - {"word": "scrub", "section": "detailed_sense", "entry_index": 1, "sense_index": 0}  # Entry 1, first sense
+    - {"word": "scrub", "section": "bilibili_videos", "phrase": "scrub away"}  # Videos for phrase
+    - {"word": "scrub", "section": "ai_generated_phrase_video", "phrase": "scrub away"}  # AI-generated video
     - {"word": "scrub", "section": "detailed_sense", "index": 14}  # DEPRECATED flat indexing
     """
     try:
@@ -137,7 +144,7 @@ def dictionary_lookup():
         
         if 'section' not in data:
             return jsonify({
-                "error": "Missing 'section' parameter in request body. Valid sections: basic, etymology, word_family, usage_context, cultural_notes, frequency, detailed_sense",
+                "error": "Missing 'section' parameter in request body. Valid sections: basic, common_phrases, etymology, word_family, usage_context, cultural_notes, frequency, detailed_sense, bilibili_videos",
                 "success": False
             }), 400
         
@@ -157,23 +164,25 @@ def dictionary_lookup():
         
         entry_index = data.get('entry_index', None)
         sense_index = data.get('sense_index', None)
+        phrase = data.get('phrase', None)
         
-        # Auto-default entry_index for entry-level sections (bilibili_videos, etc.)
+        # Auto-default entry_index for entry-level sections
         # Most entry-level sections are not entry-specific, so default to 0
-        if entry_index is None and section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
+        if entry_index is None and section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
             entry_index = 0
             logging.debug(f"[{word}] Auto-defaulting entry_index to 0 for {section}")
         
         # --- Cache orchestration (delegated to cache_service) ---
         def fetch_from_service():
             """Fetch function for cache miss"""
-            return dictionary_service.lookup_section(word, section, sense_index, entry_index)
+            return dictionary_service.lookup_section(word, section, sense_index, entry_index, phrase)
         
         result, status_code = cache_service.lookup_with_cache(
             word=word,
             section=section,
             entry_index=entry_index,
             sense_index=sense_index,
+            phrase=phrase,
             fetch_func=fetch_from_service
         )
         

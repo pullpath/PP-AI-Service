@@ -173,6 +173,6 @@ class CommonPhrases(BaseModel):
     phrases: List[str] = Field(
         default_factory=list,
         min_length=1,
-        max_length=3,
-        description="1-3 commonly used phrases or collocations. If word is standalone, just the word."
+        max_length=6,
+        description="1-6 commonly used phrases or collocations. If word is standalone, just the word."
     )

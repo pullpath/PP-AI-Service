@@ -96,6 +96,7 @@ PP-AI-Service/
 ### Environment Variables
 Required environment variables (copy from `.env.example`):
 - `DEEPSEEK_API_KEY` - DeepSeek API key for dictionary service
+- `ARK_API_KEY` - Volcengine Ark API key for AI video generation (optional)
 - `OPENAI_API_KEY` - OpenAI API key
 - `OPENAI_API_BASE` - OpenAI API base URL (for proxy)
 - `X-PP-TOKEN` - Proxy authentication token
@@ -251,6 +252,117 @@ curl -X POST http://localhost:8000/api/dictionary \
 
 Expected response includes video URLs with timestamps when subtitles match the search phrase.
 
+## AI-Generated Phrase Videos
+
+The dictionary service includes AI-generated educational video creation for phrases using the Volcengine Ark API. This feature generates short animated videos with audio to illustrate phrase meanings.
+
+### Configuration
+
+Requires the `ARK_API_KEY` environment variable:
+
+```env
+# Add to your .env file
+ARK_API_KEY=your_volcengine_api_key
+```
+
+Get your API key from: https://console.volcengine.com/ark
+
+### How It Works
+
+The service generates videos using the `ai_generated_phrase_video` section:
+
+1. Receives a phrase (e.g., "pipe down", "break the ice")
+2. Calls Volcengine Ark API to generate educational video with audio
+3. Returns video URL with metadata (style, duration, resolution)
+
+**Default Settings:**
+- Model: `doubao-seedance-1-5-pro-251215` (audio-enabled)
+- Style: `kids_cartoon` (family-friendly animated style)
+- Duration: 4 seconds default (range: 4-12 seconds supported)
+- Resolution: 480p (720p/1080p supported by model)
+- Aspect Ratio: 16:9
+- Audio: Enabled by default (automatic narration & lip-sync)
+- Language: English-only dialogue/audio (prompt constrained)
+- Subtitles: Burned-in English subtitles (prompt constrained)
+- Timeout: 300 seconds (5 minutes)
+
+### Usage Example
+
+```bash
+# Generate video for a phrase
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"hello","section":"ai_generated_phrase_video","phrase":"pipe down"}'
+```
+
+**Response:**
+```json
+{
+  "phrase": "pipe down",
+  "ai_generated_phrase_video": {
+    "task_id": "20240315abc123",
+    "video_url": "https://example.com/video.mp4",
+    "status": "completed",
+    "style": "kids_cartoon",
+    "duration": 5,
+    "resolution": "480p",
+    "ratio": "16:9"
+  },
+  "execution_time": 45.2,
+  "success": true
+}
+```
+
+### Integration Pattern
+
+The video generation is accessed as a **dictionary section**, not a standalone endpoint:
+- Endpoint: `POST /api/dictionary`
+- Section: `"ai_generated_phrase_video"`
+- Required parameters: `word`, `section`, `phrase`
+
+This design keeps the API consistent - all dictionary features use the same endpoint with section-based routing.
+
+### Testing
+
+Use the provided test script:
+
+```bash
+python test_video_api.py
+```
+
+Or test specific phrases:
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/api/dictionary",
+    json={
+        "word": "quiet",
+        "section": "ai_generated_phrase_video",
+        "phrase": "pipe down"
+    },
+    timeout=600
+)
+print(response.json())
+```
+
+### Performance
+
+- Generation time: 30-60 seconds (depends on Volcengine API)
+- Video length: 5 seconds (hardcoded default)
+- No caching implemented yet (each request generates new video)
+
+### Error Handling
+
+Common errors:
+- Missing `ARK_API_KEY`: Returns error message indicating missing API key
+- Missing `phrase` parameter: Returns error `"ai_generated_phrase_video section requires 'phrase' parameter"`
+- API timeout: Returns error after 5 minutes (configurable)
+- Volcengine API errors: Returns error message from API
+
+See `docs/AI_VIDEO_GENERATION.md` for comprehensive documentation.
+
 ## Important Gotchas
 
 1. **Dictionary Service**: Uses hybrid API + AI; falls back to AI-only if free API fails (logged)
@@ -260,7 +372,8 @@ Expected response includes video URLs with timestamps when subtitles match the s
 5. **Chinese Network**: Dockerfile uses Aliyun PyPI mirror for faster installs in China
 6. **Port Configuration**: Application runs on port 8000 (configurable via environment)
 7. **DeepSeek API Key**: Required for dictionary service (set `DEEPSEEK_API_KEY` in `.env`)
-8. **Logging**: Service logs API vs AI decisions at INFO level for monitoring
+8. **ARK API Key**: Required for AI video generation (set `ARK_API_KEY` in `.env` - optional feature)
+9. **Logging**: Service logs API vs AI decisions at INFO level for monitoring
 
 ## Development Workflow
 
