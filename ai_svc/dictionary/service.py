@@ -1343,9 +1343,14 @@ class DictionaryService:
         
         logger.info(f"[ai_generated_phrase_video] Stage 2: Creating async video task (style={style}, duration={duration}s)")
         
+        bucket_name_prefix = os.getenv("BUCKET_NAME_PREFIX", "")
+        bucket_name = f"{bucket_name_prefix}video-of-phrase-usage-from-ai"
+        
         try:
             task_id = video_task_service.create_task(
                 phrase=phrase,
+                bucket_name=bucket_name,
+                word=word,
                 conversation_script=conversation_script,
                 style=style,
                 duration=duration,

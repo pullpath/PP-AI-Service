@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .video import video_service
 from .cache_service import cache_service
+from .tos_storage import download_and_upload_video
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class VideoTaskService:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS video_tasks (
                     task_id TEXT PRIMARY KEY,
+                    word TEXT,
                     phrase TEXT NOT NULL,
                     conversation_script TEXT,
                     style TEXT NOT NULL,
@@ -69,6 +71,18 @@ class VideoTaskService:
                 logger.info("Migrating database: adding conversation_script column")
                 conn.execute("ALTER TABLE video_tasks ADD COLUMN conversation_script TEXT")
             
+            try:
+                conn.execute("SELECT word FROM video_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                logger.info("Migrating database: adding word column")
+                conn.execute("ALTER TABLE video_tasks ADD COLUMN word TEXT")
+            
+            try:
+                conn.execute("SELECT bucket_name FROM video_tasks LIMIT 1")
+            except sqlite3.OperationalError:
+                logger.info("Migrating database: adding bucket_name column")
+                conn.execute("ALTER TABLE video_tasks ADD COLUMN bucket_name TEXT")
+            
             conn.commit()
             
         logger.info("Video tasks database initialized")
@@ -76,6 +90,8 @@ class VideoTaskService:
     def create_task(
         self,
         phrase: str,
+        bucket_name: str,
+        word: Optional[str] = None,
         conversation_script: Optional[Dict[str, Any]] = None,
         style: str = "kids_cartoon",
         duration: int = 4,
@@ -91,12 +107,12 @@ class VideoTaskService:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO video_tasks 
-                (task_id, phrase, conversation_script, style, duration, resolution, ratio, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (task_id, phrase, conversation_json, style, duration, resolution, ratio, "pending", now, now))
+                (task_id, word, phrase, conversation_script, bucket_name, style, duration, resolution, ratio, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (task_id, word, phrase, conversation_json, bucket_name, style, duration, resolution, ratio, "pending", now, now))
             conn.commit()
         
-        logger.info(f"Created video task {task_id} for phrase '{phrase}' with conversation script")
+        logger.info(f"Created video task {task_id} for word '{word}' / phrase '{phrase}' with bucket '{bucket_name}'")
         return task_id
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -141,7 +157,8 @@ class VideoTaskService:
         
         with sqlite3.connect(self.db_path) as conn:
             updates = ["status = ?", "updated_at = ?"]
-            values: list[str | int] = [status, now]
+            from typing import Union, List
+            values: List[Union[str, int]] = [status, now]
             
             if progress is not None:
                 updates.append("progress = ?")
@@ -208,19 +225,75 @@ class VideoTaskService:
             )
             
             if result.get("success"):
-                video_url = result.get("video_url")
+                volcengine_video_url = result.get("video_url")
+                
+                if not volcengine_video_url or not isinstance(volcengine_video_url, str):
+                    logger.error(f"[Task {task_id}] Video generation succeeded but no valid video URL returned")
+                    self.update_task_status(
+                        task_id,
+                        "failed",
+                        progress=0,
+                        error_message="Video generation succeeded but no video URL returned"
+                    )
+                    cache_service.update_ai_phrase_video_status(
+                        task_id=task_id,
+                        status="failed",
+                        video_url=None
+                    )
+                    return
+                
+                logger.info(f"[Task {task_id}] Video generated from Volcengine: {volcengine_video_url}")
+                
+                self.update_task_status(task_id, "processing", progress=70)
+                
+                word = task.get('word', 'unknown')
+                phrase = task['phrase']
+                bucket_name = task.get('bucket_name')
+                style = task.get('style', 'kids_cartoon')
+                
+                if not bucket_name:
+                    error_msg = "bucket_name not found in task data"
+                    logger.error(f"[Task {task_id}] {error_msg}")
+                    self.update_task_status(
+                        task_id,
+                        "failed",
+                        progress=0,
+                        error_message=error_msg
+                    )
+                    cache_service.update_ai_phrase_video_status(
+                        task_id=task_id,
+                        status="failed",
+                        video_url=None
+                    )
+                    return
+                
+                tos_video_url = download_and_upload_video(
+                    video_url=volcengine_video_url,
+                    word=word,
+                    phrase=phrase,
+                    bucket_name=bucket_name,
+                    style=style
+                )
+                
+                if tos_video_url:
+                    final_video_url = tos_video_url
+                    logger.info(f"[Task {task_id}] Video uploaded to TOS storage: {tos_video_url}")
+                else:
+                    final_video_url = volcengine_video_url
+                    logger.warning(f"[Task {task_id}] TOS upload failed, using Volcengine URL (will expire in 24h)")
+                
                 self.update_task_status(
                     task_id,
                     "completed",
                     progress=100,
-                    video_url=video_url
+                    video_url=final_video_url
                 )
                 cache_service.update_ai_phrase_video_status(
                     task_id=task_id,
                     status="completed",
-                    video_url=video_url
+                    video_url=final_video_url
                 )
-                logger.info(f"[Task {task_id}] Video generation completed: {video_url}")
+                logger.info(f"[Task {task_id}] Video generation completed: {final_video_url}")
             else:
                 error_msg = result.get("message", "Unknown error")
                 self.update_task_status(

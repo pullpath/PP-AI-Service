@@ -173,3 +173,5 @@ OAI_CONFIG_LIST
 *.db-journal
 *.db-shm
 *.db-wal
+credentials/*
+!credentials/*.md

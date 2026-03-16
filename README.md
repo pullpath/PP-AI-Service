@@ -225,6 +225,7 @@ PP-AI-Service/
 - **[Architecture](docs/ARCHITECTURE.md)** - System design, 2+1+1 agent architecture, progressive loading
 - **[API Reference](docs/API.md)** - Complete API documentation with examples
 - **[Deployment](docs/DEPLOYMENT.md)** - Production deployment (Docker, GCP, HTTPS, Nginx)
+- **[TOS Storage Deployment](docs/TOS_DEPLOYMENT_GUIDE.md)** - TOS storage setup, crcmod optimization, multi-process safety
 
 ### Dictionary Features
 - **[Bilibili Search](docs/BILIBILI_SEARCH_ANALYSIS.md)** - Video search with subtitle timestamps
