@@ -226,6 +226,20 @@ curl "http://localhost:8000/api/ai_phrase_videos?word=quiet&phrase=pipe%20down"
       "task_id": "abc-123-def",
       "video_url": "https://example.com/video.mp4",
       "status": "completed",
+      "conversation_script": {
+        "scenario": "A library scene where Sarah is explaining idioms to her younger brother Ben",
+        "dialogue": [
+          {
+            "speaker": "Sarah",
+            "line": "Hey Ben, you need to pipe down! We're in the library."
+          },
+          {
+            "speaker": "Ben",
+            "line": "Sorry, I'll be quieter."
+          }
+        ],
+        "phrase_explanation": "The phrase 'pipe down' means to be quiet or stop making noise."
+      },
       "style": "kids_cartoon",
       "duration": 4,
       "resolution": "480p",

@@ -776,7 +776,7 @@ class DictionaryCacheService:
             if status_filter:
                 placeholders = ', '.join(['?' for _ in status_filter])
                 query = f"""
-                    SELECT task_id, video_url, status, style, duration, resolution, ratio,
+                    SELECT task_id, video_url, status, conversation_script, style, duration, resolution, ratio,
                            created_at, completed_at, last_accessed_at
                     FROM ai_phrase_video_cache
                     WHERE word = ? AND phrase = ? AND status IN ({placeholders})
@@ -785,7 +785,7 @@ class DictionaryCacheService:
                 params = [normalized, phrase] + status_filter
             else:
                 query = """
-                    SELECT task_id, video_url, status, style, duration, resolution, ratio,
+                    SELECT task_id, video_url, status, conversation_script, style, duration, resolution, ratio,
                            created_at, completed_at, last_accessed_at
                     FROM ai_phrase_video_cache
                     WHERE word = ? AND phrase = ?
@@ -797,10 +797,19 @@ class DictionaryCacheService:
             
             results = []
             for row in rows:
+                # Parse conversation_script JSON if present
+                conversation_script = None
+                if row['conversation_script']:
+                    try:
+                        conversation_script = json.loads(row['conversation_script'])
+                    except Exception as e:
+                        logger.warning(f"Failed to parse conversation_script JSON for task {row['task_id']}: {e}")
+                
                 results.append({
                     'task_id': row['task_id'],
                     'video_url': row['video_url'],
                     'status': row['status'],
+                    'conversation_script': conversation_script,
                     'style': row['style'],
                     'duration': row['duration'],
                     'resolution': row['resolution'],
