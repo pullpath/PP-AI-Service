@@ -115,18 +115,34 @@ class VideoGenerationService:
                 for line in dialogue_lines
             ])
             
+            total_words = sum(len(line['text'].split()) for line in dialogue_lines)
+            
             scene_parts = [
                 template["prefix"],
                 template["scene_context"],
                 f"\n\nScene: {scenario}",
-                f"\n\nDialogue script to animate:\n{dialogue_text}",
-                "STRICT LANGUAGE RULE: Animate EXACTLY this dialogue with no changes, additions, or translations.",
-                "Use ONLY English dialogue as written above. No Chinese characters, no Chinese words, no code-switching.",
-                "Focus on clear facial expressions and body language to convey the meaning.",
-                "Keep shots simple and static with minimal camera movement for faster generation.",
-                "Use a single background and no scene cuts.",
+                f"\n\n=== DIALOGUE SCRIPT ({len(dialogue_lines)} lines, ~{total_words} words) ===",
+                f"{dialogue_text}",
+                "\n\n=== CRITICAL REQUIREMENTS ===",
+                f"1. YOU MUST ANIMATE ALL {len(dialogue_lines)} DIALOGUE LINES ABOVE - EVERY SINGLE LINE FROM START TO FINISH",
+                "2. DO NOT CUT OFF any dialogue mid-sentence - let each character COMPLETE their line",
+                "3. DO NOT skip or omit any lines - include ALL dialogue in sequence",
+                "4. Each line must be spoken WORD-FOR-WORD exactly as written (no paraphrasing, no changes)",
+                "5. Video duration MUST be sufficient to speak all dialogue at natural pace - extend duration if needed",
+                "6. Use ONLY English dialogue - no Chinese, no code-switching, no translation",
+                "\n\n=== TIMING & SEQUENCING (CRITICAL) ===",
+                "1. PLAY DIALOGUE STRICTLY ONE-BY-ONE: Each character must speak ONLY when the previous character has completely finished",
+                "2. NO OVERLAPPING AUDIO: Do NOT play multiple dialogue lines simultaneously - voices must NEVER overlap",
+                "3. WAIT FOR COMPLETION: Before starting a new line, ensure the previous character's mouth has closed and audio has ended",
+                "4. When one character speaks, other characters must listen silently with no mouth movement",
+                "5. If the requested duration is too short to fit all dialogue sequentially at natural pace, EXTEND the video duration instead of overlapping or rushing speech",
+                "\n\n=== Visual Style ===",
+                "- Static camera, single continuous shot (no cuts)",
+                "- Clear facial expressions matching emotional tone",
+                "- Simple background matching the scenario",
                 template["character_style"],
-                f"\n\n{template['tone']}"
+                f"\n\n{template['tone']}",
+                "\n\nREMINDER: The two most critical requirements are: (1) COMPLETE ALL DIALOGUE without cutting off, and (2) PLAY DIALOGUE ONE-BY-ONE with NO overlapping audio - each line must finish completely before the next begins."
             ]
         else:
             scene_parts = [
