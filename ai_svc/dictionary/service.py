@@ -13,8 +13,9 @@ import time
 import concurrent.futures
 import requests
 import logging
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 from bilibili_api import Credential, sync
+from pathlib import Path
 
 from .bilibili_search import BilibiliVideoSearch
 from .video_task_service import video_task_service
@@ -82,6 +83,7 @@ class DictionaryService:
                 if should_refresh:
                     sync(self.bilibili_credential.refresh())
                     logger.info("Bilibili credentials refreshed successfully")
+                    self._update_env_credentials()
                 else:
                     logger.info("Bilibili credentials are valid, no refresh needed")
             except Exception as e:
@@ -279,6 +281,35 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=ConversationScript
         )
+    
+    def _update_env_credentials(self) -> None:
+        try:
+            env_path = Path(__file__).parent.parent.parent / ".env"
+            
+            if not env_path.exists():
+                logger.warning(f".env file not found at {env_path}, skipping credential update")
+                return
+            
+            if not self.bilibili_credential:
+                logger.warning("No Bilibili credentials to update in .env")
+                return
+            
+            set_key(str(env_path), "BILIBILI_SESSDATA", self.bilibili_credential.sessdata or "", quote_mode="always")
+            set_key(str(env_path), "BILIBILI_BILI_JCT", self.bilibili_credential.bili_jct or "", quote_mode="always")
+            
+            if self.bilibili_credential.buvid3:
+                set_key(str(env_path), "BILIBILI_BUVID3", self.bilibili_credential.buvid3, quote_mode="always")
+            
+            if self.bilibili_credential.ac_time_value:
+                set_key(str(env_path), "BILIBILI_AC_TIME_VALUE", self.bilibili_credential.ac_time_value, quote_mode="always")
+            
+            logger.info(f"Successfully updated Bilibili credentials in {env_path}")
+            
+        except PermissionError as e:
+            logger.error(f"Permission denied updating .env file: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to update .env credentials: {e}")
     
     
     def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
