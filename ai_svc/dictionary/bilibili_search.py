@@ -24,6 +24,7 @@ class BilibiliVideoSearch:
     # Bilibili search configuration
     PAGE_SIZE = 50
     MAX_VIDEOS_TO_CHECK_FOR_SUBTITLES = 50
+    MAX_SEARCH_RETRIES = 3
     
     # KNOWLEDGE zone types for educational content
     KNOWLEDGE_ZONES = [
@@ -126,38 +127,39 @@ class BilibiliVideoSearch:
             for search_query in search_queries:
                 logger.info(f"{log_prefix} Trying search query: '{search_query}'")
                 
-                video_results = self._search_in_knowledge_zones(search_query)
+                for attempt in range(1, self.MAX_SEARCH_RETRIES + 1):
+                    video_results = self._search_in_knowledge_zones(search_query)
+                    
+                    if not video_results:
+                        logger.info(f"{log_prefix} No videos returned from Bilibili for query '{search_query}' (attempt {attempt}/{self.MAX_SEARCH_RETRIES}) — retrying")
+                        continue
+                    
+                    logger.info(f"{log_prefix} Found {len(video_results)} videos in KNOWLEDGE zones for query '{search_query}' (attempt {attempt})")
+                    
+                    filtered_by_phrase = self._filter_videos_by_phrase(video_results, phrase)
+                    logger.info(f"{log_prefix} After phrase filtering: {len(filtered_by_phrase)} videos contain whole phrase '{phrase}'")
+                    
+                    if not filtered_by_phrase:
+                        logger.info(f"{log_prefix} No videos found containing whole phrase '{phrase}' - retrying (attempt {attempt}/{self.MAX_SEARCH_RETRIES})")
+                        continue
+                    
+                    filtered_videos = [{'video': video, 'quality_score': 1.0} for video in filtered_by_phrase]
+                    
+                    logger.info(f"{log_prefix} After phrase filtering: {len(filtered_videos)} videos for query '{search_query}'")
+                    
+                    filtered_videos.sort(key=lambda x: x['quality_score'], reverse=True)
+                    
+                    video_found = self._find_best_video_with_subtitles(
+                        filtered_videos, phrase, word
+                    )
+                    
+                    if video_found:
+                        best_video = video_found['video']
+                        best_subtitle_occurrences = video_found['subtitle_occurrences']
+                        best_score = video_found['score']
+                        break
                 
-                if not video_results:
-                    logger.info(f"{log_prefix} No videos found in KNOWLEDGE zones for query '{search_query}'")
-                    continue
-                
-                logger.info(f"{log_prefix} Found {len(video_results)} videos in KNOWLEDGE zones for query '{search_query}'")
-                
-                filtered_by_phrase = self._filter_videos_by_phrase(video_results, phrase)
-                logger.info(f"{log_prefix} After phrase filtering: {len(filtered_by_phrase)} videos contain whole phrase '{phrase}'")
-                
-                if not filtered_by_phrase:
-                    logger.info(f"{log_prefix} No videos found containing whole phrase '{phrase}' - skipping")
-                    continue
-                
-                filtered_videos = [{'video': video, 'quality_score': 1.0} for video in filtered_by_phrase]
-                
-                logger.info(f"{log_prefix} After phrase filtering: {len(filtered_videos)} videos for query '{search_query}'")
-                
-                if not filtered_videos:
-                    continue
-                
-                filtered_videos.sort(key=lambda x: x['quality_score'], reverse=True)
-                
-                video_found = self._find_best_video_with_subtitles(
-                    filtered_videos, phrase, word
-                )
-                
-                if video_found:
-                    best_video = video_found['video']
-                    best_subtitle_occurrences = video_found['subtitle_occurrences']
-                    best_score = video_found['score']
+                if best_video:
                     break
             
             if best_video:
