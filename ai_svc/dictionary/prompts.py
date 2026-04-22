@@ -58,12 +58,26 @@ difficulty: low|medium|high"""
 def get_confusion_profiles_prompt(searched_word: str, confused_word: str) -> str:
     return f"""Generate side-by-side linguistic profiles for "{searched_word}" and "{confused_word}" to help learners distinguish them.
 
-Return JSON matching ConfusionProfiles schema with searched_word and confused_word each containing:
-- core_meaning: one-sentence essential meaning in the context of this confusion
-- part_of_speech: primary POS
-- typical_domains: 2-3 domains (e.g. ["general", "academic"])
-- collocations: 2 most common collocations
-- grammar_note: key grammar constraint, empty string if none"""
+Return a JSON object with EXACTLY this structure (all fields required):
+{{
+  "searched_word": {{
+    "core_meaning": "one-sentence essential meaning in the context of this confusion",
+    "part_of_speech": "primary POS, e.g. noun / verb / adjective",
+    "typical_domains": ["domain1", "domain2"],
+    "collocations": ["collocation1", "collocation2"],
+    "grammar_note": "key grammar constraint, or empty string if none"
+  }},
+  "confused_word": {{
+    "core_meaning": "one-sentence essential meaning in the context of this confusion",
+    "part_of_speech": "primary POS, e.g. noun / verb / adjective",
+    "typical_domains": ["domain1", "domain2"],
+    "collocations": ["collocation1", "collocation2"],
+    "grammar_note": "key grammar constraint, or empty string if none"
+  }}
+}}
+
+Fill in the values for "{searched_word}" (searched_word) and "{confused_word}" (confused_word).
+Do NOT omit any field. part_of_speech is required for both."""
 
 
 def get_confusion_examples_prompt(searched_word: str, confused_word: str) -> str:
