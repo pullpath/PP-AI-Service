@@ -22,6 +22,54 @@ class WordFamilyInfo(BaseModel):
     )
 
 
+
+
+
+class ConfusionMeta(BaseModel):
+    confusion_type: str = Field(..., description="One of: near_homophone, semantic_overlap, spelling_similarity, false_friend, register_mismatch.")
+    quick_rule: str = Field(..., description="Short memorable rule to tell them apart, e.g., 'Affect=verb, Effect=noun'.")
+    key_differentiator: str = Field(..., description="One sentence on the single most important difference.")
+    difficulty: str = Field(..., description="Difficulty level for intermediate learners: 'low', 'medium', or 'high'.")
+
+
+class ConfusionWordProfile(BaseModel):
+    core_meaning: str = Field(..., description="One-sentence essential meaning in the context of the confusion.")
+    part_of_speech: str = Field(..., description="Primary part of speech, e.g., 'noun', 'verb', 'adjective'.")
+    typical_domains: List[str] = Field(default_factory=list, description="2-3 domains where this word is most used, e.g., ['academic', 'general'].")
+    collocations: List[str] = Field(default_factory=list, description="2 most common collocations, e.g., ['deeply affect', 'adversely affect'].")
+    grammar_note: str = Field(default="", description="Key grammar constraint, e.g., 'Transitive verb — always needs a direct object'.")
+
+
+class ConfusionProfiles(BaseModel):
+    searched_word: ConfusionWordProfile = Field(..., description="Profile for the originally searched word.")
+    confused_word: ConfusionWordProfile = Field(..., description="Profile for the confused word.")
+
+
+class ConfusionWordExamples(BaseModel):
+    example_sentences: List[str] = Field(default_factory=list, description="2 natural example sentences showing typical usage.")
+    usage_note: str = Field(default="", description="1-2 sentence practical guidance on when and how to use this word correctly.")
+
+
+class ConfusionExamples(BaseModel):
+    searched_word: ConfusionWordExamples = Field(..., description="Examples and usage note for the originally searched word.")
+    confused_word: ConfusionWordExamples = Field(..., description="Examples and usage note for the confused word.")
+
+
+class ConfusionComparison(BaseModel):
+    searched_word: ConfusionWordProfile = Field(..., description="Profile for the originally searched word.")
+    confused_word: ConfusionWordProfile = Field(..., description="Profile for the confused word.")
+
+
+class ConfusionPair(BaseModel):
+    confused_word: str = Field(..., description="The word being confused with the searched word.")
+    confusion_type: str = Field(..., description="One of: near_homophone, semantic_overlap, spelling_similarity, false_friend, register_mismatch.")
+    confusion_reason: str = Field(..., description="One sentence explaining why these two words are commonly confused.")
+    quick_rule: str = Field(..., description="Short memorable rule to tell them apart.")
+    key_differentiator: str = Field(..., description="One sentence on the single most important difference.")
+    difficulty: str = Field(..., description="Difficulty level: 'low', 'medium', or 'high'.")
+    comparison: ConfusionComparison = Field(..., description="Side-by-side word profiles for visual comparison.")
+
+
 class UsageContextInfo(BaseModel):
     """Modern usage context and trends"""
     modern_relevance: str = Field(
@@ -30,11 +78,11 @@ class UsageContextInfo(BaseModel):
     )
     common_confusions: List[str] = Field(
         default_factory=list,
-        description="Words/phrases often confused with this one, with brief discriminators."
+        description="Bare word names commonly confused with the searched word (no explanations)."
     )
-    regional_variations: List[str] = Field(
-        default_factory=list,
-        description="Notable differences in meaning, spelling, or usage between English variants."
+    regional_variations: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Notable differences per region. Keys are country/region names (e.g. 'US', 'UK', 'AU'), values are the usage description."
     )
 
 

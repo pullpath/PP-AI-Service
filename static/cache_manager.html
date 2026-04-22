@@ -686,6 +686,7 @@
                             ${hasCommonPhrases ? `<span class="section-badge">📝 ${word.common_phrases.common_phrases.length} phrases</span>` : ''}
                             ${hasPhraseVideos ? `<span class="section-badge" style="background: #ffebee; color: #c62828;">🎥 ${word.phrase_videos.length} cached</span>` : ''}
                             ${hasAIPhraseVideos ? `<span class="section-badge" style="background: #f3e5f5; color: #6a1b9a;">🤖 ${word.ai_phrase_videos.length} AI videos</span>` : ''}
+                            ${word.confusion_pairs && word.confusion_pairs.length > 0 ? `<span class="section-badge" style="background: #e8f5e9; color: #2e7d32;">🔀 ${word.confusion_pairs.length} confusion pairs</span>` : ''}
                         </div>
                         <div class="word-actions">
                             <button class="btn-danger" onclick="event.stopPropagation(); deleteWord('${word.word}')">Delete All</button>
@@ -697,6 +698,8 @@
                     ${hasPhraseVideos ? renderPhraseVideos(word.word, word.phrase_videos) : ''}
                     
                     ${hasAIPhraseVideos ? renderAIPhraseVideos(word.word, word.ai_phrase_videos) : ''}
+                    
+                    ${word.confusion_pairs && word.confusion_pairs.length > 0 ? renderConfusionPairs(word.word, word.confusion_pairs) : ''}
                     
                     ${word.entries.map(entry => renderEntry(word.word, entry)).join('')}
                     
@@ -906,6 +909,43 @@
             `;
         }
 
+        // Render confusion pairs section
+        function renderConfusionPairs(word, confusionPairs) {
+            if (!confusionPairs || confusionPairs.length === 0) return '';
+
+            const grouped = {};
+            confusionPairs.forEach(pair => {
+                if (!grouped[pair.confused_word]) grouped[pair.confused_word] = [];
+                grouped[pair.confused_word].push(pair);
+            });
+
+            const rows = Object.entries(grouped).map(([confusedWord, sections]) => `
+                <div style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                        <span style="font-weight: 500;">${word} ↔ ${confusedWord}</span>
+                        <button class="btn-danger btn-small" onclick="deleteConfusion('${word}', '${confusedWord.replace(/'/g, "\\'")}')">Delete All</button>
+                    </div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        ${sections.map(s => `
+                            <span class="section-badge" style="cursor:pointer;" title="${s.last_accessed_at || ''}"
+                                  onclick="deleteConfusion('${word}', '${confusedWord.replace(/'/g, "\\'")}', '${s.section}')">
+                                ${s.section} · ${s.status} ✕
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="entry-section" style="border-left-color: #43a047;">
+                    <div class="entry-header">
+                        <div class="entry-title" style="color: #43a047;">🔀 Confusion Pairs (${Object.keys(grouped).length})</div>
+                    </div>
+                    <div class="section-content">${rows}</div>
+                </div>
+            `;
+        }
+
         // Render entry section
         function renderEntry(word, entry) {
             const sections = Object.entries(entry.sections || {});
@@ -994,8 +1034,9 @@
                     const modernRelevance = data.modern_relevance || (data.usage_context && data.usage_context.modern_relevance) || '';
                     const commonConfusions = Array.isArray(data.common_confusions) ? data.common_confusions :
                                             (data.usage_context && Array.isArray(data.usage_context.common_confusions) ? data.usage_context.common_confusions : []);
-                    const regionalVariations = Array.isArray(data.regional_variations) ? data.regional_variations :
-                                              (data.usage_context && Array.isArray(data.usage_context.regional_variations) ? data.usage_context.regional_variations : []);
+                    const regionalVariations = (typeof data.regional_variations === 'object' && !Array.isArray(data.regional_variations) && data.regional_variations)
+                                              ? data.regional_variations
+                                              : (data.usage_context && typeof data.usage_context.regional_variations === 'object' && !Array.isArray(data.usage_context.regional_variations) ? data.usage_context.regional_variations : {});
                     contentHtml = `
                         <div class="section-content" id="${sectionId}" style="display: none;">
                             ${modernRelevance ? `<p><strong>Modern Relevance:</strong> ${modernRelevance}</p>` : ''}
@@ -1003,9 +1044,9 @@
                                 <h4>Common Confusions:</h4>
                                 <ul>${commonConfusions.map(c => `<li>${c}</li>`).join('')}</ul>
                             ` : ''}
-                            ${regionalVariations.length > 0 ? `
+                            ${Object.keys(regionalVariations).length > 0 ? `
                                 <h4>Regional Variations:</h4>
-                                <ul>${regionalVariations.map(r => `<li>${r}</li>`).join('')}</ul>
+                                <ul>${Object.entries(regionalVariations).map(([region, desc]) => `<li><strong>${region}:</strong> ${desc}</li>`).join('')}</ul>
                             ` : ''}
                         </div>
                     `;
@@ -1293,6 +1334,27 @@
             
             try {
                 const url = `/api/dictionary/cache/${word}/section?section=common_phrases`;
+                const response = await authenticatedFetch(url, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    loadWords(currentOffset);
+                    loadStats();
+                } else {
+                    alert(`❌ Error: ${data.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function deleteConfusion(word, confusedWord, section = null) {
+            const label = section ? `${word} ↔ ${confusedWord} (${section})` : `${word} ↔ ${confusedWord} (all sections)`;
+            if (!confirm(`Delete confusion: ${label}?`)) return;
+            
+            try {
+                let url = `/api/dictionary/cache/${word}/confusion/${encodeURIComponent(confusedWord)}`;
+                if (section) url += `/${encodeURIComponent(section)}`;
                 const response = await authenticatedFetch(url, { method: 'DELETE' });
                 const data = await response.json();
                 

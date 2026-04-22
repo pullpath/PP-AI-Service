@@ -35,15 +35,43 @@ Each word must be a simple string. Do not include explanations, examples, or add
 Ensure all strings are properly closed with quotes."""
 
 
-def get_usage_context_prompt(word: str) -> str:
-    """Generate prompt for usage context information"""
+def get_usage_context_skeleton_prompt(word: str) -> str:
     return f"""Provide usage context for "{word}":
 
 1. Modern Relevance: Current trends (e.g., "rising in tech", "outdated")
-2. Common Confusions: Words confused with this (with brief differences)
-3. Regional Variations: UK/US/AU differences
+2. Common Confusions: Return ONLY the bare word names commonly confused with "{word}" — no explanations, no parentheses, no sentences. Example: ["effect", "impact"]. Return 1-4 words maximum.
+3. Regional Variations: Return a JSON object mapping region to usage, e.g. {{"US": "used broadly for any size", "UK": "typically a small mat", "AU": "similar to UK"}}. Only include regions with meaningful differences.
 
 Return valid JSON matching UsageContextInfo schema."""
+
+
+def get_confusion_meta_prompt(searched_word: str, confused_word: str) -> str:
+    return f"""Classify the confusion between "{searched_word}" and "{confused_word}" for an English learner.
+
+Return JSON matching ConfusionMeta schema:
+confusion_type: near_homophone|semantic_overlap|spelling_similarity|false_friend|register_mismatch
+quick_rule: short memorable rule (e.g. "Affect=verb, Effect=noun")
+key_differentiator: one sentence most important distinction
+difficulty: low|medium|high"""
+
+
+def get_confusion_profiles_prompt(searched_word: str, confused_word: str) -> str:
+    return f"""Generate side-by-side linguistic profiles for "{searched_word}" and "{confused_word}" to help learners distinguish them.
+
+Return JSON matching ConfusionProfiles schema with searched_word and confused_word each containing:
+- core_meaning: one-sentence essential meaning in the context of this confusion
+- part_of_speech: primary POS
+- typical_domains: 2-3 domains (e.g. ["general", "academic"])
+- collocations: 2 most common collocations
+- grammar_note: key grammar constraint, empty string if none"""
+
+
+def get_confusion_examples_prompt(searched_word: str, confused_word: str) -> str:
+    return f"""Provide usage examples and guidance for "{searched_word}" and "{confused_word}" to help learners use them correctly.
+
+Return JSON matching ConfusionExamples schema with searched_word and confused_word each containing:
+- example_sentences: 2 natural example sentences showing typical usage
+- usage_note: 1-2 sentences of practical guidance on when and how to use this word correctly"""
 
 
 def get_cultural_notes_prompt(word: str) -> str:

@@ -24,13 +24,15 @@ from .video_task_service import video_task_service
 # Import schemas and prompts
 from .schemas import (
     EtymologyInfo, WordFamilyInfo,
-    UsageContextInfo, CulturalNotesInfo, DetailedWordSense, FrequencyInfo,
+    UsageContextInfo, ConfusionMeta, ConfusionProfiles, ConfusionExamples, ConfusionPair, ConfusionComparison,
+    CulturalNotesInfo, DetailedWordSense, FrequencyInfo,
     SenseCoreMetadata, SenseUsageExamples, SenseRelatedWords, SenseUsageNotes,
     BilibiliVideoInfo, CommonPhrases, ConversationScript
 )
 from .prompts import (
     get_etymology_prompt,
-    get_word_family_prompt, get_usage_context_prompt,
+    get_word_family_prompt, get_usage_context_skeleton_prompt,
+    get_confusion_meta_prompt, get_confusion_profiles_prompt, get_confusion_examples_prompt,
     get_cultural_notes_prompt, get_frequency_prompt,
     get_sense_core_metadata_prompt, get_sense_usage_examples_prompt,
     get_sense_related_words_prompt, get_sense_usage_notes_prompt,
@@ -152,9 +154,60 @@ class DictionaryService:
         self.usage_context_agent = Agent(
             name="UsageContextAgent",
             model=medium_model,
-            description="Provides modern usage context and trends",
+            description="Provides modern relevance, confused word names, and regional variations",
             use_json_mode=True,
             output_schema=UsageContextInfo
+        )
+
+        confusion_meta_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=240,
+            timeout=30.0,
+            max_retries=0
+        )
+
+        confusion_profiles_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=280,
+            timeout=30.0,
+            max_retries=0
+        )
+
+        confusion_examples_model = DeepSeek(
+            id="deepseek-chat",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=220,
+            timeout=30.0,
+            max_retries=0
+        )
+
+        self.confusion_meta_agent = Agent(
+            name="ConfusionMetaAgent",
+            model=confusion_meta_model,
+            description="Classifies confusion type, quick rule, key differentiator and difficulty",
+            use_json_mode=True,
+            output_schema=ConfusionMeta
+        )
+
+        self.confusion_profiles_agent = Agent(
+            name="ConfusionProfilesAgent",
+            model=confusion_profiles_model,
+            description="Generates side-by-side linguistic profiles for a confusion pair",
+            use_json_mode=True,
+            output_schema=ConfusionProfiles
+        )
+
+        self.confusion_examples_agent = Agent(
+            name="ConfusionExamplesAgent",
+            model=confusion_examples_model,
+            description="Generates example sentences and usage notes for a confusion pair",
+            use_json_mode=True,
+            output_schema=ConfusionExamples
         )
 
         self.cultural_notes_agent = Agent(
@@ -312,7 +365,7 @@ class DictionaryService:
             logger.error(f"Failed to update .env credentials: {e}")
     
     
-    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
+    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None, confused_word: Optional[str] = None, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
         """
         Look up specific section of word data with entry-level awareness
         
@@ -348,7 +401,9 @@ class DictionaryService:
                 'etymology', 'word_family', 'usage_context', 
                 'cultural_notes', 'frequency', 'detailed_sense', 'basic',
                 'examples', 'usage_notes', 'bilibili_videos', 'common_phrases',
-                'ai_generated_phrase_video', 'video_status'
+                'ai_generated_phrase_video', 'video_status',
+                'confusion_meta', 'confusion_profiles', 'confusion_examples',
+                'confusion_all'
             ]
             
             if section not in valid_sections:
@@ -445,7 +500,49 @@ class DictionaryService:
                     "error": "video_status section should not be called directly from lookup_section. Use dedicated method.",
                     "success": False
                 }
-            
+
+            if section == 'confusion_all':
+                if not confused_word:
+                    return {"error": "confusion_all requires 'confused_word' parameter", "success": False}
+                cw = confused_word.strip().lower()
+                result = self._fetch_confusion_all(normalized_word, cw)
+                return {
+                    "headword": normalized_word,
+                    "confused_word": cw,
+                    "confusion_meta": result.get("confusion_meta"),
+                    "confusion_profiles": result.get("confusion_profiles"),
+                    "confusion_examples": result.get("confusion_examples"),
+                    "errors": result.get("errors"),
+                    "data_source": "ai",
+                    "execution_time": time.time() - start_time,
+                    "success": result.get("success", False),
+                }
+
+            confusion_sections = {'confusion_meta', 'confusion_profiles', 'confusion_examples'}
+            if section in confusion_sections:
+                if not confused_word:
+                    return {
+                        "error": f"{section} requires 'confused_word' parameter",
+                        "success": False
+                    }
+                cw = confused_word.strip().lower()
+                fetch_map = {
+                    'confusion_meta': self._fetch_confusion_meta,
+                    'confusion_profiles': self._fetch_confusion_profiles,
+                    'confusion_examples': self._fetch_confusion_examples,
+                }
+                result = fetch_map[section](normalized_word, cw)
+                if not result.get("success"):
+                    return result
+                return {
+                    "headword": normalized_word,
+                    "confused_word": cw,
+                    section: result[section],
+                    "data_source": "ai",
+                    "execution_time": time.time() - start_time,
+                    "success": True
+                }
+
             entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']
             if section in entry_level_sections:
                 return self._fetch_entry_level_section(normalized_word, section, entry_index, start_time)
@@ -1120,27 +1217,86 @@ class DictionaryService:
             }
     
     def _fetch_usage_context(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Fetch usage context information"""
         try:
-            prompt = get_usage_context_prompt(word)
+            prompt = get_usage_context_skeleton_prompt(word)
             response = self.usage_context_agent.run(prompt)
-            
+
             if isinstance(response.content, UsageContextInfo):
                 return {
                     "success": True,
                     "usage_context": response.content.model_dump()
                 }
-            else:
-                return {
-                    "success": False,
-                    "error": "Failed to parse usage context information"
-                }
+            return {
+                "success": False,
+                "error": "Failed to parse usage context information"
+            }
         except Exception as e:
             return {
                 "success": False,
                 "error": str(e)
             }
-    
+
+    def _fetch_confusion_meta(self, word: str, confused_word: str) -> Dict[str, Any]:
+        try:
+            response = self.confusion_meta_agent.run(get_confusion_meta_prompt(word, confused_word))
+            if not isinstance(response.content, ConfusionMeta):
+                return {"success": False, "error": f"Failed to parse confusion_meta for '{confused_word}'"}
+            return {"success": True, "confusion_meta": response.content.model_dump()}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _fetch_confusion_profiles(self, word: str, confused_word: str) -> Dict[str, Any]:
+        try:
+            response = self.confusion_profiles_agent.run(get_confusion_profiles_prompt(word, confused_word))
+            if not isinstance(response.content, ConfusionProfiles):
+                return {"success": False, "error": f"Failed to parse confusion_profiles for '{confused_word}'"}
+            return {"success": True, "confusion_profiles": response.content.model_dump()}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _fetch_confusion_examples(self, word: str, confused_word: str) -> Dict[str, Any]:
+        try:
+            response = self.confusion_examples_agent.run(get_confusion_examples_prompt(word, confused_word))
+            if not isinstance(response.content, ConfusionExamples):
+                return {"success": False, "error": f"Failed to parse confusion_examples for '{confused_word}'"}
+            return {"success": True, "confusion_examples": response.content.model_dump()}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _fetch_confusion_all(self, word: str, confused_word: str) -> Dict[str, Any]:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_meta = executor.submit(self._fetch_confusion_meta, word, confused_word)
+            future_profiles = executor.submit(self._fetch_confusion_profiles, word, confused_word)
+            future_examples = executor.submit(self._fetch_confusion_examples, word, confused_word)
+
+            done, not_done = concurrent.futures.wait(
+                [future_meta, future_profiles, future_examples],
+                timeout=30.0,
+                return_when=concurrent.futures.ALL_COMPLETED
+            )
+            for future in not_done:
+                future.cancel()
+
+        meta_result = self._get_future_result(future_meta, "confusion_meta")
+        profiles_result = self._get_future_result(future_profiles, "confusion_profiles")
+        examples_result = self._get_future_result(future_examples, "confusion_examples")
+
+        errors = {}
+        if not meta_result or not meta_result.get("success"):
+            errors["confusion_meta"] = (meta_result or {}).get("error", "timeout")
+        if not profiles_result or not profiles_result.get("success"):
+            errors["confusion_profiles"] = (profiles_result or {}).get("error", "timeout")
+        if not examples_result or not examples_result.get("success"):
+            errors["confusion_examples"] = (examples_result or {}).get("error", "timeout")
+
+        return {
+            "success": len(errors) == 0,
+            "errors": errors if errors else None,
+            "confusion_meta": meta_result.get("confusion_meta") if meta_result and meta_result.get("success") else None,
+            "confusion_profiles": profiles_result.get("confusion_profiles") if profiles_result and profiles_result.get("success") else None,
+            "confusion_examples": examples_result.get("confusion_examples") if examples_result and examples_result.get("success") else None,
+        }
+
     def _fetch_cultural_notes(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch cultural notes information"""
         try:

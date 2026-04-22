@@ -167,6 +167,7 @@ def dictionary_lookup():
         sense_index = data.get('sense_index', None)
         phrase = data.get('phrase', None)
         task_id = data.get('task_id', None)
+        confused_word = data.get('confused_word', None)
         
         if section == 'video_status':
             if not task_id:
@@ -187,7 +188,7 @@ def dictionary_lookup():
         # --- Cache orchestration (delegated to cache_service) ---
         def fetch_from_service():
             """Fetch function for cache miss"""
-            return dictionary_service.lookup_section(word, section, sense_index, entry_index, phrase)
+            return dictionary_service.lookup_section(word, section, sense_index, entry_index, phrase, confused_word)
         
         result, status_code = cache_service.lookup_with_cache(
             word=word,
@@ -195,7 +196,8 @@ def dictionary_lookup():
             entry_index=entry_index,
             sense_index=sense_index,
             phrase=phrase,
-            fetch_func=fetch_from_service
+            fetch_func=fetch_from_service,
+            confused_word=confused_word
         )
         
         return jsonify(result), status_code

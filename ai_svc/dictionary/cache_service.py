@@ -91,17 +91,20 @@ class DictionaryCacheService:
     
     # TTL values (seconds) based on content stability research
     FIELD_TTL = {
-        'basic': 7 * 24 * 3600,           # 7 days (API data, stable)
-        'common_phrases': 30 * 24 * 3600,  # 30 days (phrases are stable like word_family)
-        'etymology': 30 * 24 * 3600,       # 30 days (linguistic, very stable)
-        'word_family': 30 * 24 * 3600,     # 30 days
-        'usage_context': 7 * 24 * 3600,    # 7 days (modern usage evolves)
-        'cultural_notes': 14 * 24 * 3600,  # 14 days
-        'frequency': 30 * 24 * 3600,       # 30 days
-        'detailed_sense': 14 * 24 * 3600,  # 14 days
-        'examples': 7 * 24 * 3600,         # 7 days
-        'usage_notes': 7 * 24 * 3600,      # 7 days
-        'bilibili_videos': 1 * 24 * 3600,  # 1 day (videos change frequently)
+        'basic': 7 * 24 * 3600,
+        'common_phrases': 30 * 24 * 3600,
+        'etymology': 30 * 24 * 3600,
+        'word_family': 30 * 24 * 3600,
+        'usage_context': 7 * 24 * 3600,
+        'cultural_notes': 14 * 24 * 3600,
+        'frequency': 30 * 24 * 3600,
+        'detailed_sense': 14 * 24 * 3600,
+        'examples': 7 * 24 * 3600,
+        'usage_notes': 7 * 24 * 3600,
+        'bilibili_videos': 1 * 24 * 3600,
+        'confusion_meta': 14 * 24 * 3600,
+        'confusion_profiles': 14 * 24 * 3600,
+        'confusion_examples': 7 * 24 * 3600,
     }
     
     def __init__(self, db_path: str = None):
@@ -247,6 +250,22 @@ class DictionaryCacheService:
             )
         """)
         
+        # Word confusion detail cache (section-granular)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS word_confusion_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL,
+                confused_word TEXT NOT NULL,
+                section TEXT NOT NULL DEFAULT 'full',
+                data TEXT,
+                updated_at INTEGER,
+                status TEXT DEFAULT 'empty',
+                created_at INTEGER NOT NULL,
+                last_accessed_at INTEGER NOT NULL,
+                UNIQUE(word, confused_word, section)
+            )
+        """)
+
         # AI-generated phrase video cache (links to video_tasks.db)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ai_phrase_video_cache (
@@ -309,7 +328,47 @@ class DictionaryCacheService:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sense_cache_word_entry ON sense_cache(word, entry_index)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_phrase_cache_word_phrase ON phrase_cache(word, phrase)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_phrase_video_cache_word_phrase ON ai_phrase_video_cache(word, phrase)")
-        
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_word_confusion_cache ON word_confusion_cache(word, confused_word, section)")
+
+        try:
+            conn.execute("SELECT section FROM word_confusion_cache LIMIT 1")
+            # Column exists — check whether the old UNIQUE(word, confused_word) constraint is still present
+            # by reading the table's CREATE TABLE sql directly.
+            table_sql_row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='word_confusion_cache'"
+            ).fetchone()
+            table_sql = (table_sql_row[0] or '') if table_sql_row else ''
+            # Old schema had UNIQUE without section; new schema has UNIQUE(word, confused_word, section)
+            import re as _re
+            has_section_unique = bool(_re.search(r'UNIQUE\s*\(\s*word\s*,\s*confused_word\s*,\s*section\s*\)', table_sql, _re.IGNORECASE))
+            old_unique = not has_section_unique
+            if old_unique:
+                logger.info("Migrating database: recreating word_confusion_cache with section-aware unique constraint")
+                conn.execute("ALTER TABLE word_confusion_cache RENAME TO word_confusion_cache_old")
+                conn.execute("""
+                    CREATE TABLE word_confusion_cache (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        word TEXT NOT NULL,
+                        confused_word TEXT NOT NULL,
+                        section TEXT NOT NULL DEFAULT 'full',
+                        data TEXT,
+                        updated_at INTEGER,
+                        status TEXT DEFAULT 'empty',
+                        created_at INTEGER NOT NULL,
+                        last_accessed_at INTEGER NOT NULL,
+                        UNIQUE(word, confused_word, section)
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO word_confusion_cache (word, confused_word, section, data, updated_at, status, created_at, last_accessed_at)
+                    SELECT word, confused_word, 'full', data, updated_at, status, created_at, last_accessed_at
+                    FROM word_confusion_cache_old
+                """)
+                conn.execute("DROP TABLE word_confusion_cache_old")
+        except sqlite3.OperationalError:
+            logger.info("Migrating database: adding section column to word_confusion_cache")
+            conn.execute("ALTER TABLE word_confusion_cache ADD COLUMN section TEXT NOT NULL DEFAULT 'full'")
+
         try:
             conn.execute("SELECT conversation_script FROM ai_phrase_video_cache LIMIT 1")
         except sqlite3.OperationalError:
@@ -349,12 +408,14 @@ class DictionaryCacheService:
             logger.warning(f"Migration warning (may be expected): {e}")
     
     
-    def _make_cache_key(self, word: str, section: str, entry_index: int = None, sense_index: int = None) -> str:
+    def _make_cache_key(self, word: str, section: str, entry_index: int = None, sense_index: int = None, confused_word: str = None) -> str:
         """Generate unique cache key for tracking in-flight requests"""
         if section == 'basic':
             return f"{word}:basic"
         elif section == 'common_phrases':
             return f"{word}:common_phrases"
+        elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples', 'confusion_all'):
+            return f"{word}:confusion:{confused_word}:{section}"
         elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
             return f"{word}:entry:{entry_index}:{section}"
         else:
@@ -650,6 +711,42 @@ class DictionaryCacheService:
         
         logger.info(f"[{word}] Cached phrase '{phrase}' videos - status: {status}")
     
+    def get_word_confusion(self, word: str, confused_word: str, section: str) -> Optional[Dict[str, Any]]:
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+        try:
+            row = conn.execute("""
+                SELECT data, updated_at, status FROM word_confusion_cache
+                WHERE word = ? AND confused_word = ? AND section = ?
+            """, (normalized, confused_word, section)).fetchone()
+            if not row or not row['data'] or row['status'] not in ('fresh', 'stale'):
+                return None
+            is_stale = self._is_stale(row['updated_at'], section)
+            return {
+                'data': json.loads(row['data']),
+                'updated_at': row['updated_at'],
+                'is_stale': is_stale,
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+
+    def set_word_confusion(self, word: str, confused_word: str, section: str, data: Dict[str, Any], status: str = 'fresh'):
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+        with self._write_transaction() as conn:
+            conn.execute("""
+                INSERT INTO word_confusion_cache (
+                    word, confused_word, section, data, updated_at, status, created_at, last_accessed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(word, confused_word, section) DO UPDATE SET
+                    data = excluded.data,
+                    updated_at = excluded.updated_at,
+                    status = excluded.status,
+                    last_accessed_at = excluded.last_accessed_at
+            """, (normalized, confused_word, section, json.dumps(data), now, status, now, now))
+        logger.info(f"[{word}] Cached confusion {section} '{confused_word}' - status: {status}")
+    
     def get_ai_phrase_video(
         self,
         word: str,
@@ -911,6 +1008,7 @@ class DictionaryCacheService:
             conn.execute("DELETE FROM entry_cache")
             conn.execute("DELETE FROM phrase_cache")
             conn.execute("DELETE FROM ai_phrase_video_cache")
+            conn.execute("DELETE FROM word_confusion_cache")
             conn.execute("DELETE FROM word_cache")
             conn.execute("DELETE FROM cache_metrics")
             logger.info("All cache entries and metrics cleared")
@@ -922,6 +1020,7 @@ class DictionaryCacheService:
             conn.execute("DELETE FROM entry_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM phrase_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM ai_phrase_video_cache WHERE word = ?", (word,))
+            conn.execute("DELETE FROM word_confusion_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM word_cache WHERE word = ?", (word,))
             logger.info(f"Cache invalidated for word: {word}")
     
@@ -1000,6 +1099,22 @@ class DictionaryCacheService:
                         WHERE word = ?
                     """, (normalized,))
                     logger.info(f"Cache invalidated: {word} - {section} (all entries/senses)")
+
+    def invalidate_word_confusion(self, word: str, confused_word: str, section: str = None):
+        normalized = self._normalize_word(word)
+        with self._write_transaction() as conn:
+            if section:
+                conn.execute(
+                    "DELETE FROM word_confusion_cache WHERE word = ? AND confused_word = ? AND section = ?",
+                    (normalized, confused_word, section)
+                )
+                logger.info(f"Cache invalidated: {word} - confusion:{confused_word}:{section}")
+            else:
+                conn.execute(
+                    "DELETE FROM word_confusion_cache WHERE word = ? AND confused_word = ?",
+                    (normalized, confused_word)
+                )
+                logger.info(f"Cache invalidated: {word} - confusion:{confused_word} (all sections)")
     
     def list_cached_words(self, limit: int = 100, offset: int = 0, sort_by: str = 'last_accessed') -> Dict[str, Any]:
         """
@@ -1091,6 +1206,16 @@ class DictionaryCacheService:
                         status = sense_row[f'{section}_status']
                         if status not in ('empty', None):
                             sections[f'{section}[{entry_idx},{sense_idx}]'] = status
+                
+                # Confusion pair sections
+                confusion_rows = conn.execute("""
+                    SELECT confused_word, section, status
+                    FROM word_confusion_cache
+                    WHERE word = ?
+                """, (word,)).fetchall()
+                for cr in confusion_rows:
+                    if cr['status'] not in ('empty', None):
+                        sections[f'confusion:{cr["confused_word"]}:{cr["section"]}'] = cr['status']
                 
                 words.append({
                     'word': word,
@@ -1330,6 +1455,28 @@ class DictionaryCacheService:
                     'videos': videos
                 })
             
+            confusion_rows = conn.execute("""
+                SELECT confused_word, section, data, status,
+                       datetime(last_accessed_at, 'unixepoch', 'localtime') as last_accessed_at
+                FROM word_confusion_cache
+                WHERE word = ?
+                ORDER BY confused_word, section
+            """, (normalized,)).fetchall()
+
+            confusion_pairs = []
+            for cr in confusion_rows:
+                try:
+                    data = json.loads(cr['data']) if cr['data'] else None
+                except:
+                    data = None
+                confusion_pairs.append({
+                    'confused_word': cr['confused_word'],
+                    'section': cr['section'],
+                    'status': cr['status'],
+                    'data': data,
+                    'last_accessed_at': cr['last_accessed_at']
+                })
+
             return {
                 'word': word_row['word'],
                 'basic_status': word_row['basic_status'],
@@ -1337,6 +1484,7 @@ class DictionaryCacheService:
                 'common_phrases': common_phrases_data,
                 'phrase_videos': phrase_videos_list,
                 'ai_phrase_videos': ai_phrase_videos_list,
+                'confusion_pairs': confusion_pairs,
                 'created_at': word_row['created_at'],
                 'last_accessed_at': word_row['last_accessed_at'],
                 'entries': entries
@@ -1356,6 +1504,7 @@ class DictionaryCacheService:
                     (SELECT COUNT(*) FROM sense_cache) as total_senses,
                     (SELECT COUNT(*) FROM phrase_cache) as total_phrase_videos,
                     (SELECT COUNT(*) FROM ai_phrase_video_cache) as total_ai_phrase_videos,
+                    (SELECT COUNT(*) FROM word_confusion_cache) as total_confusion_pairs,
                     (SELECT COUNT(*) FROM cache_metrics) as total_metrics
             """).fetchone()
             
@@ -1378,7 +1527,7 @@ class DictionaryCacheService:
         finally:
             conn.close()
 
-    def lookup_with_cache(self, word, section, entry_index, sense_index, phrase, fetch_func):
+    def lookup_with_cache(self, word, section, entry_index, sense_index, phrase, fetch_func, confused_word=None):
         """
         Unified cache orchestration for dictionary lookups.
         
@@ -1418,6 +1567,27 @@ class DictionaryCacheService:
         elif section in ['detailed_sense', 'examples', 'usage_notes']:
             if entry_index is not None and sense_index is not None:
                 cached = self.get_sense_section(word, entry_index, sense_index, section)
+        elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
+            if confused_word:
+                cached = self.get_word_confusion(word, confused_word, section)
+        elif section == 'confusion_all':
+            if confused_word:
+                c_meta = self.get_word_confusion(word, confused_word, 'confusion_meta')
+                c_profiles = self.get_word_confusion(word, confused_word, 'confusion_profiles')
+                c_examples = self.get_word_confusion(word, confused_word, 'confusion_examples')
+                if (c_meta and c_meta.get('cache_hit') and not c_meta.get('is_stale') and
+                        c_profiles and c_profiles.get('cache_hit') and not c_profiles.get('is_stale') and
+                        c_examples and c_examples.get('cache_hit') and not c_examples.get('is_stale')):
+                    logger.info(f"[{word}] Cache HIT (all 3 confusion sections fresh)")
+                    self.metrics.record_hit(time.time() - start_time)
+                    response_time = (time.time() - start_time) * 1000
+                    self.track_metric('hit', word, section, response_time, 'cache')
+                    return {
+                        **c_meta['data'],
+                        **c_profiles['data'],
+                        **c_examples['data'],
+                        '_cache_status': 'fresh',
+                    }, 200
         
         # Cache hit handling
         if cached and cached.get('cache_hit'):
@@ -1452,7 +1622,7 @@ class DictionaryCacheService:
                 return result, 200
         
         # --- CACHE MISS: Check for in-flight request ---
-        cache_key = self._make_cache_key(word, section, entry_index, sense_index)
+        cache_key = self._make_cache_key(word, section, entry_index, sense_index, confused_word)
         
         # Try to mark this request as in-flight
         if not self.mark_inflight(cache_key):
@@ -1482,6 +1652,11 @@ class DictionaryCacheService:
                 elif section in ['detailed_sense', 'examples', 'usage_notes']:
                     if entry_index is not None and sense_index is not None:
                         cached = self.get_sense_section(word, entry_index, sense_index, section)
+                elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
+                    if confused_word:
+                        cached = self.get_word_confusion(word, confused_word, section)
+                elif section == 'confusion_all':
+                    pass
                 
                 if cached and cached.get('cache_hit'):
                     logger.info(f"[{word}] Cache now available after waiting {elapsed}s - serving")
@@ -1519,6 +1694,17 @@ class DictionaryCacheService:
                     elif section in ['detailed_sense', 'examples', 'usage_notes']:
                         if entry_index is not None and sense_index is not None:
                             self.set_sense_section(word, entry_index, sense_index, section, result)
+                    elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
+                        if confused_word:
+                            self.set_word_confusion(word, confused_word, section, result)
+                    elif section == 'confusion_all':
+                        if confused_word:
+                            if result.get('confusion_meta'):
+                                self.set_word_confusion(word, confused_word, 'confusion_meta', {'confusion_meta': result['confusion_meta'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
+                            if result.get('confusion_profiles'):
+                                self.set_word_confusion(word, confused_word, 'confusion_profiles', {'confusion_profiles': result['confusion_profiles'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
+                            if result.get('confusion_examples'):
+                                self.set_word_confusion(word, confused_word, 'confusion_examples', {'confusion_examples': result['confusion_examples'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
                 except Exception as cache_error:
                     logger.warning(f"Failed to write cache for {word}/{section}: {cache_error}")
             

@@ -323,7 +323,8 @@ def invalidate_section(word: str):
         
         # Validate section name
         valid_sections = ['basic', 'etymology', 'word_family', 'usage_context', 'cultural_notes', 
-                         'frequency', 'bilibili_videos', 'detailed_sense', 'examples', 'usage_notes']
+                         'frequency', 'bilibili_videos', 'detailed_sense', 'examples', 'usage_notes',
+                         'confusion_meta', 'confusion_profiles', 'confusion_examples']
         if section not in valid_sections:
             return jsonify({
                 "status": "error",
@@ -398,6 +399,26 @@ def invalidate_phrase_videos(word: str, phrase: str):
             "status": "error",
             "message": str(e)
         }), 500
+
+
+@cache_bp.route('/<word>/confusion/<confused_word>', methods=['DELETE'])
+@cache_bp.route('/<word>/confusion/<confused_word>/<section>', methods=['DELETE'])
+def invalidate_confusion(word: str, confused_word: str, section: str = None):
+    if not check_admin_auth():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+
+    if section and section not in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
+        return jsonify({"status": "error", "message": f"Invalid confusion section: {section}"}), 400
+
+    try:
+        cache_service.invalidate_word_confusion(word, confused_word, section)
+        msg = f"Confusion deleted: {word} ↔ {confused_word}"
+        if section:
+            msg += f" ({section})"
+        return jsonify({"status": "ok", "message": msg}), 200
+    except Exception as e:
+        logging.error(f"Error deleting confusion pair: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @cache_bp.route('/<word>/ai-phrase-video/<phrase>/<task_id>', methods=['DELETE'])
