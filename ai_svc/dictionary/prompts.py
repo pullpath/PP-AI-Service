@@ -40,7 +40,7 @@ def get_usage_context_skeleton_prompt(word: str) -> str:
 
 1. Modern Relevance: Current trends (e.g., "rising in tech", "outdated")
 2. Common Confusions: Return ONLY the bare word names commonly confused with "{word}" — no explanations, no parentheses, no sentences. Example: ["effect", "impact"]. Return 1-4 words maximum.
-3. Regional Variations: Return a JSON object mapping region to usage, e.g. {{"US": "used broadly for any size", "UK": "typically a small mat", "AU": "similar to UK"}}. Only include regions with meaningful differences.
+3. Regional Variations: You MUST ALWAYS return at least "US" and "UK" entries. Map each region to a short description of how the word is used there. Add "AU" or other regions only if notably different. If usage is the same everywhere, write "standard usage" as the value. Example: {{"US": "used broadly for any size", "UK": "typically a small mat", "AU": "similar to UK"}}.
 
 Return valid JSON matching UsageContextInfo schema."""
 

@@ -108,16 +108,7 @@ class DictionaryService:
         # Complex tasks (detailed_sense): 1024 tokens
 
         simple_model = DeepSeek(
-            id="deepseek-chat",
-            api_key=deepseek_api_key,
-            temperature=0,
-            max_tokens=256,
-            timeout=45.0,
-            max_retries=0
-        )
-
-        medium_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=512,
@@ -125,11 +116,20 @@ class DictionaryService:
             max_retries=0
         )
 
-        complex_model = DeepSeek(
-            id="deepseek-chat",
+        medium_model = DeepSeek(
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=600,  # Further reduced to speed up
+            max_tokens=1024,
+            timeout=45.0,
+            max_retries=0
+        )
+
+        complex_model = DeepSeek(
+            id="deepseek-v4-flash",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=2048,  # Further reduced to speed up
             timeout=30.0,  # Reduced timeout to push for faster inference
             max_retries=0
         )
@@ -160,28 +160,28 @@ class DictionaryService:
         )
 
         confusion_meta_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=240,
+            max_tokens=800,
             timeout=30.0,
             max_retries=0
         )
 
         confusion_profiles_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=280,
+            max_tokens=800,
             timeout=30.0,
             max_retries=0
         )
 
         confusion_examples_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=220,
+            max_tokens=800,
             timeout=30.0,
             max_retries=0
         )
@@ -248,40 +248,40 @@ class DictionaryService:
 
         # Agent 1: Core metadata WITHOUT definition (API always provides definition)
         core_metadata_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=200,
+            max_tokens=400,
             timeout=30.0,
             max_retries=0
         )
 
-        # Agent 2: Examples and collocations (3 examples, 3 collocations) - medium tokens
+        # Agent 2: Examples and collocations (3 examples, 3 collocations) - bumped to avoid truncation
         usage_examples_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=200,
+            max_tokens=800,
             timeout=30.0,
             max_retries=0
         )
 
-        # Agent 3: Related words (3 synonyms, 3 antonyms, 3 phrases) - medium tokens
+        # Agent 3: Related words (3 synonyms, 3 antonyms, 3 phrases) - bumped to avoid truncation
         related_words_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=200,
+            max_tokens=800,
             timeout=30.0,
             max_retries=0
         )
 
         # Agent 4: Usage notes (2-3 sentences) - smallest tokens
         usage_notes_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=150,
+            max_tokens=400,
             timeout=30.0,
             max_retries=0
         )
@@ -319,10 +319,10 @@ class DictionaryService:
         )
         
         conversation_model = DeepSeek(
-            id="deepseek-chat",
+            id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0.7,
-            max_tokens=512,
+            max_tokens=2048,
             timeout=45.0,
             max_retries=0
         )
@@ -1074,6 +1074,8 @@ class DictionaryService:
                     "data": data
                 }
             else:
+                logger.error(f"[{word}] sense #{sense_index} core_metadata parse failed. "
+                           f"type={type(response.content).__name__}, raw={response.content!r}")
                 return {
                     "success": False,
                     "error": "Failed to parse core metadata"
@@ -1105,6 +1107,8 @@ class DictionaryService:
                     "data": response.content.model_dump()
                 }
             else:
+                logger.error(f"[{word}] sense #{sense_index} usage_examples parse failed. "
+                           f"type={type(response.content).__name__}, raw={response.content!r}")
                 return {
                     "success": False,
                     "error": "Failed to parse usage examples"
@@ -1139,6 +1143,8 @@ class DictionaryService:
                     "data": response.content.model_dump()
                 }
             else:
+                logger.error(f"[{word}] sense #{sense_index} related_words parse failed. "
+                           f"type={type(response.content).__name__}, raw={response.content!r}")
                 return {
                     "success": False,
                     "error": "Failed to parse related words"
@@ -1161,6 +1167,8 @@ class DictionaryService:
                     "data": response.content.model_dump()
                 }
             else:
+                logger.error(f"[{word}] sense #{sense_index} usage_notes parse failed. "
+                           f"type={type(response.content).__name__}, raw={response.content!r}")
                 return {
                     "success": False,
                     "error": "Failed to parse usage notes"
