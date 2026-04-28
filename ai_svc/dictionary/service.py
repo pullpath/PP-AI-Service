@@ -261,7 +261,7 @@ class DictionaryService:
             id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=800,
+            max_tokens=1600,
             timeout=30.0,
             max_retries=0
         )
@@ -271,7 +271,7 @@ class DictionaryService:
             id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=800,
+            max_tokens=1600,
             timeout=30.0,
             max_retries=0
         )
