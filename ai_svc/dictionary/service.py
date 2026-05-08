@@ -102,6 +102,8 @@ class DictionaryService:
         if not deepseek_api_key:
             raise ValueError("DEEPSEEK_API_KEY environment variable is not set")
 
+        no_thinking = {"thinking": {"type": "disabled"}}
+
         # Create DeepSeek models with different token limits for optimization
         # Simple tasks (frequency, word_family): 256 tokens
         # Medium tasks (etymology, cultural_notes, usage_context): 512 tokens
@@ -113,7 +115,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=512,
             timeout=45.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         medium_model = DeepSeek(
@@ -122,7 +125,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=1024,
             timeout=45.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         complex_model = DeepSeek(
@@ -131,7 +135,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=2048,  # Further reduced to speed up
             timeout=30.0,  # Reduced timeout to push for faster inference
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         # Create specialized agents with appropriate models
@@ -165,7 +170,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=800,
             timeout=30.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         confusion_profiles_model = DeepSeek(
@@ -174,7 +180,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=800,
             timeout=30.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         confusion_examples_model = DeepSeek(
@@ -183,7 +190,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=800,
             timeout=30.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         self.confusion_meta_agent = Agent(
@@ -253,7 +261,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=400,
             timeout=30.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         # Agent 2: Examples and collocations (3 examples, 3 collocations) - bumped to avoid truncation
@@ -263,7 +272,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=1600,
             timeout=30.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         # Agent 3: Related words (3 synonyms, 3 antonyms, 3 phrases) - bumped to avoid truncation
@@ -271,9 +281,10 @@ class DictionaryService:
             id="deepseek-v4-flash",
             api_key=deepseek_api_key,
             temperature=0,
-            max_tokens=1600,
+            max_tokens=400,
             timeout=30.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         # Agent 4: Usage notes (2-3 sentences) - smallest tokens
@@ -283,7 +294,8 @@ class DictionaryService:
             temperature=0,
             max_tokens=400,
             timeout=30.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
 
         self.sense_core_agent = Agent(
@@ -324,7 +336,8 @@ class DictionaryService:
             temperature=0.7,
             max_tokens=2048,
             timeout=45.0,
-            max_retries=0
+            max_retries=0,
+            extra_body=no_thinking
         )
         
         self.conversation_agent = Agent(
