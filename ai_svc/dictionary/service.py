@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .bilibili_search import BilibiliVideoSearch
 from .video_task_service import video_task_service
+from ai_svc.metrics_collector import metrics_collector
 
 
 # Import schemas and prompts
@@ -928,7 +929,9 @@ class DictionaryService:
         """Fetch common phrases for a word via AI"""
         try:
             prompt = get_common_phrases_prompt(word)
-            response = self.common_phrases_agent.run(prompt)
+            with metrics_collector.track("CommonPhrasesAgent", word, "common_phrases", prompt) as _t:
+                response = self.common_phrases_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, CommonPhrases):
                 return response.content.phrases
@@ -942,7 +945,9 @@ class DictionaryService:
         """Fetch frequency estimation via AI"""
         try:
             prompt = get_frequency_prompt(word)
-            response = self.frequency_agent.run(prompt)
+            with metrics_collector.track("FrequencyAgent", word, "frequency", prompt) as _t:
+                response = self.frequency_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, FrequencyInfo):
                 return {
@@ -1074,7 +1079,9 @@ class DictionaryService:
         """
         try:
             prompt = get_sense_core_metadata_prompt(word, sense_index, basic_definition)
-            response = self.sense_core_agent.run(prompt)
+            with metrics_collector.track("SenseCoreAgent", word, "detailed_sense", prompt) as _t:
+                response = self.sense_core_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, SenseCoreMetadata):
                 data = response.content.model_dump()
@@ -1112,7 +1119,9 @@ class DictionaryService:
                 word, sense_index, basic_definition, api_examples,
                 examples_needed, collocations_needed
             )
-            response = self.sense_usage_agent.run(prompt)
+            with metrics_collector.track("SenseUsageAgent", word, "examples", prompt) as _t:
+                response = self.sense_usage_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, SenseUsageExamples):
                 return {
@@ -1148,7 +1157,9 @@ class DictionaryService:
                 api_synonyms, api_antonyms,
                 synonyms_needed, antonyms_needed, phrases_needed
             )
-            response = self.sense_related_agent.run(prompt)
+            with metrics_collector.track("SenseRelatedAgent", word, "detailed_sense", prompt) as _t:
+                response = self.sense_related_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, SenseRelatedWords):
                 return {
@@ -1172,7 +1183,9 @@ class DictionaryService:
         """Fetch usage notes and guidance for a sense (parallel execution component)"""
         try:
             prompt = get_sense_usage_notes_prompt(word, sense_index, basic_definition)
-            response = self.sense_usage_notes_agent.run(prompt)
+            with metrics_collector.track("SenseUsageNotesAgent", word, "usage_notes", prompt) as _t:
+                response = self.sense_usage_notes_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, SenseUsageNotes):
                 return {
@@ -1197,7 +1210,9 @@ class DictionaryService:
         """Fetch etymology information"""
         try:
             prompt = get_etymology_prompt(word)
-            response = self.etymology_agent.run(prompt)
+            with metrics_collector.track("EtymologyAgent", word, "etymology", prompt) as _t:
+                response = self.etymology_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, EtymologyInfo):
                 return {
@@ -1219,7 +1234,9 @@ class DictionaryService:
         """Fetch word family information"""
         try:
             prompt = get_word_family_prompt(word)
-            response = self.word_family_agent.run(prompt)
+            with metrics_collector.track("WordFamilyAgent", word, "word_family", prompt) as _t:
+                response = self.word_family_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, WordFamilyInfo):
                 return {
@@ -1240,7 +1257,9 @@ class DictionaryService:
     def _fetch_usage_context(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         try:
             prompt = get_usage_context_skeleton_prompt(word)
-            response = self.usage_context_agent.run(prompt)
+            with metrics_collector.track("UsageContextAgent", word, "usage_context", prompt) as _t:
+                response = self.usage_context_agent.run(prompt)
+                _t.set_response(response)
 
             if isinstance(response.content, UsageContextInfo):
                 return {
@@ -1259,7 +1278,10 @@ class DictionaryService:
 
     def _fetch_confusion_meta(self, word: str, confused_word: str) -> Dict[str, Any]:
         try:
-            response = self.confusion_meta_agent.run(get_confusion_meta_prompt(word, confused_word))
+            _prompt = get_confusion_meta_prompt(word, confused_word)
+            with metrics_collector.track("ConfusionMetaAgent", word, "confusion", _prompt) as _t:
+                response = self.confusion_meta_agent.run(_prompt)
+                _t.set_response(response)
             if not isinstance(response.content, ConfusionMeta):
                 return {"success": False, "error": f"Failed to parse confusion_meta for '{confused_word}'"}
             return {"success": True, "confusion_meta": response.content.model_dump()}
@@ -1268,7 +1290,10 @@ class DictionaryService:
 
     def _fetch_confusion_profiles(self, word: str, confused_word: str) -> Dict[str, Any]:
         try:
-            response = self.confusion_profiles_agent.run(get_confusion_profiles_prompt(word, confused_word))
+            _prompt = get_confusion_profiles_prompt(word, confused_word)
+            with metrics_collector.track("ConfusionProfilesAgent", word, "confusion", _prompt) as _t:
+                response = self.confusion_profiles_agent.run(_prompt)
+                _t.set_response(response)
             if not isinstance(response.content, ConfusionProfiles):
                 return {"success": False, "error": f"Failed to parse confusion_profiles for '{confused_word}'"}
             return {"success": True, "confusion_profiles": response.content.model_dump()}
@@ -1277,7 +1302,10 @@ class DictionaryService:
 
     def _fetch_confusion_examples(self, word: str, confused_word: str) -> Dict[str, Any]:
         try:
-            response = self.confusion_examples_agent.run(get_confusion_examples_prompt(word, confused_word))
+            _prompt = get_confusion_examples_prompt(word, confused_word)
+            with metrics_collector.track("ConfusionExamplesAgent", word, "confusion", _prompt) as _t:
+                response = self.confusion_examples_agent.run(_prompt)
+                _t.set_response(response)
             if not isinstance(response.content, ConfusionExamples):
                 return {"success": False, "error": f"Failed to parse confusion_examples for '{confused_word}'"}
             return {"success": True, "confusion_examples": response.content.model_dump()}
@@ -1322,7 +1350,9 @@ class DictionaryService:
         """Fetch cultural notes information"""
         try:
             prompt = get_cultural_notes_prompt(word)
-            response = self.cultural_notes_agent.run(prompt)
+            with metrics_collector.track("CulturalNotesAgent", word, "cultural_notes", prompt) as _t:
+                response = self.cultural_notes_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, CulturalNotesInfo):
                 return {
@@ -1624,7 +1654,9 @@ class DictionaryService:
         """
         try:
             prompt = get_conversation_script_prompt(phrase, style)
-            response = self.conversation_agent.run(prompt)
+            with metrics_collector.track("ConversationAgent", phrase, "ai_generated_phrase_video", prompt) as _t:
+                response = self.conversation_agent.run(prompt)
+                _t.set_response(response)
             
             if isinstance(response.content, ConversationScript):
                 script_data = response.content.model_dump()

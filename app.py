@@ -22,6 +22,7 @@ from ai_svc.dictionary.cache_service import cache_service
 from ai_svc.dictionary.cache_routes import cache_bp
 from ai_svc.dictionary.suggest_service import suggestion_service
 from ai_svc.dictionary.video_task_service import video_task_service
+from ai_svc.metrics_collector import metrics_collector
 
 app = Flask(__name__)
 CORS(app)
@@ -333,6 +334,16 @@ def get_ai_phrase_videos():
             "error": str(e),
             "success": False
         }), 500
+
+@app.route('/metrics')
+def metrics_dashboard():
+    return app.send_static_file('metrics.html')
+
+@app.route('/api/metrics')
+def api_metrics():
+    summary = metrics_collector.get_summary()
+    recent = metrics_collector.get_recent(limit=100)
+    return jsonify({"summary": summary, "recent": recent})
 
 @app.route('/api/search', methods=['GET'])
 def search():
