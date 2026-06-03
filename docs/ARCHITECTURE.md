@@ -2,335 +2,361 @@
 
 ## Overview
 
-PP-AI-Service is a **Flask-based web service** that provides AI-powered functionality with a focus on dictionary lookups using a hybrid API + AI architecture.
+PP-AI-Service is a Flask-based web service for AI-assisted language learning and media workflows. The dictionary service is the main domain module and uses a section-based, cache-first architecture:
 
-## System Architecture
+1. Fetch stable/basic dictionary structure from the free Dictionary API.
+2. Generate richer learner-facing sections with DeepSeek agents through Agno.
+3. Load expensive sense details progressively.
+4. Cache each section at the smallest useful granularity.
+5. Run phrase video generation asynchronously and expose polling through the dictionary API.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   Flask Application (app.py)                 │
-│                         Port: 8000                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │         Dictionary Service (Hybrid Architecture)      │  │
-│  │                                                        │  │
-│  │  Step 1: Free Dictionary API (0.5-1s)                │  │
-│  │  └─► Basic data: pronunciation, definitions           │  │
-│  │                                                        │  │
-│  │  Step 2: DeepSeek AI Enhancement (5-6s)              │  │
-│  │  └─► 4 Parallel Agents:                              │  │
-│  │      ├─ Agent 1: Core metadata (300 tokens)          │  │
-│  │      ├─ Agent 2: Examples & collocations (200)       │  │
-│  │      ├─ Agent 3: Related words (200)                 │  │
-│  │      └─ Agent 4: Usage notes (150)                   │  │
-│  │                                                        │  │
-│  │  Fallback: Pure AI mode if API fails                 │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │         OpenAI Services                               │  │
-│  │  - Audio Transcription (Whisper)                     │  │
-│  │  - Image Analysis (Vision API)                       │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │         Additional Services                           │  │
-│  │  - Web Search (Serper API)                           │  │
-│  │  - Web Scraping (Browserless)                        │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+## System View
+
+```text
+Client
+  |
+  v
+Flask app.py
+  |
+  +-- POST /api/dictionary
+  |     |
+  |     +-- request validation
+  |     +-- cache_service.lookup_with_cache(...)
+  |           |
+  |           +-- fresh cache hit: return immediately
+  |           +-- stale cache hit: return stale data + background refresh
+  |           +-- cache miss: DictionaryService.lookup_section(...)
+  |                 |
+  |                 +-- Free Dictionary API
+  |                 +-- DeepSeek / Agno agents
+  |                 +-- Bilibili search
+  |                 +-- async video task service
+  |
+  +-- POST /api/transcribe
+  +-- POST /api/image
+  +-- GET  /api/search
+  +-- GET  /api/scrape
 ```
 
-## Dictionary Service - 4-Agent Parallel Architecture
+## Dictionary Request Flow
 
-### Performance Evolution
+The public dictionary route lives in `app.py` and accepts a single section-driven endpoint:
 
-| Version | Architecture | Performance | Improvement |
-|---------|-------------|-------------|-------------|
-| v1 | Sequential (single agent) | 10-13s | Baseline |
-| v2 | 3 agents parallel | 8-9s | 20-30% faster |
-| v3 | 3 agents + limited output | 6.5s | 40-50% faster |
-| v4 | **4 agents parallel (current)** | **5.25s** | **50-60% faster** |
-
-### Agent Breakdown
-
-Each agent runs in parallel with optimized token limits:
-
-#### Agent 1: Core Metadata (300 tokens, ~2.0-2.5s)
-- Definition
-- Part of speech
-- Usage register (formal, informal, etc.)
-- Domain (technical field)
-- Tone (positive, negative, neutral, etc.)
-
-#### Agent 2: Examples & Collocations (200 tokens, ~1.5-2.0s)
-- 3 example sentences
-- 3 word collocations (common word partners)
-
-#### Agent 3: Related Words (200 tokens, ~1.5-2.0s)
-- 3 synonyms
-- 3 antonyms
-- 3 word-specific phrases/idioms
-
-#### Agent 4: Usage Notes (150 tokens, ~1.0-1.5s)
-- 2-3 sentences of usage guidance
-- When/how to use the word appropriately
-
-### Data Flow
-
-```
-User Request: "run", sense #0
-    ↓
-Check Free Dictionary API (0.5s)
-    ↓
-API Success? ─YES─► Use API data + AI enhancement (hybrid_api_ai)
-    │                     ↓
-    │               ThreadPoolExecutor (4 workers)
-    │                     ├─► Agent 1: Core metadata
-    │                     ├─► Agent 2: Examples
-    │                     ├─► Agent 3: Related words
-    │                     └─► Agent 4: Usage notes
-    │                     ↓
-    │               Merge results (5.25s total)
-    │
-    NO ──► Pure AI mode (ai_only)
-              ↓
-        AI word sense discovery
-              ↓
-        ThreadPoolExecutor (4 workers)
-              ├─► Agent 1: Core metadata
-              ├─► Agent 2: Examples
-              ├─► Agent 3: Related words
-              └─► Agent 4: Usage notes
-              ↓
-        Merge results (~6-7s total)
+```http
+POST /api/dictionary
+Content-Type: application/json
 ```
 
-### Logging
+Common request shape:
 
-The service logs data source decisions for monitoring:
-
-```
-# API Success (Common words)
-[hello] Basic data: Using FREE API (hybrid_api_ai)
-[run] Detailed sense #0: Using API basic data + AI enhancement (hybrid)
-[run] Detailed sense #0: Using _fetch_enhanced_sense (API data + 4 AI agents)
-
-# API Failure (Rare/Non-existent words)
-[xyzqwerty123] Basic data: Using AI (ai_only) - API failed: API returned status 404
-[xyzqwerty123] Detailed sense #0: Using AI only - API failed: API returned status 404
-[xyzqwerty123] Detailed sense #0: Using _fetch_detailed_sense (Pure AI with 4 agents)
+```json
+{
+  "word": "run",
+  "section": "detailed_sense",
+  "entry_index": 0,
+  "sense_index": 0,
+  "phrase": "run into",
+  "confused_word": "ran",
+  "task_id": "..."
+}
 ```
 
-## API Endpoints
+Only `word` and `section` are always required. Other fields are section-specific.
 
-### Dictionary Endpoints
-- `POST /api/dictionary` - Dictionary lookup with section-based loading
-  - `section=basic` - Basic info (pronunciation, total senses) ~0.5-1s
-  - `section=etymology` - Etymology and root analysis ~2-3s
-  - `section=word_family` - Related words and forms ~2-3s
-  - `section=usage_context` - Modern usage context ~3-4s
-  - `section=cultural_notes` - Cultural significance ~3-4s
-  - `section=frequency` - Usage frequency ~2-3s
-  - `section=detailed_sense&index=0` - Full sense analysis ~5.25s
+The route delegates normal lookups to `cache_service.lookup_with_cache(...)`. The cache layer chooses the right cache table and key, then calls `DictionaryService.lookup_section(...)` only on misses or refreshes.
 
-- `GET /api/dictionary/test` - Test endpoint
+## Section Model
 
-### OpenAI Endpoints
-- `POST /api/transcribe` - Audio transcription (Whisper)
-- `POST /api/image` - Image analysis with prompts (Vision API)
+The dictionary API is intentionally section-based instead of returning a full word in one request. This keeps the first response fast and lets the frontend load expensive sections only when needed.
 
-### Web Services
-- `GET /api/search` - Web search (Serper API)
-- `GET /api/scrape` - Web scraping (Browserless)
+| Section | Scope | Inputs | Backing source |
+|---------|-------|--------|----------------|
+| `basic` | Word | `word` | Free Dictionary API |
+| `common_phrases` | Word | `word` | DeepSeek agent |
+| `etymology` | Entry | `word`, `entry_index` | DeepSeek agent |
+| `word_family` | Entry | `word`, `entry_index` | DeepSeek agent |
+| `usage_context` | Entry | `word`, `entry_index` | DeepSeek agent |
+| `cultural_notes` | Entry | `word`, `entry_index` | DeepSeek agent |
+| `frequency` | Entry | `word`, `entry_index` | DeepSeek agent |
+| `detailed_sense` | Sense | `word`, `entry_index`, `sense_index` | Free API + 2 parallel DeepSeek tasks |
+| `examples` | Sense | `word`, `entry_index`, `sense_index` | Free API + DeepSeek agent |
+| `usage_notes` | Sense | `word`, `entry_index`, `sense_index` | DeepSeek agent |
+| `bilibili_videos` | Phrase | `word`, `phrase` | Bilibili API/subtitles |
+| `ai_generated_phrase_video` | Phrase | `word`, `phrase` | DeepSeek script + Volcengine Ark async task |
+| `video_status` | Task | `task_id` | Video task SQLite DB |
+| `confusion_meta` | Word pair | `word`, `confused_word` | DeepSeek agent |
+| `confusion_profiles` | Word pair | `word`, `confused_word` | DeepSeek agent |
+| `confusion_examples` | Word pair | `word`, `confused_word` | DeepSeek agent |
+| `confusion_all` | Word pair | `word`, `confused_word` | 3 parallel DeepSeek agents |
+
+Entry-level sections default `entry_index` to `0` in `app.py` for backward compatibility.
+
+## Progressive Sense Architecture
+
+The older architecture generated a full detailed sense with four parallel agents. The current implementation uses a progressive `2 + 1 + 1` model:
+
+```text
+detailed_sense
+  |
+  +-- Free Dictionary API supplies definition, part of speech, examples, synonyms, antonyms
+  |
+  +-- ThreadPoolExecutor(max_workers=2)
+        |
+        +-- SenseCoreMetadataAgent
+        |     register, domain, tone
+        |
+        +-- SenseRelatedWordsAgent
+              missing synonyms, missing antonyms, word-specific phrases
+
+examples
+  |
+  +-- SenseUsageExamplesAgent
+        AI examples + collocations, merged with API example when available
+
+usage_notes
+  |
+  +-- SenseUsageNotesAgent
+        learner guidance and pitfalls
+```
+
+This makes the core sense render faster. The frontend can show the definition, POS, register, tone, synonyms, antonyms, and phrases first, then fetch examples and usage notes on demand.
+
+Important behavior:
+
+- `detailed_sense` requires `entry_index` and `sense_index`.
+- Flat `index` is deprecated and should not be used in new clients.
+- The service returns an error if the Free Dictionary API cannot resolve the word for `basic`, `detailed_sense`, `examples`, or `usage_notes`.
+- AI-only fallback is not currently implemented for the sense-level API path.
+
+## Cache Architecture
+
+`ai_svc/dictionary/cache_service.py` implements SQLite caching with field-level granularity.
+
+| Table | Purpose |
+|-------|---------|
+| `word_cache` | Word-level sections such as `basic` and `common_phrases` |
+| `entry_cache` | Entry-level sections such as `etymology`, `usage_context`, and `frequency` |
+| `sense_cache` | Sense-level sections: `detailed_sense`, `examples`, `usage_notes` |
+| `phrase_cache` | Phrase-specific Bilibili video results |
+| `word_confusion_cache` | Section-granular confused-word data |
+| `ai_phrase_video_cache` | AI phrase video task metadata and final URLs |
+| `cache_metrics` | Hit/miss/stale/refresh metrics |
+
+Cache behavior:
+
+1. Read the exact section key first.
+2. Return fresh cached data immediately.
+3. Return stale cached data immediately and schedule a background refresh.
+4. Suppress duplicate concurrent misses with an in-flight request registry.
+5. Write successful service responses back to the matching cache table.
+
+SQLite is configured with WAL mode, a Python write lock, `BEGIN IMMEDIATE` write transactions, and per-section TTLs.
+
+## Bilibili Video Search
+
+`bilibili_videos` is phrase-specific:
+
+```json
+{
+  "word": "run",
+  "section": "bilibili_videos",
+  "phrase": "run into"
+}
+```
+
+The search module:
+
+1. Builds enhanced Bilibili search queries, currently phrase plus English-learning tags.
+2. Searches Bilibili knowledge zones.
+3. Filters results that contain the phrase.
+4. Checks subtitles when credentials are configured.
+5. Returns the best video with a `start_time` and playback URL when a subtitle match is found.
+
+Credentials are loaded from environment variables:
+
+- `BILIBILI_SESSDATA`
+- `BILIBILI_BILI_JCT`
+- `BILIBILI_BUVID3`
+- `BILIBILI_AC_TIME_VALUE`
+
+When refreshable credentials are present, the service attempts to refresh them on startup and update `.env`.
+
+## AI Phrase Video Generation
+
+`ai_generated_phrase_video` creates phrase-learning videos asynchronously:
+
+```text
+POST /api/dictionary
+  section=ai_generated_phrase_video
+  phrase="pipe down"
+        |
+        v
+ConversationScriptAgent generates a short educational script
+        |
+        v
+video_task_service.create_task(...)
+        |
+        v
+background thread calls Volcengine Ark SeeDance
+        |
+        v
+generated video is uploaded to object storage
+        |
+        v
+frontend polls section=video_status with task_id
+```
+
+The video task service stores state in `ai_svc/dictionary/video_tasks.db` with statuses:
+
+- `pending`
+- `processing`
+- `completed`
+- `failed`
+
+The cache service also stores phrase-video metadata so repeated requests can reuse task information or completed video URLs.
+
+## Confusion Architecture
+
+Confused-word support is section-granular:
+
+- `confusion_meta`: confusion type, quick rule, differentiator, difficulty.
+- `confusion_profiles`: side-by-side profiles for the searched and confused words.
+- `confusion_examples`: example sentences and usage notes for both words.
+- `confusion_all`: runs the three sections in parallel and caches each component separately.
 
 ## Technology Stack
 
-### Core Framework
-- **Flask** - Web framework (Python 3.10.13)
-- **Flask-CORS** - Cross-origin support
+### Core
 
-### AI/LLM
-- **DeepSeek** - Primary LLM for dictionary service (via Agno framework)
-- **OpenAI** - Audio transcription (Whisper) and vision analysis
-- **Agno Framework** - Agent orchestration
+- Flask
+- Flask-CORS
+- Pydantic
+- SQLite
+- `requests`
+- `concurrent.futures`
 
-### APIs
-- **Free Dictionary API** - Basic word data (https://dictionaryapi.dev)
-- **Serper API** - Web search
-- **Browserless API** - Web scraping
+### AI and media
 
-### Python Libraries
-- **Pydantic** - Data validation and schemas
-- **python-dotenv** - Environment variables
-- **requests** - HTTP client
-- **concurrent.futures** - Parallel execution
+- DeepSeek via Agno agents
+- OpenAI Whisper and Vision for non-dictionary endpoints
+- Bilibili API for educational video discovery
+- Volcengine Ark SeeDance for generated phrase videos
+- Object storage integration for generated video hosting
 
-## Performance Characteristics
+## Environment Variables
 
-### Dictionary Service
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Basic data (API success) | 0.5-1s | No AI required |
-| Basic data (API fail) | 6-7s | AI word sense discovery |
-| Etymology/Word Family | 2-3s | Single AI agent |
-| Usage Context/Cultural Notes | 3-4s | Single AI agent |
-| Detailed Sense (hybrid) | 5.25s | 4 parallel AI agents |
-| Detailed Sense (pure AI) | 6-7s | 4 parallel AI agents |
-
-### Benefits of Hybrid Architecture
-
-- **60-70% faster** than pure AI approach (5-6s vs 15-18s)
-- **30-50% fewer AI calls** (cost savings)
-- **Better audio quality** - Real pronunciation from Wikimedia Commons
-- **Comprehensive data** - Combines free API with AI enhancements
-- **Automatic fallback** - Gracefully handles API failures
-
-## Configuration
-
-### Required Environment Variables
+Required for dictionary AI:
 
 ```env
-# Dictionary Service
 DEEPSEEK_API_KEY=your_deepseek_api_key
+```
 
-# OpenAI Services
+Required for AI phrase video generation:
+
+```env
+ARK_API_KEY=your_volcengine_api_key
+BUCKET_NAME_PREFIX=optional_prefix
+```
+
+Optional for Bilibili subtitle access:
+
+```env
+BILIBILI_SESSDATA=your_sessdata
+BILIBILI_BILI_JCT=your_bili_jct
+BILIBILI_BUVID3=your_buvid3
+BILIBILI_AC_TIME_VALUE=your_ac_time_value
+```
+
+Other service variables:
+
+```env
 OPENAI_API_KEY=your_openai_api_key
-OPENAI_API_BASE=your_proxy_base_url  # Optional, for proxy
-X-PP-TOKEN=your_proxy_token          # Optional, for proxy
-
-# Web Services
+OPENAI_API_BASE=your_proxy_base_url
+X-PP-TOKEN=your_proxy_token
 SERPER_API_KEY=your_serper_api_key
 BROWSERLESS_API_KEY=your_browserless_api_key
-
-# Flask
-FLASK_ENV=development  # or production
+FLASK_ENV=development
 ```
 
-### Logging Configuration
+## Expected Performance
 
-Set logging level in your application:
+These are approximate uncached latencies; cache hits are much faster.
 
-```python
-import logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-```
+| Operation | Expected time | Notes |
+|-----------|---------------|-------|
+| `basic` | 0.5-1s | Free Dictionary API only |
+| `common_phrases` | 1-3s | Single AI agent |
+| Entry-level AI sections | 2-5s | Single AI agent |
+| `detailed_sense` | 2-3s | API + 2 parallel AI tasks |
+| `examples` | 1.5-2s | API example + AI examples/collocations |
+| `usage_notes` | 1-1.5s | Single AI agent |
+| `confusion_all` | 2-5s | 3 parallel AI tasks |
+| `bilibili_videos` | variable | Network and subtitle dependent |
+| `ai_generated_phrase_video` | 30-300s | Async background task |
 
-## Project Structure
+## Design Principles
 
-```
-PP-AI-Service/
-├── ai_svc/                    # Core AI service modules
-│   ├── __init__.py
-│   ├── openai.py             # OpenAI API integrations
-│   ├── tool.py               # Utility functions
-│   └── dictionary/           # Dictionary service
-│       ├── __init__.py
-│       ├── service.py        # Main service (4-agent architecture)
-│       ├── schemas.py        # Pydantic models
-│       ├── prompts.py        # AI prompts
-│       └── enums.py          # Enumerations
-├── static/                   # Static assets
-├── templates/                # HTML templates
-├── docs/                     # Documentation
-├── app.py                    # Main Flask application
-├── requirements.txt          # Python dependencies
-├── Dockerfile               # Docker configuration
-├── compose.yaml             # Docker Compose
-└── .env                     # Environment variables (not in git)
-```
+1. **Section-first API**: keep initial responses small and let clients prioritize.
+2. **Cache-first execution**: avoid repeated AI/API work and serve stale data when useful.
+3. **API data as ground truth**: use Free Dictionary API definitions and pronunciation where possible.
+4. **Progressive enrichment**: defer examples and notes until the frontend asks for them.
+5. **Structured AI output**: validate agent responses with Pydantic schemas.
+6. **Async long-running work**: return task IDs for generated videos instead of blocking the request.
 
-## Key Design Principles
+## Testing and Debugging
 
-1. **Hybrid First**: Always try free API before using AI
-2. **Parallel Execution**: Use ThreadPoolExecutor for concurrent AI calls
-3. **Graceful Degradation**: Automatic fallback to pure AI mode
-4. **Logging**: Track API vs AI decisions for monitoring
-5. **Modular Design**: Separate schemas, prompts, and service logic
-6. **Type Safety**: Pydantic models for validation
-7. **Cost Optimization**: Minimize AI calls, use token limits
-
-## Performance Optimization Techniques
-
-1. **Token Limits**: Reduced per-agent tokens (300/200/200/150)
-2. **Parallel Execution**: 4 agents run concurrently
-3. **API First**: Free API for basic data (0 cost)
-4. **Timeout Management**: 30-45s timeouts prevent hanging
-5. **No Retries**: max_retries=0 for faster failure detection
-6. **Model Selection**: DeepSeek for cost-effective performance
-
-## Future Improvements
-
-### Potential Optimizations
-- **Streaming**: Stream partial results as agents complete
-- **Caching**: Redis/in-memory cache for frequent words
-- **Model Switching**: Try faster models (Groq, Cerebras) for specific tasks
-- **Batch Processing**: Process multiple words in parallel
-- **CDN**: Cache pronunciation audio URLs
-
-### Potential Features
-- **Grammar Analysis**: Grammar correction agent
-- **Translation**: Multi-language support
-- **Sentiment Analysis**: Tone and sentiment detection
-- **AutoGen Integration**: Data analysis and web research agents
-
-## Monitoring and Debugging
-
-### Log Analysis
-
-Monitor these patterns:
-- API success rate: `grep "Using FREE API" logs`
-- AI fallback rate: `grep "Using AI (ai_only)" logs`
-- Performance: `grep "execution_time" logs`
-- Errors: `grep "ERROR" logs`
-
-### Performance Testing
-
-You can verify performance using the API endpoints directly:
+Basic lookup:
 
 ```bash
-# Test basic lookup
 curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
   -d '{"word":"hello","section":"basic"}'
-
-# Test detailed sense (4-agent parallel)
-curl -X POST http://localhost:8000/api/dictionary \
-  -H "Content-Type: application/json" \
-  -d '{"word":"run","section":"detailed_sense","index":0}'
 ```
 
-### Health Checks
+Core sense:
 
-- `/` - Homepage (should return 200)
-- `/api/dictionary/test` - Dictionary test endpoint
-- Check logs for API failures and slow responses
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"detailed_sense","entry_index":0,"sense_index":0}'
+```
 
-## Security Considerations
+Examples:
 
-1. **API Keys**: Never commit `.env` file
-2. **Docker**: Runs as non-root user `appuser`
-3. **File Uploads**: Validated and cleaned up after processing
-4. **CORS**: Configure allowed origins in production
-5. **Rate Limiting**: Implement for production (not included)
-6. **HTTPS**: Use reverse proxy (Nginx/Apache) in production
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"examples","entry_index":0,"sense_index":0}'
+```
 
-## Deployment
+Bilibili videos:
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions including:
-- Docker setup
-- GCP deployment
-- SSL/HTTPS configuration
-- Production best practices
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"bilibili_videos","phrase":"run into"}'
+```
+
+AI phrase video:
+
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"quiet","section":"ai_generated_phrase_video","phrase":"pipe down"}'
+```
+
+Poll video status:
+
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"quiet","section":"video_status","task_id":"TASK_ID"}'
+```
 
 ## See Also
 
-- [API Usage Guide](API.md) - Detailed API documentation
-- [Deployment Guide](DEPLOYMENT.md) - Production deployment
-- [Contributing Guide](../AGENTS.md) - For AI agents working on this codebase
+- [API Usage Guide](API.md)
+- [Cache Management](CACHE_MANAGEMENT.md)
+- [AI Video Generation](AI_VIDEO_GENERATION.md)
+- [Async Video Generation](ASYNC_VIDEO_GENERATION.md)
+- [Deployment Guide](DEPLOYMENT.md)

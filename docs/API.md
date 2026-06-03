@@ -1,86 +1,97 @@
 # Dictionary API Usage Guide
 
-Complete guide for using the PP-AI-Service Dictionary API to retrieve full word information.
+This guide describes the current section-based dictionary API used by PP-AI-Service.
 
-## Table of Contents
-- [Quick Start](#quick-start)
-- [API Endpoint](#api-endpoint)
-- [Available Sections](#available-sections)
-- [Loading Strategy](#loading-strategy)
-- [Response Formats](#response-formats)
-- [Error Handling](#error-handling)
-- [Performance Optimization](#performance-optimization)
+## Endpoint
 
----
+```http
+POST /api/dictionary
+Content-Type: application/json
+```
+
+Every request requires:
+
+- `word`: word being looked up.
+- `section`: section to fetch.
+
+Some sections require additional parameters:
+
+- `entry_index`: zero-based dictionary entry index.
+- `sense_index`: zero-based sense index within an entry.
+- `phrase`: phrase for Bilibili or generated video sections.
+- `confused_word`: comparison word for confusion sections.
+- `task_id`: video task ID for `video_status`.
+
+The old flat `index` parameter is deprecated. Use `entry_index` and `sense_index` for sense-level sections.
 
 ## Quick Start
 
-### Single Request (Basic Info)
+Fetch the entry structure first:
+
 ```bash
 curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
   -d '{"word":"hello","section":"basic"}'
 ```
 
-### Full Word Information (Multiple Requests)
-```javascript
-// Step 1: Get basic info (fast, ~0.5s)
-const basic = await fetch('/api/dictionary', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({word: 'hello', section: 'basic'})
-}).then(r => r.json());
+Then load an entry section:
 
-// Step 2: Load other sections in parallel (~2-5s each)
-const [etymology, wordFamily, frequency] = await Promise.all([
-  fetch('/api/dictionary', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({word: 'hello', section: 'etymology'})
-  }).then(r => r.json()),
-  
-  fetch('/api/dictionary', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({word: 'hello', section: 'word_family'})
-  }).then(r => r.json()),
-  
-  fetch('/api/dictionary', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({word: 'hello', section: 'frequency'})
-  }).then(r => r.json())
-]);
-
-// Step 3: Load individual senses on-demand (~5.25s each with 4-agent parallel)
-const sense0 = await fetch('/api/dictionary', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({word: 'hello', section: 'detailed_sense', index: 0})
-}).then(r => r.json());
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"hello","section":"etymology","entry_index":0}'
 ```
 
----
+Then load sense details progressively:
 
-## API Endpoint
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"detailed_sense","entry_index":0,"sense_index":0}'
+```
 
-**URL**: `POST /api/dictionary`
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"examples","entry_index":0,"sense_index":0}'
+```
 
-**Required Parameters**:
-- `word` (string): The word to look up
-- `section` (string): Which section of data to retrieve
-
-**Optional Parameters**:
-- `index` (integer): Required only for `detailed_sense` section to specify which sense (0-based)
-
----
+```bash
+curl -X POST http://localhost:8000/api/dictionary \
+  -H "Content-Type: application/json" \
+  -d '{"word":"run","section":"usage_notes","entry_index":0,"sense_index":0}'
+```
 
 ## Available Sections
 
-### 1. `basic` - Basic Information
-**Speed**: Fast (~0.5s) - No AI required
+| Section | Required parameters | Description |
+|---------|---------------------|-------------|
+| `basic` | `word` | Entry structure, pronunciation, IPA, meanings, definitions, total senses |
+| `common_phrases` | `word` | AI-generated phrases and collocations |
+| `etymology` | `word`, optional `entry_index` | Word origin and root analysis |
+| `word_family` | `word`, optional `entry_index` | Related word forms |
+| `usage_context` | `word`, optional `entry_index` | Modern relevance, common confusions, regional variations |
+| `cultural_notes` | `word`, optional `entry_index` | Historical context, associations, social perceptions |
+| `frequency` | `word`, optional `entry_index` | Usage frequency enum |
+| `detailed_sense` | `word`, `entry_index`, `sense_index` | Core sense detail, excluding examples and notes |
+| `examples` | `word`, `entry_index`, `sense_index` | Examples and collocations for one sense |
+| `usage_notes` | `word`, `entry_index`, `sense_index` | Learner guidance for one sense |
+| `bilibili_videos` | `word`, `phrase` | Educational Bilibili video for a phrase |
+| `ai_generated_phrase_video` | `word`, `phrase` | Start async AI phrase video generation |
+| `video_status` | `task_id` | Poll async video task status |
+| `confusion_meta` | `word`, `confused_word` | Confusion type and quick rule |
+| `confusion_profiles` | `word`, `confused_word` | Side-by-side word profiles |
+| `confusion_examples` | `word`, `confused_word` | Examples and notes for both words |
+| `confusion_all` | `word`, `confused_word` | Fetch all confusion sections in parallel |
 
-**Request**:
+For entry-level sections, `app.py` defaults `entry_index` to `0` when omitted.
+
+## Response Examples
+
+### `basic`
+
+Request:
+
 ```json
 {
   "word": "run",
@@ -88,530 +99,493 @@ const sense0 = await fetch('/api/dictionary', {
 }
 ```
 
-**Response**:
+Response shape:
+
 ```json
 {
   "headword": "run",
-  "pronunciation": "https://api.dictionaryapi.dev/media/pronunciations/en/run-us.mp3",
-  "total_senses": 63,
-  "data_source": "hybrid_api_ai",
+  "total_entries": 1,
+  "entries": [
+    {
+      "entry_index": 0,
+      "pronunciation": "https://api.dictionaryapi.dev/media/pronunciations/en/run-us.mp3",
+      "ipa": "/ɹʌn/",
+      "meanings_summary": [
+        {
+          "part_of_speech": "verb",
+          "definition_count": 10,
+          "senses": [
+            {
+              "definition": "To move forward quickly upon two feet...",
+              "example": "Run, Sarah, run!",
+              "synonyms": [],
+              "antonyms": []
+            }
+          ]
+        }
+      ],
+      "total_senses": 10
+    }
+  ],
+  "total_senses": 10,
+  "data_source": "api",
   "execution_time": 0.52,
   "success": true
 }
 ```
 
-**Use Case**: Always fetch this first to know how many senses exist
+### `detailed_sense`
 
----
+Request:
 
-### 2. `etymology` - Word Origin & History
-**Speed**: Medium (~2-5s) - AI required
-
-**Request**:
-```json
-{
-  "word": "run",
-  "section": "etymology"
-}
-```
-
-**Response**:
-```json
-{
-  "headword": "run",
-  "etymology": {
-    "etymology": "From Old English 'rinnan' (to flow, run), from Proto-Germanic *rinnaną. The word has maintained its core meaning of rapid movement throughout its history.",
-    "root_analysis": "Old English: rinnan (to flow) → Proto-Germanic: *rinnaną → Proto-Indo-European: *h₃reyH- (to flow, move)"
-  },
-  "execution_time": 3.21,
-  "success": true
-}
-```
-
----
-
-### 3. `word_family` - Related Words
-**Speed**: Medium (~2-5s) - AI required
-
-**Request**:
-```json
-{
-  "word": "run",
-  "section": "word_family"
-}
-```
-
-**Response**:
-```json
-{
-  "headword": "run",
-  "word_family": {
-    "word_family": [
-      "runner", "running", "ran", "runs",
-      "runnable", "runaway", "run-down", "overrun",
-      "outrun", "rerun", "underrun", "runoff"
-    ]
-  },
-  "execution_time": 2.45,
-  "success": true
-}
-```
-
----
-
-### 4. `usage_context` - Modern Usage Trends
-**Speed**: Medium (~2-5s) - AI required
-
-**Request**:
-```json
-{
-  "word": "run",
-  "section": "usage_context"
-}
-```
-
-**Response**:
-```json
-{
-  "headword": "run",
-  "usage_context": {
-    "modern_relevance": "Extremely common in both literal (physical running) and figurative contexts (running a business, running software). Tech usage is rising.",
-    "common_confusions": [
-      "run vs jog: 'run' is general movement, 'jog' is slower pace",
-      "run vs sprint: 'sprint' implies maximum speed for short distance"
-    ],
-    "regional_variations": [
-      "UK: 'go for a run' more common than US 'go running'",
-      "US: 'run errands' is standard, UK may say 'do errands'"
-    ]
-  },
-  "execution_time": 3.78,
-  "success": true
-}
-```
-
----
-
-### 5. `cultural_notes` - Cultural Context
-**Speed**: Medium (~2-5s) - AI required
-
-**Request**:
-```json
-{
-  "word": "run",
-  "section": "cultural_notes"
-}
-```
-
-**Response**:
-```json
-{
-  "headword": "run",
-  "cultural_notes": {
-    "notes": "Running has significant cultural associations with health, fitness, and personal achievement. Marathon running is culturally prestigious. The word appears in many idioms reflecting urgency and continuous action."
-  },
-  "execution_time": 2.91,
-  "success": true
-}
-```
-
----
-
-### 6. `frequency` - Usage Frequency
-**Speed**: Medium (~2-5s) - AI required
-
-**Request**:
-```json
-{
-  "word": "run",
-  "section": "frequency"
-}
-```
-
-**Response**:
-```json
-{
-  "headword": "run",
-  "frequency": "very_common",
-  "execution_time": 2.15,
-  "success": true
-}
-```
-
-**Possible Values**: `very_common`, `common`, `uncommon`, `rare`, `very_rare`
-
----
-
-### 7. `detailed_sense` - Individual Sense Detail
-**Speed**: Medium (~5.25s) - 4 parallel AI agents (optimized)
-
-**Request**:
 ```json
 {
   "word": "run",
   "section": "detailed_sense",
-  "index": 0
+  "entry_index": 0,
+  "sense_index": 0
 }
 ```
 
-**Response**:
+Response shape:
+
 ```json
 {
   "headword": "run",
+  "entry_index": 0,
+  "sense_index": 0,
   "detailed_sense": {
-    "definition": "To move swiftly on foot so that both feet leave the ground during each stride",
+    "definition": "To move forward quickly upon two feet...",
     "part_of_speech": "verb",
-    "usage_register": "neutral",
-    "domain": "physical_activity",
+    "usage_register": ["neutral"],
+    "domain": ["general"],
     "tone": "neutral",
-    "usage_notes": "Most common meaning. Can be used literally or figuratively. Common learner error: confusing 'run' with 'ran' (past tense).",
-    "examples": [
-      "She runs 5 miles every morning",
-      "The children are running in the park",
-      "I need to run to catch the bus"
-    ],
-    "collocations": [
-      "run fast", "run quickly", "run away",
-      "run towards", "run after", "start running"
-    ],
-    "word_specific_phrases": [
-      "run for your life",
-      "run like the wind",
-      "run circles around someone"
-    ],
-    "synonyms": ["sprint", "jog", "dash", "race"],
-    "antonyms": ["walk", "stand", "stop", "rest"]
+    "synonyms": ["sprint", "dash", "jog"],
+    "antonyms": ["walk", "stand", "stop"],
+    "word_specific_phrases": ["run for your life", "run late", "run around"]
   },
-  "execution_time": 5.25,
+  "execution_time": 2.4,
   "success": true
 }
 ```
 
-**Note**: The `index` parameter is 0-based. Use `total_senses` from `basic` section to know the range.
+`detailed_sense` intentionally does not include examples or usage notes. Fetch those separately.
 
----
+### `examples`
 
-## Loading Strategy
-
-### Recommended Approach: Progressive Loading
-
-```javascript
-class DictionaryLoader {
-  async loadWord(word) {
-    // Step 1: Load basic info immediately (fast)
-    const basic = await this.fetchSection(word, 'basic');
-    this.updateUI({basic});
-    
-    // Step 2: Load metadata sections in parallel (medium speed)
-    const metadataPromises = [
-      this.fetchSection(word, 'etymology'),
-      this.fetchSection(word, 'word_family'),
-      this.fetchSection(word, 'usage_context'),
-      this.fetchSection(word, 'cultural_notes'),
-      this.fetchSection(word, 'frequency')
-    ];
-    
-    // Update UI as each section completes
-    const metadata = await Promise.allSettled(metadataPromises);
-    metadata.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        this.updateUI({[this.sectionNames[index]]: result.value});
-      }
-    });
-    
-    // Step 3: Load senses on-demand (slow)
-    // Only load when user scrolls or clicks
-    this.setupLazySenseLoading(word, basic.total_senses);
-  }
-  
-  async fetchSection(word, section, index = null) {
-    const body = {word, section};
-    if (index !== null) body.index = index;
-    
-    const response = await fetch('/api/dictionary', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
-    });
-    
-    return response.json();
-  }
-  
-  setupLazySenseLoading(word, totalSenses) {
-    // Implement lazy loading or load first 3 senses
-    const loadSense = async (index) => {
-      const sense = await this.fetchSection(word, 'detailed_sense', index);
-      this.updateUI({[`sense_${index}`]: sense});
-    };
-    
-    // Load first sense immediately, others on scroll
-    loadSense(0);
-  }
-}
-```
-
----
-
-## Response Formats
-
-### Success Response
-All successful responses include:
-- `headword`: The word that was looked up
-- `success`: true
-- `execution_time`: Time taken in seconds
-- Section-specific data
-
-### Error Response
 ```json
 {
-  "error": "Error message describing what went wrong",
-  "success": false
+  "word": "run",
+  "section": "examples",
+  "entry_index": 0,
+  "sense_index": 0
 }
 ```
 
-Common errors:
-- `"Missing 'section' parameter in request body"`
-- `"Invalid section 'xyz'. Valid sections: ..."`
-- `"index is required when requesting 'detailed_sense'"`
-- `"Invalid index 999. Word has 63 senses (0-62)"`
+```json
+{
+  "headword": "run",
+  "entry_index": 0,
+  "sense_index": 0,
+  "examples": [
+    "Run, Sarah, run!",
+    "He runs every morning before work."
+  ],
+  "collocations": ["run fast", "run daily", "run home"],
+  "data_source": "hybrid",
+  "execution_time": 1.8,
+  "success": true
+}
+```
 
----
+### `usage_notes`
 
-## Error Handling
+```json
+{
+  "word": "run",
+  "section": "usage_notes",
+  "entry_index": 0,
+  "sense_index": 0
+}
+```
 
-```javascript
-async function fetchDictionarySection(word, section, index = null) {
-  try {
-    const body = {word, section};
-    if (index !== null) body.index = index;
-    
-    const response = await fetch('/api/dictionary', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
-    });
-    
-    const data = await response.json();
-    
-    if (!data.success) {
-      console.error(`Dictionary API error: ${data.error}`);
-      return null;
+```json
+{
+  "headword": "run",
+  "entry_index": 0,
+  "sense_index": 0,
+  "usage_notes": "Use this for fast movement on foot. For slower exercise, jog is often more precise.",
+  "data_source": "ai",
+  "execution_time": 1.2,
+  "success": true
+}
+```
+
+### `usage_context`
+
+```json
+{
+  "word": "run",
+  "section": "usage_context",
+  "entry_index": 0
+}
+```
+
+```json
+{
+  "headword": "run",
+  "entry_index": 0,
+  "usage_context": {
+    "modern_relevance": "Very common in physical, business, technical, and idiomatic contexts.",
+    "common_confusions": ["ran", "jog", "sprint"],
+    "regional_variations": {
+      "US": "Run errands is very common.",
+      "UK": "Go for a run is common in fitness contexts."
     }
-    
-    return data;
-  } catch (error) {
-    console.error('Network error:', error);
-    return null;
-  }
+  },
+  "data_source": "ai",
+  "execution_time": 3.2,
+  "success": true
 }
 ```
 
----
+### `cultural_notes`
 
-## Performance Optimization
-
-### 1. Loading Indicators
-Show appropriate loading states for different sections:
-
-```javascript
-// Fast section (basic)
-showQuickLoader(); // Spinner for 0.5s
-
-// Medium sections (etymology, word_family, etc.)
-showMediumLoader(); // Progress bar for 2-5s
-
-// Medium sections (detailed_sense)
-showMediumLoader(); // "Analyzing with 4 parallel agents..." for ~5.25s
-```
-
-### 2. Request Throttling
-Prevent overwhelming the API:
-
-```javascript
-// Limit concurrent detailed_sense requests
-const senseQueue = new PQueue({concurrency: 2});
-
-for (let i = 0; i < totalSenses; i++) {
-  senseQueue.add(() => fetchSection(word, 'detailed_sense', i));
+```json
+{
+  "word": "run",
+  "section": "cultural_notes",
+  "entry_index": 0
 }
 ```
 
-### 3. Caching on Frontend
-Cache responses to avoid repeated requests:
-
-```javascript
-const cache = new Map();
-
-async function fetchWithCache(word, section, index = null) {
-  const key = `${word}_${section}_${index}`;
-  
-  if (cache.has(key)) {
-    return cache.get(key);
-  }
-  
-  const data = await fetchSection(word, section, index);
-  cache.set(key, data);
-  return data;
+```json
+{
+  "headword": "run",
+  "entry_index": 0,
+  "cultural_notes": {
+    "historical_context": "The word has long been used for physical motion and later extended into business, machines, and software.",
+    "cultural_associations": ["fitness culture", "politics", "software"],
+    "social_perceptions": ["energetic", "practical", "action-oriented"]
+  },
+  "data_source": "ai",
+  "execution_time": 2.9,
+  "success": true
 }
 ```
 
-### 4. Lazy Loading Senses
-Only load senses that are visible:
+### `frequency`
 
-```javascript
-// Using Intersection Observer
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const index = entry.target.dataset.senseIndex;
-      loadSense(word, index);
-      observer.unobserve(entry.target);
+```json
+{
+  "word": "run",
+  "section": "frequency",
+  "entry_index": 0
+}
+```
+
+```json
+{
+  "headword": "run",
+  "entry_index": 0,
+  "frequency": "very_common",
+  "data_source": "ai",
+  "execution_time": 2.1,
+  "success": true
+}
+```
+
+Possible frequency values:
+
+- `very_common`
+- `common`
+- `uncommon`
+- `rare`
+- `very_rare`
+
+### `bilibili_videos`
+
+```json
+{
+  "word": "run",
+  "section": "bilibili_videos",
+  "phrase": "run into"
+}
+```
+
+```json
+{
+  "headword": "run",
+  "phrase": "run into",
+  "bilibili_videos": {
+    "bvid": "BV...",
+    "title": "English phrase explanation...",
+    "start_time": 42.5,
+    "matched_phrase": "run into",
+    "video_url": "https://www.bilibili.com/video/BV...?t=42"
+  },
+  "data_source": "api",
+  "execution_time": 4.7,
+  "success": true
+}
+```
+
+### `ai_generated_phrase_video`
+
+This section returns quickly after creating a background task. The actual video is generated asynchronously.
+
+```json
+{
+  "word": "quiet",
+  "section": "ai_generated_phrase_video",
+  "phrase": "pipe down"
+}
+```
+
+```json
+{
+  "phrase": "pipe down",
+  "conversation_script": {
+    "scenario": "A short classroom scene...",
+    "dialogue": [
+      {"character": "Teacher", "text": "Please pipe down so everyone can hear."}
+    ]
+  },
+  "ai_generated_phrase_video": {
+    "task_id": "9b0f...",
+    "status": "pending",
+    "poll_url": "/api/dictionary",
+    "poll_params": {
+      "section": "video_status",
+      "task_id": "9b0f..."
+    },
+    "message": "Video generation started. Poll using /api/dictionary with section=video_status and task_id parameter."
+  },
+  "data_source": "ai",
+  "execution_time": 3.4,
+  "success": true
+}
+```
+
+Poll status:
+
+```json
+{
+  "word": "quiet",
+  "section": "video_status",
+  "task_id": "9b0f..."
+}
+```
+
+Completed response:
+
+```json
+{
+  "task_id": "9b0f...",
+  "phrase": "pipe down",
+  "status": "completed",
+  "progress": 100,
+  "video_url": "https://...",
+  "style": "kids_cartoon",
+  "duration": 5,
+  "success": true
+}
+```
+
+### `confusion_all`
+
+```json
+{
+  "word": "affect",
+  "section": "confusion_all",
+  "confused_word": "effect"
+}
+```
+
+Response shape:
+
+```json
+{
+  "headword": "affect",
+  "confused_word": "effect",
+  "confusion_meta": {
+    "confusion_type": "semantic_overlap",
+    "quick_rule": "Affect is usually a verb; effect is usually a noun.",
+    "key_differentiator": "Affect means to influence, while effect means a result.",
+    "difficulty": "medium"
+  },
+  "confusion_profiles": {
+    "searched_word": {
+      "core_meaning": "To influence or change something.",
+      "part_of_speech": "verb",
+      "typical_domains": ["academic", "general"],
+      "collocations": ["deeply affect", "directly affect"],
+      "grammar_note": "Usually transitive."
+    },
+    "confused_word": {
+      "core_meaning": "A result or consequence.",
+      "part_of_speech": "noun",
+      "typical_domains": ["academic", "general"],
+      "collocations": ["side effect", "lasting effect"],
+      "grammar_note": "Often follows an article or adjective."
     }
+  },
+  "confusion_examples": {
+    "searched_word": {
+      "example_sentences": ["The weather can affect your mood."],
+      "usage_note": "Use affect when something influences something else."
+    },
+    "confused_word": {
+      "example_sentences": ["The medicine had a calming effect."],
+      "usage_note": "Use effect for the result."
+    }
+  },
+  "errors": null,
+  "data_source": "ai",
+  "execution_time": 3.6,
+  "success": true
+}
+```
+
+## Recommended Loading Strategy
+
+```javascript
+async function postDictionary(body) {
+  const response = await fetch('/api/dictionary', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
   });
-});
+  return response.json();
+}
 
-// Observe each sense placeholder
-document.querySelectorAll('.sense-placeholder').forEach(el => {
-  observer.observe(el);
-});
-```
+async function loadWord(word) {
+  const basic = await postDictionary({word, section: 'basic'});
+  renderBasic(basic);
 
----
-
-## Complete Example
-
-```javascript
-async function loadFullWordInfo(word) {
-  console.log(`Loading full information for: ${word}`);
-  
-  // 1. Get basic info (required first)
-  const basic = await fetchSection(word, 'basic');
-  if (!basic || !basic.success) {
-    console.error('Failed to load basic info');
-    return;
-  }
-  
-  console.log(`Word has ${basic.total_senses} senses`);
-  console.log(`Pronunciation: ${basic.pronunciation}`);
-  
-  // 2. Load all metadata sections in parallel
-  const sections = [
+  const entryIndex = 0;
+  const entrySections = [
     'etymology',
     'word_family',
     'usage_context',
     'cultural_notes',
     'frequency'
   ];
-  
-  console.log('Loading metadata sections...');
-  const metadataResults = await Promise.allSettled(
-    sections.map(section => fetchSection(word, section))
-  );
-  
-  const fullData = {
-    ...basic,
-    metadata: {}
-  };
-  
-  metadataResults.forEach((result, index) => {
-    if (result.status === 'fulfilled' && result.value.success) {
-      const sectionName = sections[index];
-      fullData.metadata[sectionName] = result.value[sectionName];
-    }
-  });
-  
-  // 3. Load first 3 senses (or all if fewer than 3)
-  const sensesToLoad = Math.min(3, basic.total_senses);
-  console.log(`Loading first ${sensesToLoad} senses...`);
-  
-  fullData.senses = [];
-  
-  for (let i = 0; i < sensesToLoad; i++) {
-    const sense = await fetchSection(word, 'detailed_sense', i);
-    if (sense && sense.success) {
-      fullData.senses.push(sense.detailed_sense);
-      console.log(`Loaded sense ${i + 1}/${sensesToLoad}`);
-    }
-  }
-  
-  console.log('Full word data loaded:', fullData);
-  return fullData;
-}
 
-// Helper function
-async function fetchSection(word, section, index = null) {
-  const body = {word, section};
-  if (index !== null) body.index = index;
-  
-  const response = await fetch('http://localhost:8000/api/dictionary', {
+  Promise.allSettled(
+    entrySections.map(section => postDictionary({word, section, entry_index: entryIndex}))
+  ).then(renderEntrySections);
+
+  const firstSense = await postDictionary({
+    word,
+    section: 'detailed_sense',
+    entry_index: entryIndex,
+    sense_index: 0
+  });
+  renderCoreSense(firstSense);
+
+  Promise.allSettled([
+    postDictionary({word, section: 'examples', entry_index: entryIndex, sense_index: 0}),
+    postDictionary({word, section: 'usage_notes', entry_index: entryIndex, sense_index: 0})
+  ]).then(renderSenseExtras);
+}
+```
+
+For words with multiple entries, use the `entries` array from `basic` to let the user select the right `entry_index`.
+
+## Cache Metadata
+
+Cached responses may include internal cache fields:
+
+```json
+{
+  "_cache_status": "fresh"
+}
+```
+
+or:
+
+```json
+{
+  "_cache_status": "stale",
+  "_cache_age_seconds": 90123
+}
+```
+
+The client can safely ignore these fields unless it wants to show cache/debug state.
+
+## Error Handling
+
+Common error responses:
+
+```json
+{
+  "error": "detailed_sense requires both 'entry_index' and 'sense_index'",
+  "success": false
+}
+```
+
+```json
+{
+  "error": "bilibili_videos section requires 'phrase' parameter",
+  "success": false
+}
+```
+
+```json
+{
+  "error": "Invalid entry_index 2. Word has 1 entries (0-0)",
+  "success": false
+}
+```
+
+Recommended client helper:
+
+```javascript
+async function fetchDictionarySection(body) {
+  const response = await fetch('/api/dictionary', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
   });
-  
-  return response.json();
+
+  const data = await response.json();
+  if (!data.success) {
+    throw new Error(data.error || 'Dictionary request failed');
+  }
+  return data;
 }
-
-// Usage
-loadFullWordInfo('run');
 ```
-
----
 
 ## Expected Latencies
 
-| Section | Speed | Time | Notes |
-|---------|-------|------|-------|
-| `basic` | Fast | ~0.5s | No AI, just API/parsing |
-| `etymology` | Medium | ~2-5s | AI generation |
-| `word_family` | Medium | ~2-5s | AI generation |
-| `usage_context` | Medium | ~2-5s | AI generation |
-| `cultural_notes` | Medium | ~2-5s | AI generation |
-| `frequency` | Medium | ~2-5s | AI generation |
-| `detailed_sense` | Medium | ~5.25s | 4 parallel AI agents (optimized) |
+Approximate uncached timings:
 
-**Total for full word info**:
-- Basic + 5 metadata sections (parallel): ~5-7s
-- + First 3 senses (sequential): ~15.75s (3 × 5.25s)
-- **Total: ~20-23s** for comprehensive word data (with 4-agent optimization)
+| Section | Time | Notes |
+|---------|------|-------|
+| `basic` | 0.5-1s | Free Dictionary API |
+| `common_phrases` | 1-3s | Single AI agent |
+| `etymology` | 2-5s | Single AI agent |
+| `word_family` | 2-5s | Single AI agent |
+| `usage_context` | 2-5s | Single AI agent |
+| `cultural_notes` | 2-5s | Single AI agent |
+| `frequency` | 2-5s | Single AI agent |
+| `detailed_sense` | 2-3s | Free API + 2 parallel AI tasks |
+| `examples` | 1.5-2s | Free API example + AI generation |
+| `usage_notes` | 1-1.5s | Single AI agent |
+| `confusion_all` | 2-5s | 3 parallel AI tasks |
+| `bilibili_videos` | variable | Bilibili network/subtitle dependent |
+| `ai_generated_phrase_video` | 30-300s | Async task; initial request returns a task ID |
 
-**Recommendation**: Load progressively and show content as it arrives, not all at once.
-
----
+Cache hits should be much faster than the uncached timings above.
 
 ## Best Practices
 
-1. **Always fetch `basic` first** - It's fast and tells you how many senses exist
-2. **Load metadata sections in parallel** - They're independent and take similar time
-3. **Lazy load senses** - Don't load all 63 senses upfront for a word like "run"
-4. **Show loading indicators** - Set user expectations for AI generation time
-5. **Cache on frontend** - Avoid repeated requests for the same word
-6. **Handle errors gracefully** - API calls can fail, show fallback UI
-7. **Implement retry logic** - Network issues happen, retry with exponential backoff
-
----
-
-## API Design Philosophy
-
-This API uses a **section-based architecture** instead of full word lookup:
-
-**Why?**
-- ✅ Faster initial response (basic info in 0.5s vs 35-47s for everything)
-- ✅ Progressive loading (show content as it arrives)
-- ✅ Flexible (fetch only what you need)
-- ✅ Scalable (frontend controls priority and timing)
-- ✅ Cost-effective (don't generate unused AI content)
-
-**Trade-off**: Requires multiple API calls instead of one, but results in better UX.
-
----
-
-## Support
-
-For issues or questions:
-- Check error messages in responses
-- Verify section names are correct
-- Ensure `index` is provided for `detailed_sense` requests
-- Check that `index` is within range (0 to total_senses-1)
-
-Happy word looking! 📖
+1. Fetch `basic` first.
+2. Treat `entries[*].entry_index` and each entry's sense list as the source of truth for indexes.
+3. Use `entry_index` and `sense_index`; do not use deprecated flat `index`.
+4. Render `detailed_sense` first, then lazy-load `examples` and `usage_notes`.
+5. Fetch entry-level sections in parallel.
+6. Require `phrase` before calling Bilibili or generated-video sections.
+7. Poll `video_status` for generated videos instead of waiting on the creation request.
+8. Gracefully handle section-level failures; one section can fail while others succeed.

@@ -12,7 +12,7 @@ AI-powered Flask web service providing dictionary lookups, audio transcription, 
 - **Two-dimensional indexing** `(entry_index, sense_index)` for precise sense addressing
 - **Progressive loading**: Core sense (2-3s) → Examples (1.5-2s) → Usage notes (1-1.5s)
 - **Hybrid approach**: Free Dictionary API + DeepSeek AI enhancement
-- **Automatic fallback**: Pure AI mode if API fails
+- **API-first sense data**: Free Dictionary API supplies definitions and pronunciation; AI enriches supported sections
 - **Section-based loading**: Load only what you need
 - **Comprehensive data**: Etymology, word family, usage context, cultural notes, detailed sense analysis
 
@@ -140,7 +140,7 @@ curl -X POST http://localhost:8000/api/dictionary \
 # Bilibili Videos (educational content with timestamps)
 curl -X POST http://localhost:8000/api/dictionary \
   -H "Content-Type: application/json" \
-  -d '{"word":"hello","section":"bilibili_videos"}'
+  -d '{"word":"hello","section":"bilibili_videos","phrase":"hello there"}'
 
 # AI-Generated Phrase Video (NEW - requires ARK_API_KEY)
 # Generates educational videos with audio (4-12 seconds)
