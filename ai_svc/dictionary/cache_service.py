@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class CacheMetrics:
     """Thread-safe cache metrics tracker"""
-    
+
     def __init__(self):
         self.lock = threading.Lock()
         self.metrics = {
@@ -33,12 +33,12 @@ class CacheMetrics:
             'refresh_count': 0,
         }
         self.response_times = []
-    
+
     def record_hit(self, response_time: float):
         with self.lock:
             self.metrics['cache_hits'] += 1
             self.response_times.append(response_time)
-    
+
     def record_miss(self, response_time: float, source: str):
         with self.lock:
             self.metrics['cache_misses'] += 1
@@ -47,26 +47,26 @@ class CacheMetrics:
             elif source == 'ai':
                 self.metrics['ai_calls'] += 1
             self.response_times.append(response_time)
-    
+
     def record_stale(self):
         with self.lock:
             self.metrics['cache_stale'] += 1
-    
+
     def record_partial(self):
         with self.lock:
             self.metrics['cache_partial'] += 1
-    
+
     def record_refresh(self):
         with self.lock:
             self.metrics['refresh_count'] += 1
-    
+
     def get_stats(self) -> Dict[str, Any]:
         with self.lock:
             total = self.metrics['cache_hits'] + self.metrics['cache_misses']
             hit_rate = self.metrics['cache_hits'] / total if total > 0 else 0
-            
+
             avg_time = sum(self.response_times) / len(self.response_times) if self.response_times else 0
-            
+
             return {
                 **self.metrics,
                 'cache_hit_rate': round(hit_rate, 3),
@@ -79,7 +79,7 @@ class CacheMetrics:
 class DictionaryCacheService:
     """
     Production-ready SQLite cache with field-level granularity and partial caching
-    
+
     Features:
     - WAL mode for concurrent reads
     - BEGIN IMMEDIATE for write safety
@@ -88,7 +88,7 @@ class DictionaryCacheService:
     - Background refresh via ThreadPoolExecutor
     - Comprehensive metrics tracking
     """
-    
+
     # TTL values (seconds) based on content stability research
     FIELD_TTL = {
         'basic': 7 * 24 * 3600,
@@ -106,28 +106,28 @@ class DictionaryCacheService:
         'confusion_profiles': 14 * 24 * 3600,
         'confusion_examples': 7 * 24 * 3600,
     }
-    
+
     def __init__(self, db_path: str = None):
         """
         Initialize cache service with SQLite database
-        
+
         Args:
             db_path: Path to SQLite database file. Defaults to ai_svc/dictionary/cache.db
         """
         if db_path is None:
             # Default to ai_svc/dictionary/cache.db
             db_path = Path(__file__).parent / "cache.db"
-        
+
         self.db_path = str(db_path)
         self._write_lock = threading.Lock()
         self._inflight_requests = {}  # Track in-flight requests to prevent duplicates
         self._inflight_lock = threading.Lock()  # Protect _inflight_requests dict
         self.metrics = CacheMetrics()
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cache_refresh")
-        
+
         self._init_db()
         logger.info(f"Dictionary cache initialized at {self.db_path}")
-    
+
     def _init_db(self):
         """Initialize database with optimized settings and schema"""
         with sqlite3.connect(self.db_path) as conn:
@@ -138,15 +138,15 @@ class DictionaryCacheService:
             conn.execute("PRAGMA temp_store=MEMORY")
             conn.execute("PRAGMA busy_timeout=5000")  # 5 second timeout
             conn.execute("PRAGMA foreign_keys=ON")  # Enable foreign keys
-            
+
             # Create schema
             self._create_schema(conn)
-            
+
             logger.info("Cache database schema initialized with WAL mode")
-    
+
     def _create_schema(self, conn: sqlite3.Connection):
         """Create cache tables with field-level granularity"""
-        
+
         # Core word cache
         conn.execute("""
             CREATE TABLE IF NOT EXISTS word_cache (
@@ -155,57 +155,89 @@ class DictionaryCacheService:
                 created_at INTEGER NOT NULL,
                 last_accessed_at INTEGER NOT NULL,
                 access_count INTEGER DEFAULT 1,
-                
+
                 basic_data TEXT,
                 basic_updated_at INTEGER,
                 basic_status TEXT DEFAULT 'empty' CHECK(basic_status IN ('empty', 'fetching', 'fresh', 'stale', 'failed')),
-                
+
+                basic_zh_data TEXT,
+                basic_zh_updated_at INTEGER,
+                basic_zh_status TEXT DEFAULT 'empty' CHECK(basic_zh_status IN ('empty', 'fetching', 'fresh', 'stale', 'failed')),
+
                 common_phrases_data TEXT,
                 common_phrases_updated_at INTEGER,
                 common_phrases_status TEXT DEFAULT 'empty' CHECK(common_phrases_status IN ('empty', 'fetching', 'fresh', 'stale', 'failed')),
-                
+
+                common_phrases_zh_data TEXT,
+                common_phrases_zh_updated_at INTEGER,
+                common_phrases_zh_status TEXT DEFAULT 'empty' CHECK(common_phrases_zh_status IN ('empty', 'fetching', 'fresh', 'stale', 'failed')),
+
                 api_success BOOLEAN DEFAULT TRUE,
                 api_last_attempt INTEGER,
                 total_entries INTEGER
             )
         """)
-        
+
         # Entry-level sections
         conn.execute("""
             CREATE TABLE IF NOT EXISTS entry_cache (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 word TEXT NOT NULL,
                 entry_index INTEGER NOT NULL,
-                
+
                 etymology_data TEXT,
                 etymology_updated_at INTEGER,
                 etymology_status TEXT DEFAULT 'empty',
-                
+
+                etymology_zh_data TEXT,
+                etymology_zh_updated_at INTEGER,
+                etymology_zh_status TEXT DEFAULT 'empty',
+
                 word_family_data TEXT,
                 word_family_updated_at INTEGER,
                 word_family_status TEXT DEFAULT 'empty',
-                
+
+                word_family_zh_data TEXT,
+                word_family_zh_updated_at INTEGER,
+                word_family_zh_status TEXT DEFAULT 'empty',
+
                 usage_context_data TEXT,
                 usage_context_updated_at INTEGER,
                 usage_context_status TEXT DEFAULT 'empty',
-                
+
+                usage_context_zh_data TEXT,
+                usage_context_zh_updated_at INTEGER,
+                usage_context_zh_status TEXT DEFAULT 'empty',
+
                 cultural_notes_data TEXT,
                 cultural_notes_updated_at INTEGER,
                 cultural_notes_status TEXT DEFAULT 'empty',
-                
+
+                cultural_notes_zh_data TEXT,
+                cultural_notes_zh_updated_at INTEGER,
+                cultural_notes_zh_status TEXT DEFAULT 'empty',
+
                 frequency_data TEXT,
                 frequency_updated_at INTEGER,
                 frequency_status TEXT DEFAULT 'empty',
-                
+
+                frequency_zh_data TEXT,
+                frequency_zh_updated_at INTEGER,
+                frequency_zh_status TEXT DEFAULT 'empty',
+
                 bilibili_videos_data TEXT,
                 bilibili_videos_updated_at INTEGER,
                 bilibili_videos_status TEXT DEFAULT 'empty',
-                
+
+                bilibili_videos_zh_data TEXT,
+                bilibili_videos_zh_updated_at INTEGER,
+                bilibili_videos_zh_status TEXT DEFAULT 'empty',
+
                 UNIQUE(word, entry_index),
                 FOREIGN KEY (word) REFERENCES word_cache(word) ON DELETE CASCADE
             )
         """)
-        
+
         # Sense-level sections
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sense_cache (
@@ -213,43 +245,55 @@ class DictionaryCacheService:
                 word TEXT NOT NULL,
                 entry_index INTEGER NOT NULL,
                 sense_index INTEGER NOT NULL,
-                
+
                 detailed_sense_data TEXT,
                 detailed_sense_updated_at INTEGER,
                 detailed_sense_status TEXT DEFAULT 'empty',
-                
+
+                detailed_sense_zh_data TEXT,
+                detailed_sense_zh_updated_at INTEGER,
+                detailed_sense_zh_status TEXT DEFAULT 'empty',
+
                 examples_data TEXT,
                 examples_updated_at INTEGER,
                 examples_status TEXT DEFAULT 'empty',
-                
+
+                examples_zh_data TEXT,
+                examples_zh_updated_at INTEGER,
+                examples_zh_status TEXT DEFAULT 'empty',
+
                 usage_notes_data TEXT,
                 usage_notes_updated_at INTEGER,
                 usage_notes_status TEXT DEFAULT 'empty',
-                
+
+                usage_notes_zh_data TEXT,
+                usage_notes_zh_updated_at INTEGER,
+                usage_notes_zh_status TEXT DEFAULT 'empty',
+
                 UNIQUE(word, entry_index, sense_index),
                 FOREIGN KEY (word) REFERENCES word_cache(word) ON DELETE CASCADE
             )
         """)
-        
+
         # Phrase-level cache (for phrase-specific videos)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS phrase_cache (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 word TEXT NOT NULL,
                 phrase TEXT NOT NULL,
-                
+
                 bilibili_videos_data TEXT,
                 bilibili_videos_updated_at INTEGER,
                 bilibili_videos_status TEXT DEFAULT 'empty',
-                
+
                 created_at INTEGER NOT NULL,
                 last_accessed_at INTEGER NOT NULL,
-                
+
                 UNIQUE(word, phrase),
                 FOREIGN KEY (word) REFERENCES word_cache(word) ON DELETE CASCADE
             )
         """)
-        
+
         # Word confusion detail cache (section-granular)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS word_confusion_cache (
@@ -277,20 +321,20 @@ class DictionaryCacheService:
                 duration INTEGER NOT NULL,
                 resolution TEXT NOT NULL,
                 ratio TEXT NOT NULL,
-                
+
                 task_id TEXT NOT NULL,
                 video_url TEXT,
                 status TEXT NOT NULL CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
-                
+
                 created_at INTEGER NOT NULL,
                 last_accessed_at INTEGER NOT NULL,
                 completed_at INTEGER,
-                
+
                 UNIQUE(word, phrase, style, duration, resolution, ratio),
                 FOREIGN KEY (word) REFERENCES word_cache(word) ON DELETE CASCADE
             )
         """)
-        
+
         # User feedback (future extensibility)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_feedback (
@@ -304,11 +348,11 @@ class DictionaryCacheService:
                 feedback_text TEXT,
                 user_id TEXT,
                 submitted_at INTEGER NOT NULL,
-                
+
                 FOREIGN KEY (word) REFERENCES word_cache(word) ON DELETE CASCADE
             )
         """)
-        
+
         # Cache metrics
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cache_metrics (
@@ -322,7 +366,7 @@ class DictionaryCacheService:
                 metadata TEXT
             )
         """)
-        
+
         # Indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_entry_cache_word ON entry_cache(word)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sense_cache_word_entry ON sense_cache(word, entry_index)")
@@ -378,49 +422,119 @@ class DictionaryCacheService:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_word ON user_feedback(word, section_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON cache_metrics(timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_word_cache_accessed ON word_cache(last_accessed_at)")
-        
+
         # Migration: Add common_phrases columns if they don't exist (for existing databases)
         self._migrate_add_common_phrases_columns(conn)
-        
+        self._migrate_add_zh_columns(conn)
+
         conn.commit()
-    
+
     def _migrate_add_common_phrases_columns(self, conn: sqlite3.Connection):
         try:
             cursor = conn.execute("PRAGMA table_info(word_cache)")
             columns = [row[1] for row in cursor.fetchall()]
-            
+
             if 'common_phrases_data' not in columns:
                 logger.info("Migrating database: adding common_phrases columns...")
                 conn.execute("""
-                    ALTER TABLE word_cache 
+                    ALTER TABLE word_cache
                     ADD COLUMN common_phrases_data TEXT
                 """)
                 conn.execute("""
-                    ALTER TABLE word_cache 
+                    ALTER TABLE word_cache
                     ADD COLUMN common_phrases_updated_at INTEGER
                 """)
                 conn.execute("""
-                    ALTER TABLE word_cache 
+                    ALTER TABLE word_cache
                     ADD COLUMN common_phrases_status TEXT DEFAULT 'empty'
                 """)
                 logger.info("Migration complete: common_phrases columns added")
         except Exception as e:
             logger.warning(f"Migration warning (may be expected): {e}")
-    
-    
-    def _make_cache_key(self, word: str, section: str, entry_index: int = None, sense_index: int = None, confused_word: str = None) -> str:
+
+    def _migrate_add_zh_columns(self, conn: sqlite3.Connection):
+        """Add Simplified Chinese translation columns to existing cache tables."""
+        try:
+            cursor = conn.execute("PRAGMA table_info(word_cache)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            zh_word_cols = [
+                ("basic_zh_data", "TEXT"),
+                ("basic_zh_updated_at", "INTEGER"),
+                ("basic_zh_status", "TEXT DEFAULT 'empty'"),
+                ("common_phrases_zh_data", "TEXT"),
+                ("common_phrases_zh_updated_at", "INTEGER"),
+                ("common_phrases_zh_status", "TEXT DEFAULT 'empty'"),
+            ]
+            for col_name, col_type in zh_word_cols:
+                if col_name not in columns:
+                    conn.execute(f"ALTER TABLE word_cache ADD COLUMN {col_name} {col_type}")
+
+            cursor = conn.execute("PRAGMA table_info(entry_cache)")
+            columns = {row[1] for row in cursor.fetchall()}
+            zh_entry_sections = [
+                "etymology",
+                "word_family",
+                "usage_context",
+                "cultural_notes",
+                "frequency",
+                "bilibili_videos",
+            ]
+            for section in zh_entry_sections:
+                for suffix, col_type in [
+                    ("_data", "TEXT"),
+                    ("_updated_at", "INTEGER"),
+                    ("_status", "TEXT DEFAULT 'empty'"),
+                ]:
+                    col_name = f"{section}_zh{suffix}"
+                    if col_name not in columns:
+                        conn.execute(f"ALTER TABLE entry_cache ADD COLUMN {col_name} {col_type}")
+
+            cursor = conn.execute("PRAGMA table_info(sense_cache)")
+            columns = {row[1] for row in cursor.fetchall()}
+            zh_sense_sections = ["detailed_sense", "examples", "usage_notes"]
+            for section in zh_sense_sections:
+                for suffix, col_type in [
+                    ("_data", "TEXT"),
+                    ("_updated_at", "INTEGER"),
+                    ("_status", "TEXT DEFAULT 'empty'"),
+                ]:
+                    col_name = f"{section}_zh{suffix}"
+                    if col_name not in columns:
+                        conn.execute(f"ALTER TABLE sense_cache ADD COLUMN {col_name} {col_type}")
+
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Migration warning for zh columns (may be expected): {e}")
+
+
+    def _normalize_lang(self, lang: Optional[str]) -> Optional[str]:
+        if lang is None:
+            return None
+        normalized = lang.strip().lower().replace("_", "-")
+        if normalized == "zh":
+            return "zh-cn"
+        return normalized
+
+    def _is_zh_cn(self, lang: Optional[str]) -> bool:
+        return self._normalize_lang(lang) == "zh-cn"
+
+    def _make_cache_key(self, word: str, section: str, entry_index: int = None,
+                        sense_index: int = None, confused_word: str = None,
+                        lang: str = None) -> str:
         """Generate unique cache key for tracking in-flight requests"""
+        lang_part = f":{self._normalize_lang(lang)}" if lang else ""
         if section == 'basic':
-            return f"{word}:basic"
+            return f"{word}:basic{lang_part}"
         elif section == 'common_phrases':
-            return f"{word}:common_phrases"
+            return f"{word}:common_phrases{lang_part}"
         elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples', 'confusion_all'):
-            return f"{word}:confusion:{confused_word}:{section}"
+            return f"{word}:confusion:{confused_word}:{section}{lang_part}"
         elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
-            return f"{word}:entry:{entry_index}:{section}"
+            return f"{word}:entry:{entry_index}:{section}{lang_part}"
         else:
-            return f"{word}:sense:{entry_index}:{sense_index}:{section}"
-    
+            return f"{word}:sense:{entry_index}:{sense_index}:{section}{lang_part}"
+
     def mark_inflight(self, cache_key: str) -> bool:
         """
         Mark a request as in-flight. Returns True if successfully marked,
@@ -432,7 +546,7 @@ class DictionaryCacheService:
                 return False
             self._inflight_requests[cache_key] = time.time()
             return True
-    
+
     def clear_inflight(self, cache_key: str):
         """Clear in-flight marker after request completes"""
         with self._inflight_lock:
@@ -456,51 +570,51 @@ class DictionaryCacheService:
                 raise
             finally:
                 conn.close()
-    
+
     def _read_connection(self) -> sqlite3.Connection:
         """Create read-only connection (safe for concurrent reads with WAL mode)"""
         conn = sqlite3.connect(self.db_path, timeout=5.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
-    
+
     def _normalize_word(self, word: str) -> str:
         """Normalize word for consistent cache keys (matches service.py logic)"""
         return word.strip().lower()
-    
+
     def _is_stale(self, updated_at: Optional[int], section: str) -> bool:
         """Check if cached data has exceeded TTL"""
         if updated_at is None:
             return True
-        
+
         ttl = self.FIELD_TTL.get(section, 7 * 24 * 3600)
         age = time.time() - updated_at
         return age > ttl
-    
+
     def get_basic(self, word: str) -> Optional[Dict[str, Any]]:
         """
         Get cached basic section data
-        
+
         Returns:
             Dict with 'data', 'is_stale', 'cache_hit' keys, or None if not cached
         """
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             row = conn.execute("""
                 SELECT basic_data, basic_updated_at, basic_status
                 FROM word_cache
                 WHERE word = ?
             """, (normalized,)).fetchone()
-            
+
             if not row:
                 return None
-            
+
             if not row['basic_data'] or row['basic_status'] not in ('fresh', 'stale'):
                 return None
-            
+
             is_stale = self._is_stale(row['basic_updated_at'], 'basic')
-            
+
             return {
                 'data': json.loads(row['basic_data']),
                 'updated_at': row['basic_updated_at'],
@@ -509,41 +623,41 @@ class DictionaryCacheService:
             }
         finally:
             conn.close()
-    
+
     def get_entry_section(self, word: str, entry_index: int, section: str) -> Optional[Dict[str, Any]]:
         """
         Get cached entry-level section (etymology, word_family, etc.)
-        
+
         Args:
             word: Dictionary word
             entry_index: Entry index (0-based)
             section: Section name ('etymology', 'word_family', etc.)
-        
+
         Returns:
             Dict with cached data or None
         """
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             data_col = f"{section}_data"
             time_col = f"{section}_updated_at"
             status_col = f"{section}_status"
-            
+
             row = conn.execute(f"""
                 SELECT {data_col}, {time_col}, {status_col}
                 FROM entry_cache
                 WHERE word = ? AND entry_index = ?
             """, (normalized, entry_index)).fetchone()
-            
+
             if not row:
                 return None
-            
+
             if not row[data_col] or row[status_col] not in ('fresh', 'stale'):
                 return None
-            
+
             is_stale = self._is_stale(row[time_col], section)
-            
+
             return {
                 'data': json.loads(row[data_col]),
                 'updated_at': row[time_col],
@@ -552,42 +666,42 @@ class DictionaryCacheService:
             }
         finally:
             conn.close()
-    
+
     def get_sense_section(self, word: str, entry_index: int, sense_index: int, section: str) -> Optional[Dict[str, Any]]:
         """
         Get cached sense-level section (detailed_sense, examples, usage_notes)
-        
+
         Args:
             word: Dictionary word
             entry_index: Entry index (0-based)
             sense_index: Sense index (0-based)
             section: Section name ('detailed_sense', 'examples', 'usage_notes')
-        
+
         Returns:
             Dict with cached data or None
         """
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             data_col = f"{section}_data"
             time_col = f"{section}_updated_at"
             status_col = f"{section}_status"
-            
+
             row = conn.execute(f"""
                 SELECT {data_col}, {time_col}, {status_col}
                 FROM sense_cache
                 WHERE word = ? AND entry_index = ? AND sense_index = ?
             """, (normalized, entry_index, sense_index)).fetchone()
-            
+
             if not row:
                 return None
-            
+
             if not row[data_col] or row[status_col] not in ('fresh', 'stale'):
                 return None
-            
+
             is_stale = self._is_stale(row[time_col], section)
-            
+
             return {
                 'data': json.loads(row[data_col]),
                 'updated_at': row[time_col],
@@ -596,12 +710,12 @@ class DictionaryCacheService:
             }
         finally:
             conn.close()
-    
+
     def set_basic(self, word: str, data: Dict[str, Any], status: str = 'fresh'):
         """Cache basic section data"""
         normalized = self._normalize_word(word)
         now = int(time.time())
-        
+
         with self._write_transaction() as conn:
             conn.execute("""
                 INSERT INTO word_cache (
@@ -614,28 +728,74 @@ class DictionaryCacheService:
                     basic_status = excluded.basic_status,
                     last_accessed_at = excluded.last_accessed_at
             """, (normalized, normalized, json.dumps(data), now, status, now, now))
-        
+
         logger.info(f"[{word}] Cached 'basic' section - status: {status}")
-    
+
+    def get_basic_zh(self, word: str) -> Optional[Dict[str, Any]]:
+        """Get cached Simplified Chinese translation of basic section."""
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+
+        try:
+            row = conn.execute("""
+                SELECT basic_zh_data, basic_zh_updated_at, basic_zh_status
+                FROM word_cache
+                WHERE word = ?
+            """, (normalized,)).fetchone()
+
+            if not row or not row['basic_zh_data'] or row['basic_zh_status'] not in ('fresh', 'stale'):
+                return None
+
+            is_stale = self._is_stale(row['basic_zh_updated_at'], 'basic')
+
+            return {
+                'data': json.loads(row['basic_zh_data']),
+                'updated_at': row['basic_zh_updated_at'],
+                'is_stale': is_stale,
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+
+    def set_basic_zh(self, word: str, data: Dict[str, Any], status: str = 'fresh'):
+        """Cache Simplified Chinese translation of basic section."""
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+
+        with self._write_transaction() as conn:
+            conn.execute("""
+                INSERT INTO word_cache (
+                    word, normalized_word, basic_zh_data, basic_zh_updated_at, basic_zh_status,
+                    created_at, last_accessed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(word) DO UPDATE SET
+                    basic_zh_data = excluded.basic_zh_data,
+                    basic_zh_updated_at = excluded.basic_zh_updated_at,
+                    basic_zh_status = excluded.basic_zh_status,
+                    last_accessed_at = excluded.last_accessed_at
+            """, (normalized, normalized, json.dumps(data), now, status, now, now))
+
+        logger.info(f"[{word}] Cached 'basic_zh' section - status: {status}")
+
     def get_common_phrases(self, word: str) -> Optional[Dict[str, Any]]:
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             row = conn.execute("""
                 SELECT common_phrases_data, common_phrases_updated_at, common_phrases_status
                 FROM word_cache
                 WHERE word = ?
             """, (normalized,)).fetchone()
-            
+
             if not row:
                 return None
-            
+
             if not row['common_phrases_data'] or row['common_phrases_status'] not in ('fresh', 'stale'):
                 return None
-            
+
             is_stale = self._is_stale(row['common_phrases_updated_at'], 'common_phrases')
-            
+
             return {
                 'data': json.loads(row['common_phrases_data']),
                 'updated_at': row['common_phrases_updated_at'],
@@ -644,11 +804,11 @@ class DictionaryCacheService:
             }
         finally:
             conn.close()
-    
+
     def set_common_phrases(self, word: str, data: Dict[str, Any], status: str = 'fresh'):
         normalized = self._normalize_word(word)
         now = int(time.time())
-        
+
         with self._write_transaction() as conn:
             conn.execute("""
                 INSERT INTO word_cache (
@@ -661,28 +821,72 @@ class DictionaryCacheService:
                     common_phrases_status = excluded.common_phrases_status,
                     last_accessed_at = excluded.last_accessed_at
             """, (normalized, normalized, json.dumps(data), now, status, now, now))
-        
+
         logger.info(f"[{word}] Cached 'common_phrases' section - status: {status}")
-    
+
+    def get_common_phrases_zh(self, word: str) -> Optional[Dict[str, Any]]:
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+
+        try:
+            row = conn.execute("""
+                SELECT common_phrases_zh_data, common_phrases_zh_updated_at, common_phrases_zh_status
+                FROM word_cache
+                WHERE word = ?
+            """, (normalized,)).fetchone()
+
+            if not row or not row['common_phrases_zh_data'] or row['common_phrases_zh_status'] not in ('fresh', 'stale'):
+                return None
+
+            is_stale = self._is_stale(row['common_phrases_zh_updated_at'], 'common_phrases')
+
+            return {
+                'data': json.loads(row['common_phrases_zh_data']),
+                'updated_at': row['common_phrases_zh_updated_at'],
+                'is_stale': is_stale,
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+
+    def set_common_phrases_zh(self, word: str, data: Dict[str, Any], status: str = 'fresh'):
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+
+        with self._write_transaction() as conn:
+            conn.execute("""
+                INSERT INTO word_cache (
+                    word, normalized_word, common_phrases_zh_data, common_phrases_zh_updated_at, common_phrases_zh_status,
+                    created_at, last_accessed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(word) DO UPDATE SET
+                    common_phrases_zh_data = excluded.common_phrases_zh_data,
+                    common_phrases_zh_updated_at = excluded.common_phrases_zh_updated_at,
+                    common_phrases_zh_status = excluded.common_phrases_zh_status,
+                    last_accessed_at = excluded.last_accessed_at
+            """, (normalized, normalized, json.dumps(data), now, status, now, now))
+
+        logger.info(f"[{word}] Cached 'common_phrases_zh' section - status: {status}")
+
     def get_phrase_videos(self, word: str, phrase: str) -> Optional[Dict[str, Any]]:
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             row = conn.execute("""
                 SELECT bilibili_videos_data, bilibili_videos_updated_at, bilibili_videos_status
                 FROM phrase_cache
                 WHERE word = ? AND phrase = ?
             """, (normalized, phrase)).fetchone()
-            
+
             if not row:
                 return None
-            
+
             if not row['bilibili_videos_data'] or row['bilibili_videos_status'] not in ('fresh', 'stale'):
                 return None
-            
+
             is_stale = self._is_stale(row['bilibili_videos_updated_at'], 'bilibili_videos')
-            
+
             return {
                 'data': json.loads(row['bilibili_videos_data']),
                 'updated_at': row['bilibili_videos_updated_at'],
@@ -691,11 +895,11 @@ class DictionaryCacheService:
             }
         finally:
             conn.close()
-    
+
     def set_phrase_videos(self, word: str, phrase: str, data: Dict[str, Any], status: str = 'fresh'):
         normalized = self._normalize_word(word)
         now = int(time.time())
-        
+
         with self._write_transaction() as conn:
             conn.execute("""
                 INSERT INTO phrase_cache (
@@ -708,17 +912,23 @@ class DictionaryCacheService:
                     bilibili_videos_status = excluded.bilibili_videos_status,
                     last_accessed_at = excluded.last_accessed_at
             """, (normalized, phrase, json.dumps(data), now, status, now, now))
-        
+
         logger.info(f"[{word}] Cached phrase '{phrase}' videos - status: {status}")
-    
-    def get_word_confusion(self, word: str, confused_word: str, section: str) -> Optional[Dict[str, Any]]:
+
+    def _confusion_cache_section(self, section: str, lang: Optional[str] = None) -> str:
+        normalized_lang = self._normalize_lang(lang)
+        return f"{section}:{normalized_lang}" if normalized_lang else section
+
+    def get_word_confusion(self, word: str, confused_word: str, section: str,
+                           lang: Optional[str] = None) -> Optional[Dict[str, Any]]:
         normalized = self._normalize_word(word)
+        cache_section = self._confusion_cache_section(section, lang)
         conn = self._read_connection()
         try:
             row = conn.execute("""
                 SELECT data, updated_at, status FROM word_confusion_cache
                 WHERE word = ? AND confused_word = ? AND section = ?
-            """, (normalized, confused_word, section)).fetchone()
+            """, (normalized, confused_word, cache_section)).fetchone()
             if not row or not row['data'] or row['status'] not in ('fresh', 'stale'):
                 return None
             is_stale = self._is_stale(row['updated_at'], section)
@@ -731,8 +941,10 @@ class DictionaryCacheService:
         finally:
             conn.close()
 
-    def set_word_confusion(self, word: str, confused_word: str, section: str, data: Dict[str, Any], status: str = 'fresh'):
+    def set_word_confusion(self, word: str, confused_word: str, section: str, data: Dict[str, Any],
+                           status: str = 'fresh', lang: Optional[str] = None):
         normalized = self._normalize_word(word)
+        cache_section = self._confusion_cache_section(section, lang)
         now = int(time.time())
         with self._write_transaction() as conn:
             conn.execute("""
@@ -744,9 +956,9 @@ class DictionaryCacheService:
                     updated_at = excluded.updated_at,
                     status = excluded.status,
                     last_accessed_at = excluded.last_accessed_at
-            """, (normalized, confused_word, section, json.dumps(data), now, status, now, now))
-        logger.info(f"[{word}] Cached confusion {section} '{confused_word}' - status: {status}")
-    
+            """, (normalized, confused_word, cache_section, json.dumps(data), now, status, now, now))
+        logger.info(f"[{word}] Cached confusion {cache_section} '{confused_word}' - status: {status}")
+
     def get_ai_phrase_video(
         self,
         word: str,
@@ -758,24 +970,24 @@ class DictionaryCacheService:
     ) -> Optional[Dict[str, Any]]:
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             row = conn.execute("""
                 SELECT task_id, video_url, status, created_at, completed_at
                 FROM ai_phrase_video_cache
                 WHERE word = ? AND phrase = ? AND style = ? AND duration = ? AND resolution = ? AND ratio = ?
             """, (normalized, phrase, style, duration, resolution, ratio)).fetchone()
-            
+
             if not row:
                 return None
-            
+
             conn.execute("""
                 UPDATE ai_phrase_video_cache
                 SET last_accessed_at = ?
                 WHERE word = ? AND phrase = ? AND style = ? AND duration = ? AND resolution = ? AND ratio = ?
             """, (int(time.time()), normalized, phrase, style, duration, resolution, ratio))
             conn.commit()
-            
+
             return {
                 'task_id': row['task_id'],
                 'video_url': row['video_url'],
@@ -786,7 +998,7 @@ class DictionaryCacheService:
             }
         finally:
             conn.close()
-    
+
     def set_ai_phrase_video(
         self,
         word: str,
@@ -801,12 +1013,12 @@ class DictionaryCacheService:
         status: str = "pending"
     ):
         import json
-        
+
         normalized = self._normalize_word(word)
         now = int(time.time())
-        
+
         conversation_json = json.dumps(conversation_script) if conversation_script else None
-        
+
         with self._write_transaction() as conn:
             conn.execute("""
                 INSERT INTO ai_phrase_video_cache (
@@ -820,9 +1032,9 @@ class DictionaryCacheService:
                     status = excluded.status,
                     last_accessed_at = excluded.last_accessed_at
             """, (normalized, phrase, conversation_json, style, duration, resolution, ratio, task_id, video_url, status, now, now))
-        
+
         logger.info(f"[{word}] Cached AI phrase video task '{phrase}' with conversation script - task_id: {task_id}, status: {status}")
-    
+
     def update_ai_phrase_video_status(
         self,
         task_id: str,
@@ -830,7 +1042,7 @@ class DictionaryCacheService:
         video_url: Optional[str] = None
     ):
         now = int(time.time())
-        
+
         with self._write_transaction() as conn:
             if status in ('completed', 'failed'):
                 conn.execute("""
@@ -844,9 +1056,9 @@ class DictionaryCacheService:
                     SET status = ?, video_url = ?, last_accessed_at = ?
                     WHERE task_id = ?
                 """, (status, video_url, now, task_id))
-        
+
         logger.info(f"Updated AI phrase video task {task_id} - status: {status}")
-    
+
     def list_ai_phrase_videos(
         self,
         word: str,
@@ -855,20 +1067,20 @@ class DictionaryCacheService:
     ) -> List[Dict[str, Any]]:
         """
         List all AI-generated videos for a specific phrase
-        
+
         Args:
             word: The word being looked up
             phrase: The phrase to filter by
             status_filter: Optional list of statuses to filter by (e.g., ['completed'], ['processing', 'pending'])
                           If None, returns all videos regardless of status
-        
+
         Returns:
             List of video dictionaries with task_id, status, parameters, timestamps
             Sorted by created_at DESC (newest first)
         """
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             if status_filter:
                 placeholders = ', '.join(['?' for _ in status_filter])
@@ -889,9 +1101,9 @@ class DictionaryCacheService:
                     ORDER BY created_at DESC
                 """
                 params = [normalized, phrase]
-            
+
             rows = conn.execute(query, params).fetchall()
-            
+
             results = []
             for row in rows:
                 # Parse conversation_script JSON if present
@@ -901,7 +1113,7 @@ class DictionaryCacheService:
                         conversation_script = json.loads(row['conversation_script'])
                     except Exception as e:
                         logger.warning(f"Failed to parse conversation_script JSON for task {row['task_id']}: {e}")
-                
+
                 results.append({
                     'task_id': row['task_id'],
                     'video_url': row['video_url'],
@@ -915,7 +1127,7 @@ class DictionaryCacheService:
                     'completed_at': row['completed_at'],
                     'last_accessed_at': row['last_accessed_at']
                 })
-            
+
             if results:
                 conn.execute("""
                     UPDATE ai_phrase_video_cache
@@ -923,23 +1135,23 @@ class DictionaryCacheService:
                     WHERE word = ? AND phrase = ?
                 """, (int(time.time()), normalized, phrase))
                 conn.commit()
-            
+
             logger.info(f"[{word}] Listed {len(results)} AI videos for phrase '{phrase}' (status_filter={status_filter})")
             return results
-            
+
         finally:
             conn.close()
-    
+
     def set_entry_section(self, word: str, entry_index: int, section: str, data: Dict[str, Any], status: str = 'fresh'):
         """Cache entry-level section data"""
         normalized = self._normalize_word(word)
         now = int(time.time())
-        
+
         with self._write_transaction() as conn:
             data_col = f"{section}_data"
             time_col = f"{section}_updated_at"
             status_col = f"{section}_status"
-            
+
             # Upsert pattern
             conn.execute(f"""
                 INSERT INTO entry_cache (word, entry_index, {data_col}, {time_col}, {status_col})
@@ -949,19 +1161,70 @@ class DictionaryCacheService:
                     {time_col} = excluded.{time_col},
                     {status_col} = excluded.{status_col}
             """, (normalized, entry_index, json.dumps(data), now, status))
-        
+
         logger.info(f"[{word}] Cached '{section}' (entry {entry_index}) - status: {status}")
-    
+
+    def get_entry_section_zh(self, word: str, entry_index: int, section: str) -> Optional[Dict[str, Any]]:
+        """Get cached Simplified Chinese translation of an entry-level section."""
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+
+        try:
+            data_col = f"{section}_zh_data"
+            time_col = f"{section}_zh_updated_at"
+            status_col = f"{section}_zh_status"
+
+            row = conn.execute(f"""
+                SELECT {data_col}, {time_col}, {status_col}
+                FROM entry_cache
+                WHERE word = ? AND entry_index = ?
+            """, (normalized, entry_index)).fetchone()
+
+            if not row or not row[data_col] or row[status_col] not in ('fresh', 'stale'):
+                return None
+
+            is_stale = self._is_stale(row[time_col], section)
+
+            return {
+                'data': json.loads(row[data_col]),
+                'updated_at': row[time_col],
+                'is_stale': is_stale,
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+
+    def set_entry_section_zh(self, word: str, entry_index: int, section: str, data: Dict[str, Any], status: str = 'fresh'):
+        """Cache Simplified Chinese translation of an entry-level section."""
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+
+        with self._write_transaction() as conn:
+            data_col = f"{section}_zh_data"
+            time_col = f"{section}_zh_updated_at"
+            status_col = f"{section}_zh_status"
+
+            conn.execute(f"""
+                INSERT INTO entry_cache (word, entry_index, {data_col}, {time_col}, {status_col})
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(word, entry_index) DO UPDATE SET
+                    {data_col} = excluded.{data_col},
+                    {time_col} = excluded.{time_col},
+                    {status_col} = excluded.{status_col}
+            """, (normalized, entry_index, json.dumps(data), now, status))
+
+        logger.info(f"[{word}] Cached '{section}_zh' (entry {entry_index}) - status: {status}")
+
     def set_sense_section(self, word: str, entry_index: int, sense_index: int, section: str, data: Dict[str, Any], status: str = 'fresh'):
         """Cache sense-level section data"""
         normalized = self._normalize_word(word)
         now = int(time.time())
-        
+
         with self._write_transaction() as conn:
             data_col = f"{section}_data"
             time_col = f"{section}_updated_at"
             status_col = f"{section}_status"
-            
+
             conn.execute(f"""
                 INSERT INTO sense_cache (word, entry_index, sense_index, {data_col}, {time_col}, {status_col})
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -970,13 +1233,64 @@ class DictionaryCacheService:
                     {time_col} = excluded.{time_col},
                     {status_col} = excluded.{status_col}
             """, (normalized, entry_index, sense_index, json.dumps(data), now, status))
-        
+
         logger.info(f"[{word}] Cached '{section}' (entry {entry_index}, sense {sense_index}) - status: {status}")
-    
+
+    def get_sense_section_zh(self, word: str, entry_index: int, sense_index: int, section: str) -> Optional[Dict[str, Any]]:
+        """Get cached Simplified Chinese translation of a sense-level section."""
+        normalized = self._normalize_word(word)
+        conn = self._read_connection()
+
+        try:
+            data_col = f"{section}_zh_data"
+            time_col = f"{section}_zh_updated_at"
+            status_col = f"{section}_zh_status"
+
+            row = conn.execute(f"""
+                SELECT {data_col}, {time_col}, {status_col}
+                FROM sense_cache
+                WHERE word = ? AND entry_index = ? AND sense_index = ?
+            """, (normalized, entry_index, sense_index)).fetchone()
+
+            if not row or not row[data_col] or row[status_col] not in ('fresh', 'stale'):
+                return None
+
+            is_stale = self._is_stale(row[time_col], section)
+
+            return {
+                'data': json.loads(row[data_col]),
+                'updated_at': row[time_col],
+                'is_stale': is_stale,
+                'cache_hit': True
+            }
+        finally:
+            conn.close()
+
+    def set_sense_section_zh(self, word: str, entry_index: int, sense_index: int, section: str, data: Dict[str, Any], status: str = 'fresh'):
+        """Cache Simplified Chinese translation of a sense-level section."""
+        normalized = self._normalize_word(word)
+        now = int(time.time())
+
+        with self._write_transaction() as conn:
+            data_col = f"{section}_zh_data"
+            time_col = f"{section}_zh_updated_at"
+            status_col = f"{section}_zh_status"
+
+            conn.execute(f"""
+                INSERT INTO sense_cache (word, entry_index, sense_index, {data_col}, {time_col}, {status_col})
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(word, entry_index, sense_index) DO UPDATE SET
+                    {data_col} = excluded.{data_col},
+                    {time_col} = excluded.{time_col},
+                    {status_col} = excluded.{status_col}
+            """, (normalized, entry_index, sense_index, json.dumps(data), now, status))
+
+        logger.info(f"[{word}] Cached '{section}_zh' (entry {entry_index}, sense {sense_index}) - status: {status}")
+
     def track_metric(self, metric_type: str, word: str, section_type: str = None, response_time_ms: float = None, source: str = None):
         """Record cache metric to database"""
         now = int(time.time())
-        
+
         try:
             with self._write_transaction() as conn:
                 conn.execute("""
@@ -985,22 +1299,22 @@ class DictionaryCacheService:
                 """, (now, metric_type, word, section_type, response_time_ms, source))
         except Exception as e:
             logger.warning(f"Failed to track metric: {e}")
-    
+
     def cleanup_old_entries(self, max_age_days: int = 90):
         """Remove cache entries not accessed in max_age_days"""
         cutoff = int(time.time()) - (max_age_days * 24 * 3600)
-        
+
         with self._write_transaction() as conn:
             result = conn.execute("""
                 DELETE FROM word_cache
                 WHERE last_accessed_at < ?
             """, (cutoff,))
-            
+
             deleted = result.rowcount
             logger.info(f"Cleaned up {deleted} old cache entries (older than {max_age_days} days)")
             return deleted
-    
-    
+
+
     def clear_all(self):
         """Clear all cache entries"""
         with self._write_transaction() as conn:
@@ -1012,7 +1326,7 @@ class DictionaryCacheService:
             conn.execute("DELETE FROM word_cache")
             conn.execute("DELETE FROM cache_metrics")
             logger.info("All cache entries and metrics cleared")
-    
+
     def invalidate_word(self, word: str):
         """Invalidate all cache entries for a specific word"""
         with self._write_transaction() as conn:
@@ -1023,11 +1337,11 @@ class DictionaryCacheService:
             conn.execute("DELETE FROM word_confusion_cache WHERE word = ?", (word,))
             conn.execute("DELETE FROM word_cache WHERE word = ?", (word,))
             logger.info(f"Cache invalidated for word: {word}")
-    
+
     def invalidate_word_section(self, word: str, section: str, entry_index: int = None, sense_index: int = None):
         """
         Invalidate specific section cache for a word
-        
+
         Args:
             word: Word to invalidate
             section: Section name to invalidate
@@ -1035,27 +1349,31 @@ class DictionaryCacheService:
             sense_index: Sense index (for sense-level sections)
         """
         normalized = self._normalize_word(word)
-        
+
         with self._write_transaction() as conn:
             if section == 'basic':
                 # Clear basic section only
                 conn.execute("""
                     UPDATE word_cache
-                    SET basic_data = NULL, basic_updated_at = NULL, basic_status = 'empty'
+                    SET basic_data = NULL, basic_updated_at = NULL, basic_status = 'empty',
+                        basic_zh_data = NULL, basic_zh_updated_at = NULL, basic_zh_status = 'empty'
                     WHERE word = ?
                 """, (normalized,))
                 logger.info(f"Cache invalidated: {word} - basic")
-                
+
             elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency', 'bilibili_videos']:
                 # Entry-level section
                 data_col = f"{section}_data"
                 time_col = f"{section}_updated_at"
                 status_col = f"{section}_status"
-                
+
                 if entry_index is not None:
                     conn.execute(f"""
                         UPDATE entry_cache
-                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty'
+                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty',
+                            {section}_zh_data = NULL,
+                            {section}_zh_updated_at = NULL,
+                            {section}_zh_status = 'empty'
                         WHERE word = ? AND entry_index = ?
                     """, (normalized, entry_index))
                     logger.info(f"Cache invalidated: {word} - {section} (entry {entry_index})")
@@ -1063,31 +1381,40 @@ class DictionaryCacheService:
                     # Clear for all entries
                     conn.execute(f"""
                         UPDATE entry_cache
-                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty'
+                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty',
+                            {section}_zh_data = NULL,
+                            {section}_zh_updated_at = NULL,
+                            {section}_zh_status = 'empty'
                         WHERE word = ?
                     """, (normalized,))
                     logger.info(f"Cache invalidated: {word} - {section} (all entries)")
-            
+
             elif section == 'common_phrases':
                 # Word-level section (separate from basic)
                 conn.execute("""
                     UPDATE word_cache
-                    SET common_phrases_data = NULL, common_phrases_updated_at = NULL, 
-                        common_phrases_status = 'empty'
+                    SET common_phrases_data = NULL, common_phrases_updated_at = NULL,
+                        common_phrases_status = 'empty',
+                        common_phrases_zh_data = NULL,
+                        common_phrases_zh_updated_at = NULL,
+                        common_phrases_zh_status = 'empty'
                     WHERE word = ?
                 """, (normalized,))
                 logger.info(f"Cache invalidated: {word} - {section}")
-                    
+
             elif section in ['detailed_sense', 'examples', 'usage_notes']:
                 # Sense-level section
                 data_col = f"{section}_data"
                 time_col = f"{section}_updated_at"
                 status_col = f"{section}_status"
-                
+
                 if entry_index is not None and sense_index is not None:
                     conn.execute(f"""
                         UPDATE sense_cache
-                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty'
+                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty',
+                            {section}_zh_data = NULL,
+                            {section}_zh_updated_at = NULL,
+                            {section}_zh_status = 'empty'
                         WHERE word = ? AND entry_index = ? AND sense_index = ?
                     """, (normalized, entry_index, sense_index))
                     logger.info(f"Cache invalidated: {word} - {section} (entry {entry_index}, sense {sense_index})")
@@ -1095,7 +1422,10 @@ class DictionaryCacheService:
                     # Clear for all entries/senses
                     conn.execute(f"""
                         UPDATE sense_cache
-                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty'
+                        SET {data_col} = NULL, {time_col} = NULL, {status_col} = 'empty',
+                            {section}_zh_data = NULL,
+                            {section}_zh_updated_at = NULL,
+                            {section}_zh_status = 'empty'
                         WHERE word = ?
                     """, (normalized,))
                     logger.info(f"Cache invalidated: {word} - {section} (all entries/senses)")
@@ -1115,32 +1445,32 @@ class DictionaryCacheService:
                     (normalized, confused_word)
                 )
                 logger.info(f"Cache invalidated: {word} - confusion:{confused_word} (all sections)")
-    
+
     def list_cached_words(self, limit: int = 100, offset: int = 0, sort_by: str = 'last_accessed') -> Dict[str, Any]:
         """
         List all cached words with their section information
-        
+
         Args:
             limit: Maximum number of words to return
             offset: Pagination offset
             sort_by: Sort field ('last_accessed', 'word', 'created_at')
-        
+
         Returns:
             Dict with words list and pagination info
         """
         conn = self._read_connection()
-        
+
         try:
             # Validate sort_by
             valid_sorts = {'last_accessed': 'last_accessed_at', 'word': 'word', 'created_at': 'created_at'}
             sort_col = valid_sorts.get(sort_by, 'last_accessed_at')
-            
+
             # Get total count
             total = conn.execute("SELECT COUNT(*) FROM word_cache").fetchone()[0]
-            
+
             # Get words with basic info
             words_query = f"""
-                SELECT 
+                SELECT
                     word,
                     basic_status,
                     datetime(created_at, 'unixepoch', 'localtime') as created_at,
@@ -1149,14 +1479,14 @@ class DictionaryCacheService:
                 ORDER BY {sort_col} DESC
                 LIMIT ? OFFSET ?
             """
-            
+
             words = []
             for row in conn.execute(words_query, (limit, offset)):
                 word = row['word']
-                
+
                 # Get entry-level sections for this word
                 entry_sections = conn.execute("""
-                    SELECT 
+                    SELECT
                         entry_index,
                         etymology_status, word_family_status, usage_context_status,
                         cultural_notes_status, frequency_status, bilibili_videos_status
@@ -1164,32 +1494,32 @@ class DictionaryCacheService:
                     WHERE word = ?
                     ORDER BY entry_index
                 """, (word,)).fetchall()
-                
+
                 # Get sense-level sections for this word
                 sense_sections = conn.execute("""
-                    SELECT 
+                    SELECT
                         entry_index, sense_index,
                         detailed_sense_status, examples_status, usage_notes_status
                     FROM sense_cache
                     WHERE word = ?
                     ORDER BY entry_index, sense_index
                 """, (word,)).fetchall()
-                
+
                 # Build sections summary
                 sections = {
                     'basic': row['basic_status']
                 }
-                
+
                 # Word-level common_phrases section
                 common_phrases_status = conn.execute("""
                     SELECT common_phrases_status
                     FROM word_cache
                     WHERE word = ?
                 """, (word,)).fetchone()
-                
+
                 if common_phrases_status and common_phrases_status['common_phrases_status'] not in ('empty', None):
                     sections['common_phrases'] = common_phrases_status['common_phrases_status']
-                
+
                 # Entry-level sections
                 for entry_row in entry_sections:
                     entry_idx = entry_row['entry_index']
@@ -1197,7 +1527,7 @@ class DictionaryCacheService:
                         status = entry_row[f'{section}_status']
                         if status not in ('empty', None):
                             sections[f'{section}[{entry_idx}]'] = status
-                
+
                 # Sense-level sections
                 for sense_row in sense_sections:
                     entry_idx = sense_row['entry_index']
@@ -1206,7 +1536,7 @@ class DictionaryCacheService:
                         status = sense_row[f'{section}_status']
                         if status not in ('empty', None):
                             sections[f'{section}[{entry_idx},{sense_idx}]'] = status
-                
+
                 # Confusion pair sections
                 confusion_rows = conn.execute("""
                     SELECT confused_word, section, status
@@ -1216,14 +1546,14 @@ class DictionaryCacheService:
                 for cr in confusion_rows:
                     if cr['status'] not in ('empty', None):
                         sections[f'confusion:{cr["confused_word"]}:{cr["section"]}'] = cr['status']
-                
+
                 words.append({
                     'word': word,
                     'sections': sections,
                     'created_at': row['created_at'],
                     'last_accessed_at': row['last_accessed_at']
                 })
-            
+
             return {
                 'words': words,
                 'total': total,
@@ -1233,17 +1563,17 @@ class DictionaryCacheService:
             }
         finally:
             conn.close()
-    
+
     def get_word_details(self, word: str) -> Optional[Dict[str, Any]]:
         """
         Get detailed cache information for a specific word including all entries and videos
-        
+
         Returns:
             Dict with word details, entries, and video information
         """
         normalized = self._normalize_word(word)
         conn = self._read_connection()
-        
+
         try:
             # Get basic word info
             word_row = conn.execute("""
@@ -1254,10 +1584,10 @@ class DictionaryCacheService:
                 FROM word_cache
                 WHERE word = ?
             """, (normalized,)).fetchone()
-            
+
             if not word_row:
                 return None
-            
+
             # Get all entries for this word
             entry_rows = conn.execute("""
                 SELECT entry_index,
@@ -1271,7 +1601,7 @@ class DictionaryCacheService:
                 WHERE word = ?
                 ORDER BY entry_index
             """, (normalized,)).fetchall()
-            
+
             # Get all senses for this word
             sense_rows = conn.execute("""
                 SELECT entry_index, sense_index,
@@ -1282,7 +1612,7 @@ class DictionaryCacheService:
                 WHERE word = ?
                 ORDER BY entry_index, sense_index
             """, (normalized,)).fetchall()
-            
+
             # Parse basic_data to get sense metadata (definition, part_of_speech, etc.)
             basic_data = None
             if word_row['basic_data']:
@@ -1290,12 +1620,12 @@ class DictionaryCacheService:
                     basic_data = json.loads(word_row['basic_data'])
                 except:
                     pass
-            
+
             # Build entries structure
             entries = []
             for entry_row in entry_rows:
                 entry_idx = entry_row['entry_index']
-                
+
                 # Parse bilibili videos
                 videos = []
                 if entry_row['bilibili_videos_data']:
@@ -1304,7 +1634,7 @@ class DictionaryCacheService:
                         videos = videos_data.get('bilibili_videos', [])
                     except:
                         pass
-                
+
                 # Build section statuses and data
                 sections = {}
                 for section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
@@ -1316,10 +1646,10 @@ class DictionaryCacheService:
                             sections[section] = {'status': status, 'data': data}
                         except:
                             sections[section] = {'status': status, 'data': None}
-                
+
                 # Get senses for this entry
                 senses = []
-                
+
                 # Build a mapping of (entry_index, sense_index) -> basic sense metadata
                 basic_senses_map = {}
                 if basic_data and 'entries' in basic_data:
@@ -1337,15 +1667,15 @@ class DictionaryCacheService:
                                         'antonyms': sense.get('antonyms', [])
                                     }
                                     sense_counter += 1
-                
+
                 # Merge AI sections with basic metadata
                 for sense_row in sense_rows:
                     if sense_row['entry_index'] == entry_idx:
                         sense_idx = sense_row['sense_index']
-                        
+
                         # Get basic metadata for this sense
                         basic_metadata = basic_senses_map.get(sense_idx, {})
-                        
+
                         # Build AI section data
                         sense_sections = {}
                         for section in ['detailed_sense', 'examples', 'usage_notes']:
@@ -1357,7 +1687,7 @@ class DictionaryCacheService:
                                     sense_sections[section] = {'status': status, 'data': data}
                                 except:
                                     sense_sections[section] = {'status': status, 'data': None}
-                        
+
                         # Only add sense if it has either basic metadata or AI sections
                         if basic_metadata or sense_sections:
                             senses.append({
@@ -1369,7 +1699,7 @@ class DictionaryCacheService:
                                 'antonyms': basic_metadata.get('antonyms', []),
                                 'sections': sense_sections
                             })
-                
+
                 entries.append({
                     'entry_index': entry_idx,
                     'sections': sections,
@@ -1377,14 +1707,14 @@ class DictionaryCacheService:
                     'videos_status': entry_row['bilibili_videos_status'],
                     'senses': senses
                 })
-            
+
             common_phrases_data = None
             if word_row['common_phrases_data']:
                 try:
                     common_phrases_data = json.loads(word_row['common_phrases_data'])
                 except:
                     pass
-            
+
             phrase_videos = conn.execute("""
                 SELECT phrase, bilibili_videos_data, bilibili_videos_status,
                        datetime(last_accessed_at, 'unixepoch', 'localtime') as last_accessed_at
@@ -1392,12 +1722,12 @@ class DictionaryCacheService:
                 WHERE word = ?
                 ORDER BY last_accessed_at DESC
             """, (normalized,)).fetchall()
-            
+
             phrase_videos_list = []
             for pv_row in phrase_videos:
                 try:
                     videos_data = json.loads(pv_row['bilibili_videos_data']) if pv_row['bilibili_videos_data'] else {}
-                    
+
                     # Handle both single video (dict) and array formats
                     bilibili_videos = videos_data.get('bilibili_videos', [])
                     if isinstance(bilibili_videos, dict):
@@ -1406,7 +1736,7 @@ class DictionaryCacheService:
                     elif not isinstance(bilibili_videos, list):
                         # Invalid format - use empty array
                         bilibili_videos = []
-                    
+
                     phrase_videos_list.append({
                         'phrase': pv_row['phrase'],
                         'videos': bilibili_videos,
@@ -1415,7 +1745,7 @@ class DictionaryCacheService:
                     })
                 except:
                     pass
-            
+
             # Get AI-generated phrase videos
             ai_videos = conn.execute("""
                 SELECT phrase, task_id, video_url, status, style, duration, resolution, ratio,
@@ -1426,14 +1756,14 @@ class DictionaryCacheService:
                 WHERE word = ?
                 ORDER BY phrase, created_at DESC
             """, (normalized,)).fetchall()
-            
+
             # Group AI videos by phrase
             ai_videos_by_phrase = {}
             for av_row in ai_videos:
                 phrase = av_row['phrase']
                 if phrase not in ai_videos_by_phrase:
                     ai_videos_by_phrase[phrase] = []
-                
+
                 ai_videos_by_phrase[phrase].append({
                     'task_id': av_row['task_id'],
                     'video_url': av_row['video_url'],
@@ -1446,7 +1776,7 @@ class DictionaryCacheService:
                     'completed_at': av_row['completed_at'],
                     'last_accessed_at': av_row['last_accessed_at']
                 })
-            
+
             # Convert to list format
             ai_phrase_videos_list = []
             for phrase, videos in ai_videos_by_phrase.items():
@@ -1454,7 +1784,7 @@ class DictionaryCacheService:
                     'phrase': phrase,
                     'videos': videos
                 })
-            
+
             confusion_rows = conn.execute("""
                 SELECT confused_word, section, data, status,
                        datetime(last_accessed_at, 'unixepoch', 'localtime') as last_accessed_at
@@ -1494,11 +1824,11 @@ class DictionaryCacheService:
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
         conn = self._read_connection()
-        
+
         try:
             # Database stats
             db_stats = conn.execute("""
-                SELECT 
+                SELECT
                     (SELECT COUNT(*) FROM word_cache) as total_words,
                     (SELECT COUNT(*) FROM entry_cache) as total_entries,
                     (SELECT COUNT(*) FROM sense_cache) as total_senses,
@@ -1507,7 +1837,7 @@ class DictionaryCacheService:
                     (SELECT COUNT(*) FROM word_confusion_cache) as total_confusion_pairs,
                     (SELECT COUNT(*) FROM cache_metrics) as total_metrics
             """).fetchone()
-            
+
             # Recent metrics (last 24 hours)
             yesterday = int(time.time()) - (24 * 3600)
             recent_metrics = conn.execute("""
@@ -1516,9 +1846,9 @@ class DictionaryCacheService:
                 WHERE timestamp >= ?
                 GROUP BY metric_type
             """, (yesterday,)).fetchall()
-            
+
             metrics_by_type = {row['metric_type']: row['count'] for row in recent_metrics}
-            
+
             return {
                 'database': dict(db_stats),
                 'metrics_24h': metrics_by_type,
@@ -1527,17 +1857,17 @@ class DictionaryCacheService:
         finally:
             conn.close()
 
-    def lookup_with_cache(self, word, section, entry_index, sense_index, phrase, fetch_func, confused_word=None):
+    def lookup_with_cache(self, word, section, entry_index, sense_index, phrase, fetch_func, confused_word=None, lang=None):
         """
         Unified cache orchestration for dictionary lookups.
-        
+
         Handles:
         - Cache read with stale detection
         - Stale-while-revalidate pattern
         - In-flight request coordination
         - Service call + cache write
         - Metrics tracking
-        
+
         Args:
             word: Word to lookup
             section: Section to fetch
@@ -1545,36 +1875,46 @@ class DictionaryCacheService:
             sense_index: Sense index (for sense-level sections)
             phrase: Phrase for bilibili_videos section (optional)
             fetch_func: Function to call on cache miss. Should accept no args and return dict.
-        
+
         Returns:
             Tuple: (result_dict, http_status_code)
         """
         import time
         start_time = time.time()
-        
+        normalized_lang = self._normalize_lang(lang)
+        use_zh_cache = self._is_zh_cn(normalized_lang)
+
         # --- CACHE READ (Fast Path) ---
         cached = None
         if section == 'basic':
-            cached = self.get_basic(word)
+            cached = self.get_basic_zh(word) if use_zh_cache else self.get_basic(word)
         elif section == 'common_phrases':
-            cached = self.get_common_phrases(word)
+            cached = self.get_common_phrases_zh(word) if use_zh_cache else self.get_common_phrases(word)
         elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
             if entry_index is not None:
-                cached = self.get_entry_section(word, entry_index, section)
+                cached = (
+                    self.get_entry_section_zh(word, entry_index, section)
+                    if use_zh_cache else
+                    self.get_entry_section(word, entry_index, section)
+                )
         elif section == 'bilibili_videos':
             if phrase:
                 cached = self.get_phrase_videos(word, phrase)
         elif section in ['detailed_sense', 'examples', 'usage_notes']:
             if entry_index is not None and sense_index is not None:
-                cached = self.get_sense_section(word, entry_index, sense_index, section)
+                cached = (
+                    self.get_sense_section_zh(word, entry_index, sense_index, section)
+                    if use_zh_cache else
+                    self.get_sense_section(word, entry_index, sense_index, section)
+                )
         elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
             if confused_word:
-                cached = self.get_word_confusion(word, confused_word, section)
+                cached = self.get_word_confusion(word, confused_word, section, normalized_lang)
         elif section == 'confusion_all':
             if confused_word:
-                c_meta = self.get_word_confusion(word, confused_word, 'confusion_meta')
-                c_profiles = self.get_word_confusion(word, confused_word, 'confusion_profiles')
-                c_examples = self.get_word_confusion(word, confused_word, 'confusion_examples')
+                c_meta = self.get_word_confusion(word, confused_word, 'confusion_meta', normalized_lang)
+                c_profiles = self.get_word_confusion(word, confused_word, 'confusion_profiles', normalized_lang)
+                c_examples = self.get_word_confusion(word, confused_word, 'confusion_examples', normalized_lang)
                 if (c_meta and c_meta.get('cache_hit') and not c_meta.get('is_stale') and
                         c_profiles and c_profiles.get('cache_hit') and not c_profiles.get('is_stale') and
                         c_examples and c_examples.get('cache_hit') and not c_examples.get('is_stale')):
@@ -1588,24 +1928,31 @@ class DictionaryCacheService:
                         **c_examples['data'],
                         '_cache_status': 'fresh',
                     }, 200
-        
+
         # Cache hit handling
         if cached and cached.get('cache_hit'):
             response_time = (time.time() - start_time) * 1000
-            
+
             if cached.get('is_stale'):
                 # Stale-while-revalidate: serve stale + refresh in background
                 logger.info(f"[{word}] Cache HIT (stale) - serving + bg refresh")
                 self.metrics.record_stale()
                 self.track_metric('stale', word, section, response_time, 'cache')
-                
+
                 # Trigger background refresh (non-blocking)
                 # Import refresh function to avoid circular dependency
                 from ai_svc.dictionary.cache_routes import refresh_cache_background
                 self.executor.submit(
-                    refresh_cache_background, word, section, entry_index, sense_index
+                    refresh_cache_background,
+                    word,
+                    section,
+                    entry_index,
+                    sense_index,
+                    phrase,
+                    confused_word,
+                    normalized_lang
                 )
-                
+
                 # Return stale data immediately
                 result = cached['data']
                 result['_cache_status'] = 'stale'
@@ -1616,48 +1963,56 @@ class DictionaryCacheService:
                 logger.info(f"[{word}] Cache HIT (fresh) - {section}")
                 self.metrics.record_hit(time.time() - start_time)
                 self.track_metric('hit', word, section, response_time, 'cache')
-                
+
                 result = cached['data']
                 result['_cache_status'] = 'fresh'
                 return result, 200
-        
+
         # --- CACHE MISS: Check for in-flight request ---
-        cache_key = self._make_cache_key(word, section, entry_index, sense_index, confused_word)
-        
+        cache_key = self._make_cache_key(word, section, entry_index, sense_index, confused_word, normalized_lang)
+
         # Try to mark this request as in-flight
         if not self.mark_inflight(cache_key):
             # Another request is already fetching this - wait and retry
             logger.info(f"[{word}] Request already in-flight for {section} - waiting...")
-            
+
             # Wait up to 10 seconds with exponential backoff
             max_wait = 10.0
             wait_interval = 0.5
             elapsed = 0
-            
+
             while elapsed < max_wait:
                 time.sleep(wait_interval)
                 elapsed += wait_interval
-                
+
                 # Re-check cache
                 if section == 'basic':
-                    cached = self.get_basic(word)
+                    cached = self.get_basic_zh(word) if use_zh_cache else self.get_basic(word)
                 elif section == 'common_phrases':
-                    cached = self.get_common_phrases(word)
+                    cached = self.get_common_phrases_zh(word) if use_zh_cache else self.get_common_phrases(word)
                 elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
                     if entry_index is not None:
-                        cached = self.get_entry_section(word, entry_index, section)
+                        cached = (
+                            self.get_entry_section_zh(word, entry_index, section)
+                            if use_zh_cache else
+                            self.get_entry_section(word, entry_index, section)
+                        )
                 elif section == 'bilibili_videos':
                     if phrase:
                         cached = self.get_phrase_videos(word, phrase)
                 elif section in ['detailed_sense', 'examples', 'usage_notes']:
                     if entry_index is not None and sense_index is not None:
-                        cached = self.get_sense_section(word, entry_index, sense_index, section)
+                        cached = (
+                            self.get_sense_section_zh(word, entry_index, sense_index, section)
+                            if use_zh_cache else
+                            self.get_sense_section(word, entry_index, sense_index, section)
+                        )
                 elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
                     if confused_word:
-                        cached = self.get_word_confusion(word, confused_word, section)
+                        cached = self.get_word_confusion(word, confused_word, section, normalized_lang)
                 elif section == 'confusion_all':
                     pass
-                
+
                 if cached and cached.get('cache_hit'):
                     logger.info(f"[{word}] Cache now available after waiting {elapsed}s - serving")
                     result = cached['data']
@@ -1665,49 +2020,90 @@ class DictionaryCacheService:
                     result['_waited_for_inflight'] = True
                     self.metrics.record_hit(time.time() - start_time)
                     return result, 200
-                
+
                 # Increase wait interval (exponential backoff)
                 wait_interval = min(wait_interval * 1.5, 2.0)
-        
+
         try:
             # --- Fetch from service ---
             logger.info(f"[{word}] Cache MISS - fetching {section} from service")
             result = fetch_func()
-            
+
             response_time = (time.time() - start_time) * 1000
             self.metrics.record_miss(time.time() - start_time, result.get('data_source', 'unknown'))
             self.track_metric('miss', word, section, response_time, result.get('data_source', 'service'))
-            
+
             # --- CACHE WRITE (only on success) ---
             if result.get('success'):
                 try:
-                    if section == 'basic':
-                        self.set_basic(word, result)
-                    elif section == 'common_phrases':
-                        self.set_common_phrases(word, result)
-                    elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
-                        if entry_index is not None:
-                            self.set_entry_section(word, entry_index, section, result)
-                    elif section == 'bilibili_videos':
-                        if phrase:
-                            self.set_phrase_videos(word, phrase, result)
-                    elif section in ['detailed_sense', 'examples', 'usage_notes']:
-                        if entry_index is not None and sense_index is not None:
-                            self.set_sense_section(word, entry_index, sense_index, section, result)
-                    elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
-                        if confused_word:
-                            self.set_word_confusion(word, confused_word, section, result)
-                    elif section == 'confusion_all':
-                        if confused_word:
-                            if result.get('confusion_meta'):
-                                self.set_word_confusion(word, confused_word, 'confusion_meta', {'confusion_meta': result['confusion_meta'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
-                            if result.get('confusion_profiles'):
-                                self.set_word_confusion(word, confused_word, 'confusion_profiles', {'confusion_profiles': result['confusion_profiles'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
-                            if result.get('confusion_examples'):
-                                self.set_word_confusion(word, confused_word, 'confusion_examples', {'confusion_examples': result['confusion_examples'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
+                    if use_zh_cache:
+                        if section == 'basic':
+                            self.set_basic_zh(word, result)
+                        elif section == 'common_phrases':
+                            self.set_common_phrases_zh(word, result)
+                        elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
+                            if entry_index is not None:
+                                self.set_entry_section_zh(word, entry_index, section, result)
+                        elif section in ['detailed_sense', 'examples', 'usage_notes']:
+                            if entry_index is not None and sense_index is not None:
+                                self.set_sense_section_zh(word, entry_index, sense_index, section, result)
+                        elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
+                            if confused_word:
+                                self.set_word_confusion(word, confused_word, section, result, lang=normalized_lang)
+                        elif section == 'confusion_all':
+                            if confused_word:
+                                if result.get('confusion_meta'):
+                                    self.set_word_confusion(word, confused_word, 'confusion_meta', {
+                                        'confusion_meta': result['confusion_meta'],
+                                        'confusion_meta_zh': result.get('confusion_meta_zh'),
+                                        'headword': result.get('headword'),
+                                        'confused_word': confused_word,
+                                        'success': True
+                                    }, lang=normalized_lang)
+                                if result.get('confusion_profiles'):
+                                    self.set_word_confusion(word, confused_word, 'confusion_profiles', {
+                                        'confusion_profiles': result['confusion_profiles'],
+                                        'confusion_profiles_zh': result.get('confusion_profiles_zh'),
+                                        'headword': result.get('headword'),
+                                        'confused_word': confused_word,
+                                        'success': True
+                                    }, lang=normalized_lang)
+                                if result.get('confusion_examples'):
+                                    self.set_word_confusion(word, confused_word, 'confusion_examples', {
+                                        'confusion_examples': result['confusion_examples'],
+                                        'confusion_examples_zh': result.get('confusion_examples_zh'),
+                                        'headword': result.get('headword'),
+                                        'confused_word': confused_word,
+                                        'success': True
+                                    }, lang=normalized_lang)
+                    else:
+                        if section == 'basic':
+                            self.set_basic(word, result)
+                        elif section == 'common_phrases':
+                            self.set_common_phrases(word, result)
+                        elif section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
+                            if entry_index is not None:
+                                self.set_entry_section(word, entry_index, section, result)
+                        elif section == 'bilibili_videos':
+                            if phrase:
+                                self.set_phrase_videos(word, phrase, result)
+                        elif section in ['detailed_sense', 'examples', 'usage_notes']:
+                            if entry_index is not None and sense_index is not None:
+                                self.set_sense_section(word, entry_index, sense_index, section, result)
+                        elif section in ('confusion_meta', 'confusion_profiles', 'confusion_examples'):
+                            if confused_word:
+                                self.set_word_confusion(word, confused_word, section, result)
+                        elif section == 'confusion_all':
+                            if confused_word:
+                                if result.get('confusion_meta'):
+                                    self.set_word_confusion(word, confused_word, 'confusion_meta', {'confusion_meta': result['confusion_meta'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
+                                if result.get('confusion_profiles'):
+                                    self.set_word_confusion(word, confused_word, 'confusion_profiles', {'confusion_profiles': result['confusion_profiles'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
+                                if result.get('confusion_examples'):
+                                    self.set_word_confusion(word, confused_word, 'confusion_examples', {'confusion_examples': result['confusion_examples'], 'headword': result.get('headword'), 'confused_word': confused_word, 'success': True})
                 except Exception as cache_error:
                     logger.warning(f"Failed to write cache for {word}/{section}: {cache_error}")
-            
+
             return result, 200
         finally:
             # Always clear in-flight marker
