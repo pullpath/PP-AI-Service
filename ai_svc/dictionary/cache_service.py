@@ -1434,11 +1434,12 @@ class DictionaryCacheService:
         normalized = self._normalize_word(word)
         with self._write_transaction() as conn:
             if section:
+                section_variant_pattern = f"{section}:%"
                 conn.execute(
-                    "DELETE FROM word_confusion_cache WHERE word = ? AND confused_word = ? AND section = ?",
-                    (normalized, confused_word, section)
+                    "DELETE FROM word_confusion_cache WHERE word = ? AND confused_word = ? AND (section = ? OR section LIKE ?)",
+                    (normalized, confused_word, section, section_variant_pattern)
                 )
-                logger.info(f"Cache invalidated: {word} - confusion:{confused_word}:{section}")
+                logger.info(f"Cache invalidated: {word} - confusion:{confused_word}:{section} (including language variants)")
             else:
                 conn.execute(
                     "DELETE FROM word_confusion_cache WHERE word = ? AND confused_word = ?",
