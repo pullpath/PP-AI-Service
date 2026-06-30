@@ -46,6 +46,11 @@ def page_not_found(error):
 def cache_manager():
     """Cache management UI"""
     return app.send_static_file('cache_manager.html')
+
+@app.route('/privacy')
+def privacy():
+    """Privacy policy page"""
+    return app.send_static_file('privacy.html')
 @app.route('/api/transcribe', methods=['POST'])
 def transcribe():
     data = request.files
