@@ -21,6 +21,7 @@ Some sections require additional parameters:
 - `phrase`: phrase for Bilibili or generated video sections.
 - `confused_word`: comparison word for confusion sections.
 - `task_id`: video task ID for `video_status`.
+- `lang`: optional bilingual response language. Currently supported: `zh-cn`.
 
 The old flat `index` parameter is deprecated. Use `entry_index` and `sense_index` for sense-level sections.
 
@@ -85,6 +86,135 @@ curl -X POST http://localhost:8000/api/dictionary \
 | `confusion_all` | `word`, `confused_word` | Fetch all confusion sections in parallel |
 
 For entry-level sections, `app.py` defaults `entry_index` to `0` when omitted.
+
+## Bilingual Responses for Frontend
+
+The dictionary endpoint supports Simplified Chinese bilingual data with `lang: "zh-cn"`.
+
+Frontend should send the canonical value `zh-cn`. The backend also accepts `zh` as a compatibility alias, but new clients should not rely on it.
+
+```json
+{
+  "word": "run",
+  "section": "basic",
+  "lang": "zh-cn"
+}
+```
+
+When `lang` is omitted, responses remain English-only and backward compatible. When `lang: "zh-cn"` is provided, the response includes the normal English fields plus Chinese translation fields.
+
+Supported bilingual sections:
+
+| Section | Chinese response fields |
+|---------|-------------------------|
+| `basic` | `basic_zh` |
+| `common_phrases` | `zh_phrases` |
+| `etymology` | `etymology_zh` |
+| `word_family` | `word_family_zh` |
+| `usage_context` | `usage_context_zh` |
+| `cultural_notes` | `cultural_notes_zh` |
+| `frequency` | `frequency_zh` |
+| `detailed_sense` | `detailed_sense_zh` |
+| `examples` | `zh_examples`, `zh_collocations` |
+| `usage_notes` | `zh_learner_guidance`, `zh_common_pitfalls` |
+| `confusion_meta` | `confusion_meta_zh` |
+| `confusion_profiles` | `confusion_profiles_zh` |
+| `confusion_examples` | `confusion_examples_zh` |
+| `confusion_all` | `confusion_meta_zh`, `confusion_profiles_zh`, `confusion_examples_zh` |
+
+Unsupported sections with `lang` return `400`: `bilibili_videos`, `ai_generated_phrase_video`, and `video_status`.
+
+Frontend integration pattern:
+
+- Use a language selector with values like `en` and `zh-cn`.
+- For `en`, omit `lang`.
+- For `zh-cn`, include `lang: "zh-cn"` only on supported bilingual sections.
+- Render English as usual for `en`; for `zh-cn`, replace only user-facing explanatory prose with the matching `*_zh` or `zh_*` fields.
+- Treat Chinese fields as optional, because translation generation can fail independently while the English section may still succeed.
+- For comparison cards, keep the compared words, example sentences, collocations, and phrase chips in English. Use Chinese only for rule/difference/core meaning/usage-note/grammar explanatory copy and UI labels.
+
+### `basic` with `zh-cn`
+
+`basic_zh.entries` mirrors the order of the English `entries` array. Each translated entry includes the same `entry_index`, and `meanings_summary` mirrors the English meaning groups.
+
+```json
+{
+  "headword": "run",
+  "entries": [
+    {
+      "entry_index": 0,
+      "meanings_summary": [
+        {
+          "part_of_speech": "verb",
+          "senses": [
+            {
+              "definition": "To move forward quickly upon two feet...",
+              "example": "Run, Sarah, run!",
+              "synonyms": [],
+              "antonyms": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "basic_zh": {
+    "entries": [
+      {
+        "entry_index": 0,
+        "meanings_summary": [
+          {
+            "part_of_speech": "动词",
+            "definitions": [
+              {
+                "definition": "用双脚快速向前移动；奔跑",
+                "example": "跑，莎拉，快跑！",
+                "synonyms": ["奔跑"],
+                "antonyms": ["步行"]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "success": true
+}
+```
+
+### Sense-Level Chinese Fields
+
+`detailed_sense` adds:
+
+```json
+{
+  "detailed_sense_zh": {
+    "zh_definition": "用双脚快速向前移动；奔跑",
+    "zh_part_of_speech": "动词",
+    "zh_synonyms": ["飞奔", "冲刺"],
+    "zh_antonyms": ["步行", "停下"],
+    "zh_word_specific_phrases": ["逃命似地跑", "迟到", "四处奔波"]
+  }
+}
+```
+
+`examples` adds:
+
+```json
+{
+  "zh_examples": ["跑，莎拉，快跑！", "他每天早上上班前跑步。"],
+  "zh_collocations": ["跑得快", "每天跑步", "跑回家"]
+}
+```
+
+`usage_notes` adds:
+
+```json
+{
+  "zh_learner_guidance": "这个词用于表示用脚快速移动。表示较慢的锻炼时，jog 通常更精确。",
+  "zh_common_pitfalls": ["不要把 run 和 walk 混用。"]
+}
+```
 
 ## Response Examples
 

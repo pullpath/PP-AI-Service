@@ -5,6 +5,124 @@ Contains Pydantic models for structured AI responses
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from .enums import FrequencyEnum, ToneEnum
+
+
+class ChineseBasicDefinition(BaseModel):
+    definition: str = Field(..., description="Chinese translation of the definition")
+    example: str = Field(default="", description="Chinese translation of the example sentence")
+    synonyms: List[str] = Field(default_factory=list, description="Chinese synonyms")
+    antonyms: List[str] = Field(default_factory=list, description="Chinese antonyms")
+
+
+class ChineseBasicMeaning(BaseModel):
+    part_of_speech: str = Field(..., description="Chinese part of speech")
+    definitions: List[ChineseBasicDefinition] = Field(
+        default_factory=list,
+        description="Chinese translations of definitions for this meaning"
+    )
+
+
+class ChineseBasicEntryTranslation(BaseModel):
+    entry_index: int = Field(..., description="Entry index matching the English source entry")
+    meanings_summary: List[ChineseBasicMeaning] = Field(
+        default_factory=list,
+        description="Chinese translations for each meaning group in this entry"
+    )
+
+
+class ChineseBasicTranslation(BaseModel):
+    entries: List[ChineseBasicEntryTranslation] = Field(
+        default_factory=list,
+        description="Chinese translations grouped by English source entry"
+    )
+    meanings: List[ChineseBasicMeaning] = Field(
+        default_factory=list,
+        description="Legacy flat Chinese translations for each meaning group"
+    )
+
+
+class ChineseDetailedSenseTranslation(BaseModel):
+    zh_definition: str = Field(default="", description="Chinese translation of the definition")
+    zh_part_of_speech: str = Field(default="", description="Chinese part of speech")
+    zh_synonyms: List[str] = Field(default_factory=list, description="Chinese synonyms")
+    zh_antonyms: List[str] = Field(default_factory=list, description="Chinese antonyms")
+    zh_word_specific_phrases: List[str] = Field(
+        default_factory=list,
+        description="Chinese translations of phrases"
+    )
+
+
+class ChineseExamplesTranslation(BaseModel):
+    zh_examples: List[str] = Field(
+        default_factory=list,
+        description="Chinese translations of example sentences"
+    )
+    zh_collocations: List[str] = Field(
+        default_factory=list,
+        description="Chinese translations of collocations"
+    )
+
+
+class ChineseUsageNotesTranslation(BaseModel):
+    zh_learner_guidance: str = Field(default="", description="Chinese translation of learner guidance")
+    zh_common_pitfalls: List[str] = Field(
+        default_factory=list,
+        description="Chinese translations of common pitfalls"
+    )
+
+
+class ChineseCommonPhrasesTranslation(BaseModel):
+    zh_phrases: List[str] = Field(
+        default_factory=list,
+        min_length=0,
+        max_length=6,
+        description="Chinese translations of common phrases"
+    )
+
+
+class ChineseEntrySectionTranslation(BaseModel):
+    zh_data: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Chinese translation of the entry-level section data, preserving the source shape"
+    )
+
+
+class ChineseConfusionMetaTranslation(BaseModel):
+    quick_rule: str = Field(default="", description="Chinese translation of the quick rule")
+    key_differentiator: str = Field(default="", description="Chinese translation of the key differentiator")
+
+
+class ChineseConfusionWordProfileTranslation(BaseModel):
+    core_meaning: str = Field(default="", description="Chinese translation of the core meaning")
+    grammar_note: str = Field(default="", description="Chinese translation of the grammar note")
+
+
+class ChineseConfusionProfilesTranslation(BaseModel):
+    searched_word: ChineseConfusionWordProfileTranslation = Field(
+        default_factory=ChineseConfusionWordProfileTranslation,
+        description="Chinese explanatory copy for the searched word profile"
+    )
+    confused_word: ChineseConfusionWordProfileTranslation = Field(
+        default_factory=ChineseConfusionWordProfileTranslation,
+        description="Chinese explanatory copy for the confused word profile"
+    )
+
+
+class ChineseConfusionWordExamplesTranslation(BaseModel):
+    usage_note: str = Field(default="", description="Chinese translation of the usage note")
+
+
+class ChineseConfusionExamplesTranslation(BaseModel):
+    searched_word: ChineseConfusionWordExamplesTranslation = Field(
+        default_factory=ChineseConfusionWordExamplesTranslation,
+        description="Chinese explanatory copy for searched word examples"
+    )
+    confused_word: ChineseConfusionWordExamplesTranslation = Field(
+        default_factory=ChineseConfusionWordExamplesTranslation,
+        description="Chinese explanatory copy for confused word examples"
+    )
+
+
 class EtymologyInfo(BaseModel):
     """Etymology and historical development"""
     etymology: str = Field(..., description="Narrative of the word's origin, history, and meaning evolution.")
@@ -235,7 +353,7 @@ class DialogueLine(BaseModel):
 class ConversationScript(BaseModel):
     """Educational conversation script for video generation"""
     scenario: str = Field(
-        ..., 
+        ...,
         description="Brief scenario/setting description (1-2 sentences) providing context for the conversation"
     )
     dialogue: List[DialogueLine] = Field(

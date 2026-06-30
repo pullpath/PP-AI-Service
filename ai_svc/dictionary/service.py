@@ -13,6 +13,7 @@ import time
 import concurrent.futures
 import requests
 import logging
+import json
 from dotenv import load_dotenv, set_key
 from bilibili_api import Credential, sync
 from pathlib import Path
@@ -28,7 +29,12 @@ from .schemas import (
     UsageContextInfo, ConfusionMeta, ConfusionProfiles, ConfusionExamples, ConfusionPair, ConfusionComparison,
     CulturalNotesInfo, DetailedWordSense, FrequencyInfo,
     SenseCoreMetadata, SenseUsageExamples, SenseRelatedWords, SenseUsageNotes,
-    BilibiliVideoInfo, CommonPhrases, ConversationScript
+    BilibiliVideoInfo, CommonPhrases, ConversationScript,
+    ChineseBasicTranslation, ChineseDetailedSenseTranslation,
+    ChineseExamplesTranslation, ChineseUsageNotesTranslation,
+    ChineseCommonPhrasesTranslation, ChineseEntrySectionTranslation,
+    ChineseConfusionMetaTranslation, ChineseConfusionProfilesTranslation,
+    ChineseConfusionExamplesTranslation
 )
 from .prompts import (
     get_etymology_prompt,
@@ -37,7 +43,14 @@ from .prompts import (
     get_cultural_notes_prompt, get_frequency_prompt,
     get_sense_core_metadata_prompt, get_sense_usage_examples_prompt,
     get_sense_related_words_prompt, get_sense_usage_notes_prompt,
-    get_common_phrases_prompt, get_conversation_script_prompt
+    get_common_phrases_prompt, get_conversation_script_prompt,
+    get_basic_translation_prompt,
+    get_detailed_sense_translation_prompt, get_examples_translation_prompt,
+    get_usage_notes_translation_prompt, get_common_phrases_translation_prompt,
+    get_entry_section_translation_prompt,
+    get_confusion_meta_translation_prompt,
+    get_confusion_profiles_translation_prompt,
+    get_confusion_examples_translation_prompt
 )
 
 logger = logging.getLogger(__name__)
@@ -46,17 +59,17 @@ class DictionaryService:
     """Dictionary service with hybrid API + AI architecture"""
 
     DICTIONARY_API_BASE = "https://api.dictionaryapi.dev/api/v2/entries/en"
-    
+
     # Bilibili search configuration
     BILIBILI_PAGE_SIZE = 50
     MAX_VIDEOS_TO_CHECK_FOR_SUBTITLES = 50
 
     def _normalize_word(self, word: str) -> str:
         """Normalize word by trimming whitespace and converting to lowercase
-        
+
         Args:
             word: The input word
-            
+
         Returns:
             Normalized word (trimmed, lowercase)
         """
@@ -330,7 +343,7 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=SenseUsageNotes
         )
-        
+
         conversation_model = DeepSeek(
             id="deepseek-v4-flash",
             api_key=deepseek_api_key,
@@ -340,7 +353,7 @@ class DictionaryService:
             max_retries=0,
             extra_body=no_thinking
         )
-        
+
         self.conversation_agent = Agent(
             name="ConversationScriptAgent",
             model=conversation_model,
@@ -348,56 +361,138 @@ class DictionaryService:
             use_json_mode=True,
             output_schema=ConversationScript
         )
-    
+
+        translation_model = DeepSeek(
+            id="deepseek-v4-flash",
+            api_key=deepseek_api_key,
+            temperature=0,
+            max_tokens=1024,
+            timeout=45.0,
+            max_retries=0,
+            extra_body=no_thinking
+        )
+
+        self.basic_translation_agent = Agent(
+            name="BasicTranslationAgent",
+            model=translation_model,
+            description="Translates basic dictionary data into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseBasicTranslation
+        )
+
+        self.sense_translation_agent = Agent(
+            name="SenseTranslationAgent",
+            model=translation_model,
+            description="Translates detailed sense analysis into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseDetailedSenseTranslation
+        )
+
+        self.examples_translation_agent = Agent(
+            name="ExamplesTranslationAgent",
+            model=translation_model,
+            description="Translates examples and collocations into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseExamplesTranslation
+        )
+
+        self.usage_notes_translation_agent = Agent(
+            name="UsageNotesTranslationAgent",
+            model=translation_model,
+            description="Translates usage notes into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseUsageNotesTranslation
+        )
+
+        self.phrases_translation_agent = Agent(
+            name="PhrasesTranslationAgent",
+            model=translation_model,
+            description="Translates common phrases into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseCommonPhrasesTranslation
+        )
+
+        self.entry_translation_agent = Agent(
+            name="EntrySectionTranslationAgent",
+            model=translation_model,
+            description="Translates entry-level dictionary sections into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseEntrySectionTranslation
+        )
+
+        self.confusion_meta_translation_agent = Agent(
+            name="ConfusionMetaTranslationAgent",
+            model=translation_model,
+            description="Translates word-confusion overview copy into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseConfusionMetaTranslation
+        )
+
+        self.confusion_profiles_translation_agent = Agent(
+            name="ConfusionProfilesTranslationAgent",
+            model=translation_model,
+            description="Translates word-confusion profile explanations into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseConfusionProfilesTranslation
+        )
+
+        self.confusion_examples_translation_agent = Agent(
+            name="ConfusionExamplesTranslationAgent",
+            model=translation_model,
+            description="Translates word-confusion usage notes into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseConfusionExamplesTranslation
+        )
+
     def _update_env_credentials(self) -> None:
         try:
             env_path = Path(__file__).parent.parent.parent / ".env"
-            
+
             if not env_path.exists():
                 logger.warning(f".env file not found at {env_path}, skipping credential update")
                 return
-            
+
             if not self.bilibili_credential:
                 logger.warning("No Bilibili credentials to update in .env")
                 return
-            
+
             set_key(str(env_path), "BILIBILI_SESSDATA", self.bilibili_credential.sessdata or "", quote_mode="always")
             set_key(str(env_path), "BILIBILI_BILI_JCT", self.bilibili_credential.bili_jct or "", quote_mode="always")
-            
+
             if self.bilibili_credential.buvid3:
                 set_key(str(env_path), "BILIBILI_BUVID3", self.bilibili_credential.buvid3, quote_mode="always")
-            
+
             if self.bilibili_credential.ac_time_value:
                 set_key(str(env_path), "BILIBILI_AC_TIME_VALUE", self.bilibili_credential.ac_time_value, quote_mode="always")
-            
+
             logger.info(f"Successfully updated Bilibili credentials in {env_path}")
-            
+
         except PermissionError as e:
             logger.error(f"Permission denied updating .env file: {e}")
             raise
         except Exception as e:
             logger.error(f"Failed to update .env credentials: {e}")
-    
-    
-    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None, confused_word: Optional[str] = None, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
+
+
+    def lookup_section(self, word: str, section: str, sense_index: Optional[int] = None, entry_index: Optional[int] = None, phrase: Optional[str] = None, confused_word: Optional[str] = None, lang: Optional[str] = None, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
         """
         Look up specific section of word data with entry-level awareness
-        
+
         Parameters:
         - word: The word to look up
         - section: Section to fetch
         - sense_index: Sense index within an entry (0-based, for 'detailed_sense')
         - entry_index: Entry index (0-based, for entry-specific sections and 'detailed_sense')
         - phrase: Phrase to search for (required for 'bilibili_videos' section)
-        
+
         Sections:
         - basic: Returns entry-level structure (no parameters needed)
         - common_phrases: Returns common phrases for the word
-        - etymology, word_family, usage_context, cultural_notes, frequency: 
+        - etymology, word_family, usage_context, cultural_notes, frequency:
             Require entry_index (defaults to 0)
         - detailed_sense: Requires BOTH entry_index AND sense_index
         - bilibili_videos: Requires phrase parameter
-        
+
         Examples:
         - {"word": "scrub", "section": "basic"}
         - {"word": "scrub", "section": "common_phrases"}
@@ -408,37 +503,38 @@ class DictionaryService:
         try:
             # Normalize the word (trim + lowercase)
             normalized_word = self._normalize_word(word)
-            
+            normalized_lang = self._normalize_lang(lang)
+
             start_time = time.time()
-            
+
             valid_sections = [
-                'etymology', 'word_family', 'usage_context', 
+                'etymology', 'word_family', 'usage_context',
                 'cultural_notes', 'frequency', 'detailed_sense', 'basic',
                 'examples', 'usage_notes', 'bilibili_videos', 'common_phrases',
                 'ai_generated_phrase_video', 'video_status',
                 'confusion_meta', 'confusion_profiles', 'confusion_examples',
                 'confusion_all'
             ]
-            
+
             if section not in valid_sections:
                 return {
                     "error": f"Invalid section '{section}'. Valid sections: {', '.join(valid_sections)}",
                     "success": False
                 }
-            
+
             if section == 'detailed_sense':
                 if entry_index is None or sense_index is None:
                     return {
                         "error": "detailed_sense requires both 'entry_index' and 'sense_index'",
                         "success": False
                     }
-                
+
                 result = self._fetch_single_detailed_sense_2d(normalized_word, entry_index, sense_index)
-                
+
                 if not result.get("success"):
                     return result
-                
-                return {
+
+                response = {
                     "headword": normalized_word,
                     "detailed_sense": result["detailed_sense"],
                     "entry_index": result.get("entry_index", 0),
@@ -446,10 +542,18 @@ class DictionaryService:
                     "execution_time": time.time() - start_time,
                     "success": True
                 }
-            
+                if self._supports_chinese_translation(normalized_lang):
+                    response = self._add_chinese_translations(
+                        normalized_word, section, response, entry_index, sense_index
+                    )
+                return response
+
             if section == 'basic':
-                return self._fetch_basic(normalized_word, start_time)
-            
+                result = self._fetch_basic(normalized_word, start_time)
+                if self._supports_chinese_translation(normalized_lang):
+                    result = self._add_chinese_translations(normalized_word, section, result)
+                return result
+
             if section == 'examples':
                 if entry_index is None or sense_index is None:
                     return {
@@ -459,7 +563,7 @@ class DictionaryService:
                 result = self._fetch_sense_examples_standalone(normalized_word, entry_index, sense_index)
                 if not result.get("success"):
                     return result
-                return {
+                response = {
                     "headword": normalized_word,
                     "entry_index": entry_index,
                     "sense_index": sense_index,
@@ -469,7 +573,12 @@ class DictionaryService:
                     "execution_time": time.time() - start_time,
                     "success": True
                 }
-            
+                if self._supports_chinese_translation(normalized_lang):
+                    response = self._add_chinese_translations(
+                        normalized_word, section, response, entry_index, sense_index
+                    )
+                return response
+
             if section == 'usage_notes':
                 if entry_index is None or sense_index is None:
                     return {
@@ -479,7 +588,7 @@ class DictionaryService:
                 result = self._fetch_sense_usage_notes_standalone(normalized_word, entry_index, sense_index)
                 if not result.get("success"):
                     return result
-                return {
+                response = {
                     "headword": normalized_word,
                     "entry_index": entry_index,
                     "sense_index": sense_index,
@@ -488,10 +597,18 @@ class DictionaryService:
                     "execution_time": time.time() - start_time,
                     "success": True
                 }
-            
+                if self._supports_chinese_translation(normalized_lang):
+                    response = self._add_chinese_translations(
+                        normalized_word, section, response, entry_index, sense_index
+                    )
+                return response
+
             if section == 'common_phrases':
-                return self._fetch_common_phrases_section(normalized_word, start_time)
-            
+                result = self._fetch_common_phrases_section(normalized_word, start_time)
+                if self._supports_chinese_translation(normalized_lang):
+                    result = self._add_chinese_translations(normalized_word, section, result)
+                return result
+
             if section == 'bilibili_videos':
                 if not phrase:
                     return {
@@ -499,7 +616,7 @@ class DictionaryService:
                         "success": False
                     }
                 return self._fetch_bilibili_videos_section(normalized_word, phrase, start_time)
-            
+
             if section == 'ai_generated_phrase_video':
                 if not phrase:
                     return {
@@ -508,7 +625,7 @@ class DictionaryService:
                         "execution_time": time.time() - start_time
                     }
                 return self._fetch_phrase_video_section(normalized_word, phrase, entry_index, start_time, style, duration, resolution, ratio)
-            
+
             if section == 'video_status':
                 return {
                     "error": "video_status section should not be called directly from lookup_section. Use dedicated method.",
@@ -520,7 +637,7 @@ class DictionaryService:
                     return {"error": "confusion_all requires 'confused_word' parameter", "success": False}
                 cw = confused_word.strip().lower()
                 result = self._fetch_confusion_all(normalized_word, cw)
-                return {
+                response = {
                     "headword": normalized_word,
                     "confused_word": cw,
                     "confusion_meta": result.get("confusion_meta"),
@@ -531,6 +648,9 @@ class DictionaryService:
                     "execution_time": time.time() - start_time,
                     "success": result.get("success", False),
                 }
+                if self._supports_chinese_translation(normalized_lang):
+                    response = self._add_chinese_translations(normalized_word, section, response, phrase=cw)
+                return response
 
             confusion_sections = {'confusion_meta', 'confusion_profiles', 'confusion_examples'}
             if section in confusion_sections:
@@ -548,7 +668,7 @@ class DictionaryService:
                 result = fetch_map[section](normalized_word, cw)
                 if not result.get("success"):
                     return result
-                return {
+                response = {
                     "headword": normalized_word,
                     "confused_word": cw,
                     section: result[section],
@@ -556,16 +676,22 @@ class DictionaryService:
                     "execution_time": time.time() - start_time,
                     "success": True
                 }
+                if self._supports_chinese_translation(normalized_lang):
+                    response = self._add_chinese_translations(normalized_word, section, response, phrase=cw)
+                return response
 
             entry_level_sections = ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']
             if section in entry_level_sections:
-                return self._fetch_entry_level_section(normalized_word, section, entry_index, start_time)
-            
+                result = self._fetch_entry_level_section(normalized_word, section, entry_index, start_time)
+                if self._supports_chinese_translation(normalized_lang):
+                    result = self._add_chinese_translations(normalized_word, section, result, entry_index)
+                return result
+
             return {
                 "error": f"Section '{section}' not implemented",
                 "success": False
             }
-                
+
         except Exception as e:
             return {
                 "headword": word,
@@ -575,7 +701,7 @@ class DictionaryService:
     def _fetch_basic(self, word: str, start_time: float) -> Dict[str, Any]:
         """
         Fetch basic word info with entry-level structure including API sense data
-        
+
         Returns:
         {
             "headword": "scrub",
@@ -610,50 +736,50 @@ class DictionaryService:
         }
         """
         api_result = self._fetch_from_api(word)
-        
+
         if api_result.get("success"):
             logger.info(f"[{word}] Basic data: Using FREE API (hybrid_api_ai)")
             entries_data = api_result["entries"]
-            
+
             entries_info = []
             total_senses = 0
-            
+
             for entry_idx, entry in enumerate(entries_data):
                 meanings = entry.get("meanings", [])
                 meanings_summary = []
                 entry_senses = 0
-                
+
                 for meaning in meanings:
                     pos = meaning.get("partOfSpeech", "unknown")
                     definitions = meaning.get("definitions", [])
                     def_count = len(definitions)
                     entry_senses += def_count
-                    
+
                     meaning_synonyms = meaning.get("synonyms", [])
                     meaning_antonyms = meaning.get("antonyms", [])
-                    
+
                     senses = []
                     for def_obj in definitions:
                         definition = def_obj.get("definition", "")
                         example = def_obj.get("example", "")
                         def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
                         def_antonyms = def_obj.get("antonyms", []) or meaning_antonyms
-                        
+
                         senses.append({
                             "definition": definition,
                             "example": example if example else None,
                             "synonyms": def_synonyms[:3] if def_synonyms else [],
                             "antonyms": def_antonyms[:3] if def_antonyms else []
                         })
-                    
+
                     meanings_summary.append({
                         "part_of_speech": pos,
                         "definition_count": def_count,
                         "senses": senses
                     })
-                
+
                 pronunciation_data = self._extract_pronunciation_data(entry)
-                
+
                 entries_info.append({
                     "entry_index": entry_idx,
                     "pronunciation": pronunciation_data["pronunciation"],
@@ -661,9 +787,9 @@ class DictionaryService:
                     "meanings_summary": meanings_summary,
                     "total_senses": entry_senses
                 })
-                
+
                 total_senses += entry_senses
-            
+
             return {
                 "headword": word,
                 "total_entries": len(entries_data),
@@ -680,11 +806,291 @@ class DictionaryService:
                 "error": f"Dictionary API failed: {api_result.get('error', 'Word not found')}",
                 "success": False
             }
-    
+
+    def _normalize_lang(self, lang: Optional[str]) -> Optional[str]:
+        if lang is None:
+            return None
+
+        normalized = lang.strip().lower().replace("_", "-")
+        if normalized == "zh":
+            return "zh-cn"
+        return normalized
+
+    def _supports_chinese_translation(self, lang: Optional[str]) -> bool:
+        return self._normalize_lang(lang) == "zh-cn"
+
+    def _agent_response_to_dict(self, response) -> Dict[str, Any]:
+        content = response.content if hasattr(response, "content") else response
+        if hasattr(content, "model_dump"):
+            return content.model_dump()
+        if isinstance(content, dict):
+            return content
+        if isinstance(content, str):
+            return json.loads(content)
+        return json.loads(str(content))
+
+    def _translate_basic_section(self, word: str, basic_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate basic section data into Simplified Chinese."""
+        try:
+            source = {
+                "headword": basic_result.get("headword", word),
+                "entries": basic_result.get("entries", []),
+            }
+            prompt = get_basic_translation_prompt(word, json.dumps(source, ensure_ascii=False))
+            with metrics_collector.track("BasicTranslationAgent", word, "basic_zh", prompt) as _t:
+                response = self.basic_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate basic section for '{word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_detailed_sense(self, word: str, entry_index: Optional[int], sense_index: Optional[int],
+                                  basic_definition: str, core_result: Dict[str, Any],
+                                  related_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate detailed sense data into Simplified Chinese."""
+        try:
+            prompt = get_detailed_sense_translation_prompt(
+                word,
+                sense_index or 0,
+                basic_definition,
+                json.dumps(core_result, ensure_ascii=False),
+                json.dumps(related_result, ensure_ascii=False)
+            )
+            with metrics_collector.track("SenseTranslationAgent", word, "detailed_sense_zh", prompt) as _t:
+                response = self.sense_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate detailed sense for '{word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_examples(self, word: str, entry_index: Optional[int], sense_index: Optional[int],
+                            basic_definition: str, examples_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate examples into Simplified Chinese."""
+        try:
+            prompt = get_examples_translation_prompt(
+                word,
+                sense_index or 0,
+                basic_definition,
+                json.dumps(examples_data, ensure_ascii=False)
+            )
+            with metrics_collector.track("ExamplesTranslationAgent", word, "examples_zh", prompt) as _t:
+                response = self.examples_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate examples for '{word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_usage_notes(self, word: str, entry_index: Optional[int], sense_index: Optional[int],
+                               basic_definition: str, usage_notes_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate usage notes into Simplified Chinese."""
+        try:
+            prompt = get_usage_notes_translation_prompt(
+                word,
+                sense_index or 0,
+                basic_definition,
+                json.dumps(usage_notes_data, ensure_ascii=False)
+            )
+            with metrics_collector.track("UsageNotesTranslationAgent", word, "usage_notes_zh", prompt) as _t:
+                response = self.usage_notes_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate usage notes for '{word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_common_phrases(self, word: str, phrases_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate common phrases into Simplified Chinese."""
+        try:
+            prompt = get_common_phrases_translation_prompt(word, json.dumps(phrases_data, ensure_ascii=False))
+            with metrics_collector.track("PhrasesTranslationAgent", word, "common_phrases_zh", prompt) as _t:
+                response = self.phrases_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate common phrases for '{word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_entry_section(self, word: str, section: str, section_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate an entry-level section into Simplified Chinese."""
+        try:
+            prompt = get_entry_section_translation_prompt(
+                word,
+                section,
+                json.dumps(section_data, ensure_ascii=False)
+            )
+            with metrics_collector.track("EntrySectionTranslationAgent", word, f"{section}_zh", prompt) as _t:
+                response = self.entry_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate {section} section for '{word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_confusion_meta(self, word: str, confused_word: str, meta_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate confusion-card overview copy into Simplified Chinese."""
+        try:
+            prompt = get_confusion_meta_translation_prompt(
+                word,
+                confused_word,
+                json.dumps(meta_data, ensure_ascii=False)
+            )
+            with metrics_collector.track("ConfusionMetaTranslationAgent", word, "confusion_meta_zh", prompt) as _t:
+                response = self.confusion_meta_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate confusion_meta for '{word}' vs '{confused_word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_confusion_profiles(self, word: str, confused_word: str,
+                                      profiles_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate confusion-card profile explanations into Simplified Chinese."""
+        try:
+            prompt = get_confusion_profiles_translation_prompt(
+                word,
+                confused_word,
+                json.dumps(profiles_data, ensure_ascii=False)
+            )
+            with metrics_collector.track("ConfusionProfilesTranslationAgent", word, "confusion_profiles_zh", prompt) as _t:
+                response = self.confusion_profiles_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate confusion_profiles for '{word}' vs '{confused_word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _translate_confusion_examples(self, word: str, confused_word: str,
+                                      examples_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate confusion-card usage notes into Simplified Chinese."""
+        try:
+            prompt = get_confusion_examples_translation_prompt(
+                word,
+                confused_word,
+                json.dumps(examples_data, ensure_ascii=False)
+            )
+            with metrics_collector.track("ConfusionExamplesTranslationAgent", word, "confusion_examples_zh", prompt) as _t:
+                response = self.confusion_examples_translation_agent.run(prompt)
+                _t.set_response(response)
+            return {"success": True, "translation": self._agent_response_to_dict(response)}
+        except Exception as e:
+            logger.warning(f"Failed to translate confusion_examples for '{word}' vs '{confused_word}': {e}")
+            return {"success": False, "error": str(e)}
+
+    def _add_chinese_translations(self, word: str, section: str, result: Dict[str, Any],
+                                  entry_index: Optional[int] = None,
+                                  sense_index: Optional[int] = None,
+                                  phrase: Optional[str] = None) -> Dict[str, Any]:
+        """Add Simplified Chinese translation fields to a section result."""
+        if not result.get("success"):
+            return result
+
+        if section == "basic":
+            trans = self._translate_basic_section(word, result)
+            if trans.get("success"):
+                result["basic_zh"] = trans["translation"]
+
+        elif section == "detailed_sense":
+            detailed_sense = result.get("detailed_sense", {})
+            basic_def = detailed_sense.get("definition", "")
+            core_data = {
+                k: detailed_sense.get(k)
+                for k in ["definition", "part_of_speech", "usage_register", "domain", "tone"]
+            }
+            related_data = {
+                k: detailed_sense.get(k)
+                for k in ["synonyms", "antonyms", "word_specific_phrases"]
+            }
+            trans = self._translate_detailed_sense(
+                word, entry_index, sense_index, basic_def, core_data, related_data
+            )
+            if trans.get("success"):
+                result["detailed_sense_zh"] = trans["translation"]
+
+        elif section == "examples":
+            examples_data = {
+                "examples": result.get("examples", []),
+                "collocations": result.get("collocations", []),
+            }
+            trans = self._translate_examples(word, entry_index, sense_index, "", examples_data)
+            if trans.get("success"):
+                result["zh_examples"] = trans["translation"].get("zh_examples", [])
+                result["zh_collocations"] = trans["translation"].get("zh_collocations", [])
+
+        elif section == "usage_notes":
+            usage_notes_data = {"usage_notes": result.get("usage_notes", "")}
+            trans = self._translate_usage_notes(word, entry_index, sense_index, "", usage_notes_data)
+            if trans.get("success"):
+                result["zh_learner_guidance"] = trans["translation"].get("zh_learner_guidance", "")
+                result["zh_common_pitfalls"] = trans["translation"].get("zh_common_pitfalls", [])
+
+        elif section == "common_phrases":
+            trans = self._translate_common_phrases(word, {
+                "common_phrases": result.get("common_phrases", []),
+            })
+            if trans.get("success"):
+                result["zh_phrases"] = trans["translation"].get("zh_phrases", [])
+
+        elif section in ["etymology", "word_family", "usage_context", "cultural_notes", "frequency"]:
+            trans = self._translate_entry_section(word, section, {
+                section: result.get(section),
+            })
+            if trans.get("success"):
+                result[f"{section}_zh"] = trans["translation"].get("zh_data", {})
+
+        elif section == "confusion_meta":
+            confused_word = phrase or result.get("confused_word", "")
+            trans = self._translate_confusion_meta(
+                word,
+                confused_word,
+                result.get("confusion_meta", {})
+            )
+            if trans.get("success"):
+                result["confusion_meta_zh"] = trans["translation"]
+
+        elif section == "confusion_profiles":
+            confused_word = phrase or result.get("confused_word", "")
+            trans = self._translate_confusion_profiles(
+                word,
+                confused_word,
+                result.get("confusion_profiles", {})
+            )
+            if trans.get("success"):
+                result["confusion_profiles_zh"] = trans["translation"]
+
+        elif section == "confusion_examples":
+            confused_word = phrase or result.get("confused_word", "")
+            trans = self._translate_confusion_examples(
+                word,
+                confused_word,
+                result.get("confusion_examples", {})
+            )
+            if trans.get("success"):
+                result["confusion_examples_zh"] = trans["translation"]
+
+        elif section == "confusion_all":
+            confused_word = phrase or result.get("confused_word", "")
+            if result.get("confusion_meta"):
+                trans = self._translate_confusion_meta(word, confused_word, result.get("confusion_meta", {}))
+                if trans.get("success"):
+                    result["confusion_meta_zh"] = trans["translation"]
+            if result.get("confusion_profiles"):
+                trans = self._translate_confusion_profiles(word, confused_word, result.get("confusion_profiles", {}))
+                if trans.get("success"):
+                    result["confusion_profiles_zh"] = trans["translation"]
+            if result.get("confusion_examples"):
+                trans = self._translate_confusion_examples(word, confused_word, result.get("confusion_examples", {}))
+                if trans.get("success"):
+                    result["confusion_examples_zh"] = trans["translation"]
+
+        return result
+
     def _extract_pronunciation_data(self, entry: Dict[str, Any]) -> Dict[str, str]:
         """
         Extract pronunciation data (audio URL + IPA) from API entry
-        
+
         Returns:
         {
             "pronunciation": "audio_url",  # Empty string if not found
@@ -694,46 +1100,46 @@ class DictionaryService:
         phonetics = entry.get("phonetics", [])
         audio_url = ""
         ipa_text = ""
-        
+
         # Extract audio URL (prefer UK > US > any)
         for p in phonetics:
             audio = p.get("audio", "")
             if audio and ("-uk.mp3" in audio.lower() or "-uk-" in audio.lower()):
                 audio_url = audio
                 break
-        
+
         if not audio_url:
             for p in phonetics:
                 audio = p.get("audio", "")
                 if audio and ("-us.mp3" in audio.lower() or "-us-" in audio.lower()):
                     audio_url = audio
                     break
-        
+
         if not audio_url:
             for p in phonetics:
                 audio = p.get("audio", "")
                 if audio:
                     audio_url = audio
                     break
-        
+
         # Extract IPA text
         for p in phonetics:
             if p.get("text"):
                 ipa_text = p["text"]
                 break
-        
+
         if not ipa_text:
             ipa_text = entry.get("phonetic", "")
-        
+
         return {
             "pronunciation": audio_url,
             "ipa": ipa_text
         }
-    
+
     def _fetch_entry_level_section(self, word: str, section: str, entry_index: Optional[int], start_time: float) -> Dict[str, Any]:
         """
         Fetch entry-specific section (etymology, word_family, etc.)
-        
+
         If entry_index is None, defaults to entry 0 for backward compatibility
         """
         if entry_index is not None and entry_index < 0:
@@ -741,26 +1147,26 @@ class DictionaryService:
                 "error": f"entry_index must be >= 0, got {entry_index}",
                 "success": False
             }
-        
+
         api_result = self._fetch_from_api(word)
-        
+
         if api_result.get("success"):
             entries = api_result["entries"]
             target_entry_index = entry_index if entry_index is not None else 0
-            
+
             if target_entry_index >= len(entries):
                 return {
                     "error": f"entry_index {target_entry_index} out of range. Word has {len(entries)} entries (0-{len(entries)-1})",
                     "success": False
                 }
-            
+
             logger.info(f"[{word}] {section} (entry #{target_entry_index}): Using API structure + AI")
             context_entry = entries[target_entry_index]
         else:
             logger.info(f"[{word}] {section}: Using AI only - API failed")
             target_entry_index = 0
             context_entry = None
-        
+
         section_method_map = {
             'etymology': self._fetch_etymology,
             'word_family': self._fetch_word_family,
@@ -768,19 +1174,19 @@ class DictionaryService:
             'cultural_notes': self._fetch_cultural_notes,
             'frequency': self._fetch_frequency
         }
-        
+
         method = section_method_map.get(section)
         if not method:
             return {
                 "error": f"Section '{section}' not implemented",
                 "success": False
             }
-        
+
         result = method(word, context_entry)
-        
+
         if not result.get("success"):
             return result
-        
+
         response = {
             "headword": word,
             "entry_index": target_entry_index,
@@ -789,51 +1195,51 @@ class DictionaryService:
             "execution_time": time.time() - start_time,
             "success": True
         }
-        
+
         return response
-    
+
     def _fetch_single_detailed_sense_2d(self, word: str, entry_index: int, sense_index: int) -> Dict[str, Any]:
         """
         Fetch a single detailed sense using 2D indexing (entry_index, sense_index)
-        
+
         Clean approach: entry_index=1, sense_index=0 means "entry 1, first sense"
         """
         try:
             api_result = self._fetch_from_api(word)
-            
+
             if api_result.get("success"):
                 logger.info(f"[{word}] Detailed sense (entry {entry_index}, sense {sense_index}): Using API + AI (hybrid)")
                 entries = api_result["entries"]
-                
+
                 if entry_index < 0 or entry_index >= len(entries):
                     return {
                         "error": f"Invalid entry_index {entry_index}. Word has {len(entries)} entries (0-{len(entries)-1})",
                         "success": False
                     }
-                
+
                 entry = entries[entry_index]
                 meanings = entry.get("meanings", [])
-                
+
                 current_sense_index = 0
                 for meaning in meanings:
                     part_of_speech = meaning.get("partOfSpeech", "")
                     definitions = meaning.get("definitions", [])
                     meaning_synonyms = meaning.get("synonyms", [])
                     meaning_antonyms = meaning.get("antonyms", [])
-                    
+
                     for def_obj in definitions:
                         if current_sense_index == sense_index:
                             definition = def_obj.get("definition", "")
                             example = def_obj.get("example", "")
                             def_synonyms = def_obj.get("synonyms", []) or meaning_synonyms
                             def_antonyms = def_obj.get("antonyms", []) or meaning_antonyms
-                            
+
                             sense_result = self._fetch_enhanced_sense(
                                 word, sense_index, part_of_speech,
                                 [definition], def_synonyms, def_antonyms,
                                 [example] if example else []
                             )
-                            
+
                             if sense_result.get("success"):
                                 return {
                                     "detailed_sense": sense_result["sense_detail"],
@@ -844,9 +1250,9 @@ class DictionaryService:
                                 }
                             else:
                                 return sense_result
-                        
+
                         current_sense_index += 1
-                
+
                 total_senses_in_entry = current_sense_index
                 return {
                     "error": f"Invalid sense_index {sense_index}. Entry {entry_index} has {total_senses_in_entry} senses (0-{total_senses_in_entry-1})",
@@ -858,17 +1264,17 @@ class DictionaryService:
                     "error": f"Dictionary API failed: {api_result.get('error', 'Word not found')}",
                     "success": False
                 }
-                
+
         except Exception as e:
             return {
                 "error": str(e),
                 "success": False
             }
-    
+
     def _fetch_from_api(self, word: str) -> Dict[str, Any]:
         """
         Fetch basic dictionary data from free API with entry-level structure
-        
+
         Returns entry-aware structure:
         {
             "success": True,
@@ -879,7 +1285,7 @@ class DictionaryService:
         try:
             url = f"{self.DICTIONARY_API_BASE}/{word}"
             response = requests.get(url, timeout=5)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list) and len(data) > 0:
@@ -888,12 +1294,12 @@ class DictionaryService:
                         "entries": data,
                         "total_entries": len(data)
                     }
-            
+
             return {
                 "success": False,
                 "error": f"API returned status {response.status_code}"
             }
-            
+
         except requests.Timeout:
             return {
                 "success": False,
@@ -904,13 +1310,13 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
-    
+
+
     def _fetch_common_phrases_section(self, word: str, start_time: float) -> Dict[str, Any]:
         """Fetch common phrases for a word as a standalone section"""
         try:
             phrases = self._fetch_common_phrases(word)
-            
+
             return {
                 "headword": word,
                 "common_phrases": phrases,
@@ -924,7 +1330,7 @@ class DictionaryService:
                 "error": str(e),
                 "success": False
             }
-    
+
     def _fetch_common_phrases(self, word: str) -> List[str]:
         """Fetch common phrases for a word via AI"""
         try:
@@ -932,7 +1338,7 @@ class DictionaryService:
             with metrics_collector.track("CommonPhrasesAgent", word, "common_phrases", prompt) as _t:
                 response = self.common_phrases_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, CommonPhrases):
                 return response.content.phrases
             else:
@@ -940,7 +1346,7 @@ class DictionaryService:
         except Exception as e:
             logger.error(f"Error fetching common phrases for '{word}': {str(e)}")
             return [word]  # fallback
-    
+
     def _fetch_frequency(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch frequency estimation via AI"""
         try:
@@ -948,7 +1354,7 @@ class DictionaryService:
             with metrics_collector.track("FrequencyAgent", word, "frequency", prompt) as _t:
                 response = self.frequency_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, FrequencyInfo):
                 return {
                     "success": True,
@@ -965,37 +1371,37 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_enhanced_sense(self, word: str, sense_index: int, part_of_speech: str,
                              api_definitions: List[str], api_synonyms: Optional[List[str]] = None,
                              api_antonyms: Optional[List[str]] = None, api_examples: Optional[List[str]] = None) -> Dict[str, Any]:
         """Fetch AI-enhanced analysis for a sense using parallel execution (API already provides basics)
-        
+
         Note: Examples and usage_notes are excluded for faster loading.
         Frontend should fetch them separately via 'examples' and 'usage_notes' sections.
         """
         try:
             basic_definition = api_definitions[0] if api_definitions else ""
-            
+
             api_synonyms = api_synonyms or []
             api_antonyms = api_antonyms or []
-            
+
             TARGET_SYNONYMS = 3
             TARGET_ANTONYMS = 3
             TARGET_PHRASES = 3
-            
+
             synonyms_needed = max(0, TARGET_SYNONYMS - len(api_synonyms))
             antonyms_needed = max(0, TARGET_ANTONYMS - len(api_antonyms))
             phrases_needed = TARGET_PHRASES
-            
+
             logger.info(f"[Dynamic Prompts] Word '{word}' sense {sense_index}: "
                        f"synonyms {len(api_synonyms)}→{synonyms_needed}, "
                        f"antonyms {len(api_antonyms)}→{antonyms_needed} "
                        f"(definition from API, examples/usage_notes: fetch separately)")
-            
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 future_core = executor.submit(
-                    self._fetch_sense_core_metadata, 
+                    self._fetch_sense_core_metadata,
                     word, sense_index, basic_definition, part_of_speech
                 )
                 future_related = executor.submit(
@@ -1003,19 +1409,19 @@ class DictionaryService:
                     word, sense_index, basic_definition, api_synonyms, api_antonyms,
                     synonyms_needed, antonyms_needed, phrases_needed
                 )
-                
+
                 done, not_done = concurrent.futures.wait(
                     [future_core, future_related],
                     timeout=30.0,
                     return_when=concurrent.futures.ALL_COMPLETED
                 )
-                
+
                 for future in not_done:
                     future.cancel()
-                
+
                 core_result = self._get_future_result(future_core, "core_metadata")
                 related_result = self._get_future_result(future_related, "related_words")
-            
+
             if not all([
                 core_result and core_result.get("success"),
                 related_result and related_result.get("success")
@@ -1025,30 +1431,30 @@ class DictionaryService:
                     errors.append(f"core: {core_result.get('error') if core_result else 'timeout'}")
                 if not related_result or not related_result.get("success"):
                     errors.append(f"related: {related_result.get('error') if related_result else 'timeout'}")
-                
+
                 return {
                     "success": False,
                     "error": f"Parallel execution failed: {', '.join(errors)}"
                 }
-            
+
             assert core_result and "data" in core_result
             assert related_result and "data" in related_result
-            
+
             ai_synonyms = related_result["data"]["synonyms"]
             ai_antonyms = related_result["data"]["antonyms"]
             ai_phrases = related_result["data"]["word_specific_phrases"]
-            
+
             merged_synonyms = list(dict.fromkeys(api_synonyms + ai_synonyms))[:TARGET_SYNONYMS]
             merged_antonyms = list(dict.fromkeys(api_antonyms + ai_antonyms))[:TARGET_ANTONYMS]
             merged_phrases = ai_phrases[:TARGET_PHRASES]
-            
+
             while len(merged_synonyms) < TARGET_SYNONYMS:
                 merged_synonyms.append("")
             while len(merged_antonyms) < TARGET_ANTONYMS:
                 merged_antonyms.append("")
             while len(merged_phrases) < TARGET_PHRASES:
                 merged_phrases.append("")
-            
+
             sense_detail = {
                 "definition": core_result["data"]["definition"],
                 "part_of_speech": core_result["data"]["part_of_speech"],
@@ -1059,7 +1465,7 @@ class DictionaryService:
                 "antonyms": merged_antonyms,
                 "word_specific_phrases": merged_phrases,
             }
-            
+
             return {
                 "success": True,
                 "sense_index": sense_index,
@@ -1070,11 +1476,11 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
-    def _fetch_sense_core_metadata(self, word: str, sense_index: int, basic_definition: str, 
+
+    def _fetch_sense_core_metadata(self, word: str, sense_index: int, basic_definition: str,
                                    part_of_speech: str = "") -> Dict[str, Any]:
         """Fetch core metadata for a sense (parallel execution component)
-        
+
         Note: API always provides definition (assembled in logic after AI response)
         """
         try:
@@ -1082,7 +1488,7 @@ class DictionaryService:
             with metrics_collector.track("SenseCoreAgent", word, "detailed_sense", prompt) as _t:
                 response = self.sense_core_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, SenseCoreMetadata):
                 data = response.content.model_dump()
                 # Assemble definition from API response (not AI-generated)
@@ -1105,13 +1511,13 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_sense_usage_examples(self, word: str, sense_index: int, basic_definition: str,
                                    api_examples: Optional[List[str]] = None,
                                    examples_needed: int = 2,
                                    collocations_needed: int = 3) -> Dict[str, Any]:
         """Fetch usage notes and examples for a sense (parallel execution component)
-        
+
         Dynamic generation based on API data availability
         """
         try:
@@ -1122,7 +1528,7 @@ class DictionaryService:
             with metrics_collector.track("SenseUsageAgent", word, "examples", prompt) as _t:
                 response = self.sense_usage_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, SenseUsageExamples):
                 return {
                     "success": True,
@@ -1140,27 +1546,27 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_sense_related_words(self, word: str, sense_index: int, basic_definition: str,
-                                  api_synonyms: Optional[List[str]] = None, 
+                                  api_synonyms: Optional[List[str]] = None,
                                   api_antonyms: Optional[List[str]] = None,
                                   synonyms_needed: int = 3,
                                   antonyms_needed: int = 3,
                                   phrases_needed: int = 3) -> Dict[str, Any]:
         """Fetch related words and phrases for a sense (parallel execution component)
-        
+
         Dynamic generation based on API data availability
         """
         try:
             prompt = get_sense_related_words_prompt(
-                word, sense_index, basic_definition, 
+                word, sense_index, basic_definition,
                 api_synonyms, api_antonyms,
                 synonyms_needed, antonyms_needed, phrases_needed
             )
             with metrics_collector.track("SenseRelatedAgent", word, "detailed_sense", prompt) as _t:
                 response = self.sense_related_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, SenseRelatedWords):
                 return {
                     "success": True,
@@ -1178,7 +1584,7 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_sense_usage_notes(self, word: str, sense_index: int, basic_definition: str) -> Dict[str, Any]:
         """Fetch usage notes and guidance for a sense (parallel execution component)"""
         try:
@@ -1186,7 +1592,7 @@ class DictionaryService:
             with metrics_collector.track("SenseUsageNotesAgent", word, "usage_notes", prompt) as _t:
                 response = self.sense_usage_notes_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, SenseUsageNotes):
                 return {
                     "success": True,
@@ -1204,8 +1610,8 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
-    
+
+
     def _fetch_etymology(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch etymology information"""
         try:
@@ -1213,7 +1619,7 @@ class DictionaryService:
             with metrics_collector.track("EtymologyAgent", word, "etymology", prompt) as _t:
                 response = self.etymology_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, EtymologyInfo):
                 return {
                     "success": True,
@@ -1229,7 +1635,7 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_word_family(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch word family information"""
         try:
@@ -1237,7 +1643,7 @@ class DictionaryService:
             with metrics_collector.track("WordFamilyAgent", word, "word_family", prompt) as _t:
                 response = self.word_family_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, WordFamilyInfo):
                 return {
                     "success": True,
@@ -1253,7 +1659,7 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_usage_context(self, word: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         try:
             prompt = get_usage_context_skeleton_prompt(word)
@@ -1353,7 +1759,7 @@ class DictionaryService:
             with metrics_collector.track("CulturalNotesAgent", word, "cultural_notes", prompt) as _t:
                 response = self.cultural_notes_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, CulturalNotesInfo):
                 return {
                     "success": True,
@@ -1369,7 +1775,7 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _get_future_result(self, future, task_name: str) -> Optional[Dict[str, Any]]:
         """Safely get result from a future"""
         try:
@@ -1379,7 +1785,7 @@ class DictionaryService:
                     "success": False,
                     "error": f"Task {task_name} was cancelled"
                 }
-            
+
             return future.result(timeout=0.1)
         except concurrent.futures.TimeoutError:
             print(f"Warning: Task {task_name} not ready")
@@ -1393,12 +1799,12 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_sense_examples_standalone(self, word: str, entry_index: int, sense_index: int) -> Dict[str, Any]:
         """Fetch examples and collocations for a specific sense (standalone endpoint)"""
         try:
             api_data = self._fetch_from_api(word)
-            
+
             if api_data.get("success"):
                 entries = api_data.get("entries", [])
                 if entry_index >= len(entries):
@@ -1406,43 +1812,43 @@ class DictionaryService:
                         "success": False,
                         "error": f"Entry index {entry_index} out of range (total entries: {len(entries)})"
                     }
-                
+
                 entry = entries[entry_index]
                 meanings = entry.get("meanings", [])
-                
+
                 flat_index = 0
                 for meaning in meanings:
                     definitions = meaning.get("definitions", [])
                     if flat_index + len(definitions) > sense_index:
                         definition_index = sense_index - flat_index
                         definition = definitions[definition_index]
-                        
+
                         api_example = definition.get("example")
                         api_examples = [api_example] if api_example else []
                         basic_definition = definition.get("definition", "")
-                        
+
                         TARGET_EXAMPLES = 2
                         TARGET_COLLOCATIONS = 3
                         examples_needed = max(0, TARGET_EXAMPLES - len(api_examples))
                         collocations_needed = TARGET_COLLOCATIONS
-                        
+
                         result = self._fetch_sense_usage_examples(
                             word, sense_index, basic_definition, api_examples,
                             examples_needed, collocations_needed
                         )
-                        
+
                         if result.get("success"):
                             ai_examples = result["data"]["examples"]
                             ai_collocations = result["data"]["collocations"]
-                            
+
                             merged_examples = list(dict.fromkeys(api_examples + ai_examples))[:TARGET_EXAMPLES]
                             merged_collocations = ai_collocations[:TARGET_COLLOCATIONS]
-                            
+
                             while len(merged_examples) < TARGET_EXAMPLES:
                                 merged_examples.append("")
                             while len(merged_collocations) < TARGET_COLLOCATIONS:
                                 merged_collocations.append("")
-                            
+
                             return {
                                 "success": True,
                                 "examples": merged_examples,
@@ -1450,9 +1856,9 @@ class DictionaryService:
                             }
                         else:
                             return result
-                    
+
                     flat_index += len(definitions)
-                
+
                 return {
                     "success": False,
                     "error": f"Sense index {sense_index} not found in entry {entry_index}"
@@ -1462,18 +1868,18 @@ class DictionaryService:
                     "success": False,
                     "error": f"Dictionary API failed: {api_data.get('error', 'Word not found')}"
                 }
-                
+
         except Exception as e:
             return {
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_sense_usage_notes_standalone(self, word: str, entry_index: int, sense_index: int) -> Dict[str, Any]:
         """Fetch usage notes for a specific sense (standalone endpoint)"""
         try:
             api_data = self._fetch_from_api(word)
-            
+
             if api_data.get("success"):
                 entries = api_data.get("entries", [])
                 if entry_index >= len(entries):
@@ -1481,10 +1887,10 @@ class DictionaryService:
                         "success": False,
                         "error": f"Entry index {entry_index} out of range (total entries: {len(entries)})"
                     }
-                
+
                 entry = entries[entry_index]
                 meanings = entry.get("meanings", [])
-                
+
                 flat_index = 0
                 for meaning in meanings:
                     definitions = meaning.get("definitions", [])
@@ -1492,9 +1898,9 @@ class DictionaryService:
                         definition_index = sense_index - flat_index
                         definition = definitions[definition_index]
                         basic_definition = definition.get("definition", "")
-                        
+
                         result = self._fetch_sense_usage_notes(word, sense_index, basic_definition)
-                        
+
                         if result.get("success"):
                             return {
                                 "success": True,
@@ -1502,9 +1908,9 @@ class DictionaryService:
                             }
                         else:
                             return result
-                    
+
                     flat_index += len(definitions)
-                
+
                 return {
                     "success": False,
                     "error": f"Sense index {sense_index} not found in entry {entry_index}"
@@ -1514,20 +1920,20 @@ class DictionaryService:
                     "success": False,
                     "error": f"Dictionary API failed: {api_data.get('error', 'Word not found')}"
                 }
-                
+
         except Exception as e:
             return {
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_bilibili_videos_section(self, word: str, phrase: str, start_time: float) -> Dict[str, Any]:
         """Fetch Bilibili videos section with phrase parameter"""
         result = self._fetch_bilibili_videos(word, phrase)
-        
+
         if not result.get("success"):
             return result
-        
+
         return {
             "headword": word,
             "phrase": phrase,
@@ -1536,16 +1942,16 @@ class DictionaryService:
             "execution_time": time.time() - start_time,
             "success": True
         }
-    
+
     def _fetch_phrase_video_section(self, word: str, phrase: str, entry_index: Optional[int], start_time: float, style: str = "kids_cartoon", duration: int = 5, resolution: str = "480p", ratio: str = "16:9") -> Dict[str, Any]:
         """
         Generate AI video for a phrase using async task service with conversation pre-generation
-        
+
         Flow:
         1. Generate educational conversation script for the phrase (Stage 1)
         2. Use conversation script to generate video (Stage 2)
         3. Return task info for frontend polling
-        
+
         Returns task information for frontend to poll for progress
         """
         if not phrase:
@@ -1553,12 +1959,12 @@ class DictionaryService:
                 "error": "ai_generated_phrase_video section requires 'phrase' parameter",
                 "success": False
             }
-        
+
         logger.info(f"[ai_generated_phrase_video] Stage 1: Generating conversation script for phrase: '{phrase}' (style={style})")
-        
+
         try:
             conversation_result = self._generate_conversation_script(phrase, style)
-            
+
             if not conversation_result.get("success"):
                 return {
                     "phrase": phrase,
@@ -1566,10 +1972,10 @@ class DictionaryService:
                     "execution_time": time.time() - start_time,
                     "success": False
                 }
-            
+
             conversation_script = conversation_result["conversation_script"]
             logger.info(f"[ai_generated_phrase_video] Stage 1 complete: {len(conversation_script['dialogue'])} dialogue lines generated")
-            
+
         except Exception as e:
             logger.error(f"Error generating conversation for phrase '{phrase}': {str(e)}")
             return {
@@ -1578,12 +1984,12 @@ class DictionaryService:
                 "execution_time": time.time() - start_time,
                 "success": False
             }
-        
+
         logger.info(f"[ai_generated_phrase_video] Stage 2: Creating async video task (style={style}, duration={duration}s)")
-        
+
         bucket_name_prefix = os.getenv("BUCKET_NAME_PREFIX", "")
         bucket_name = f"{bucket_name_prefix}video-of-phrase-usage-from-ai"
-        
+
         try:
             task_id = video_task_service.create_task(
                 phrase=phrase,
@@ -1595,7 +2001,7 @@ class DictionaryService:
                 resolution=resolution,
                 ratio=ratio
             )
-            
+
             from .cache_service import cache_service
             cache_service.set_ai_phrase_video(
                 word=word,
@@ -1610,9 +2016,9 @@ class DictionaryService:
                 status="pending"
             )
             logger.info(f"[ai_generated_phrase_video] Cached task {task_id} for '{word}' - phrase: '{phrase}'")
-            
+
             video_task_service.start_video_generation(task_id)
-            
+
             return {
                 "phrase": phrase,
                 "conversation_script": conversation_script,
@@ -1630,7 +2036,7 @@ class DictionaryService:
                 "execution_time": time.time() - start_time,
                 "success": True
             }
-                
+
         except Exception as e:
             logger.error(f"Error creating video task for phrase '{phrase}': {str(e)}")
             return {
@@ -1640,15 +2046,15 @@ class DictionaryService:
                 "execution_time": time.time() - start_time,
                 "success": False
             }
-    
+
     def _generate_conversation_script(self, phrase: str, style: str = "kids_cartoon") -> Dict[str, Any]:
         """
         Generate educational conversation script for a phrase
-        
+
         Args:
             phrase: The phrase to demonstrate
             style: Video style (affects conversation tone and setting)
-            
+
         Returns:
             Dictionary with conversation_script data or error
         """
@@ -1657,12 +2063,12 @@ class DictionaryService:
             with metrics_collector.track("ConversationAgent", phrase, "ai_generated_phrase_video", prompt) as _t:
                 response = self.conversation_agent.run(prompt)
                 _t.set_response(response)
-            
+
             if isinstance(response.content, ConversationScript):
                 script_data = response.content.model_dump()
-                
+
                 logger.info(f"[ConversationScript] Generated for '{phrase}': {len(script_data['dialogue'])} lines, scenario: '{script_data['scenario'][:50]}...'")
-                
+
                 return {
                     "success": True,
                     "conversation_script": script_data
@@ -1678,24 +2084,24 @@ class DictionaryService:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def _fetch_bilibili_videos(self, word: str, phrase: str, context_entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch Bilibili videos for a specific phrase using the decoupled search module
-        
+
         Args:
             word: The original word being looked up
             phrase: The specific phrase to search videos for
             context_entry: Optional API entry context (unused)
-            
+
         Returns:
             Dictionary with video info or error
         """
         try:
             normalized_phrase = self._normalize_word(phrase)
             logger.info(f"[{word}] Searching Bilibili for phrase: '{normalized_phrase}'")
-            
+
             video_info = self.bilibili_search._search_videos_for_phrase(word, normalized_phrase)
-            
+
             if video_info:
                 return {
                     "success": True,
@@ -1706,24 +2112,24 @@ class DictionaryService:
                     "success": False,
                     "error": f"No videos found for phrase '{phrase}'"
                 }
-            
+
         except Exception as e:
             logger.error(f"Error fetching Bilibili videos for '{word}' with phrase '{phrase}': {str(e)}")
             return {
                 "success": False,
                 "error": str(e)
             }
-    
+
     def get_video_status(self, task_id: str) -> Dict[str, Any]:
         try:
             task = video_task_service.get_task_status(task_id)
-            
+
             if not task:
                 return {
                     "error": f"Task {task_id} not found",
                     "success": False
                 }
-            
+
             response = {
                 "task_id": task['task_id'],
                 "phrase": task['phrase'],
@@ -1733,27 +2139,27 @@ class DictionaryService:
                 "updated_at": task['updated_at'],
                 "success": True
             }
-            
+
             if task.get('conversation_script'):
                 response['conversation_script'] = task['conversation_script']
-            
+
             if task['video_url']:
                 response['video_url'] = task['video_url']
                 response['style'] = task['style']
                 response['duration'] = task['duration']
-            
+
             if task['error_message']:
                 response['error_message'] = task['error_message']
-            
+
             return response
-            
+
         except Exception as e:
             logger.error(f"Error getting video task status: {str(e)}")
             return {
                 "error": str(e),
                 "success": False
             }
-    
+
 
 
 

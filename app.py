@@ -79,7 +79,7 @@ def image():
     # If no files are selected
     if len(images) == 0:
         return jsonify({"error": "No selected files"}), 400
-    
+
      # Dictionary to store the base64 images
     base64_images: List[str] = []
 
@@ -103,7 +103,7 @@ def image():
 def dictionary_lookup():
     """
     Dictionary lookup endpoint - section-based with entry-level awareness
-    
+
     Request body:
     {
         "word": "hello",          # Required
@@ -111,9 +111,10 @@ def dictionary_lookup():
         "index": 0,               # Optional: DEPRECATED - use entry_index + sense_index
         "entry_index": 0,         # Optional: for entry-specific sections
         "sense_index": 0,         # Optional: for 'detailed_sense' section (0-based within entry)
-        "phrase": "hello world"   # Optional: required for 'bilibili_videos' and 'ai_generated_phrase_video' sections
+        "phrase": "hello world",  # Optional: required for 'bilibili_videos' and 'ai_generated_phrase_video' sections
+        "lang": "zh-cn"           # Optional: add Simplified Chinese translations for supported sections
     }
-    
+
     Valid sections:
     - "basic": Entry-level structure with counts (fast, no AI)
     - "common_phrases": Common phrases for the word (AI-generated, 1-6 phrases)
@@ -125,7 +126,7 @@ def dictionary_lookup():
     - "detailed_sense": Single sense detail (requires entry_index + sense_index)
     - "bilibili_videos": Videos for specific phrase (requires phrase parameter)
     - "ai_generated_phrase_video": AI-generated educational video for phrase (requires phrase parameter)
-    
+
     Example requests:
     - {"word": "scrub", "section": "basic"}  # Get entry structure
     - {"word": "scrub", "section": "common_phrases"}  # Get common phrases
@@ -143,33 +144,55 @@ def dictionary_lookup():
                 "error": "Missing 'word' parameter in request body",
                 "success": False
             }), 400
-        
+
         if 'section' not in data:
             return jsonify({
                 "error": "Missing 'section' parameter in request body. Valid sections: basic, common_phrases, etymology, word_family, usage_context, cultural_notes, frequency, detailed_sense, bilibili_videos",
                 "success": False
             }), 400
-        
+
         word = data['word'].strip()
         if not word:
             return jsonify({
                 "error": "Word cannot be empty",
                 "success": False
             }), 400
-        
+
         section = data['section'].strip()
         if not section:
             return jsonify({
                 "error": "Section cannot be empty",
                 "success": False
             }), 400
-        
+
         entry_index = data.get('entry_index', None)
         sense_index = data.get('sense_index', None)
         phrase = data.get('phrase', None)
         task_id = data.get('task_id', None)
         confused_word = data.get('confused_word', None)
-        
+        lang = data.get('lang', None)
+        if lang is not None:
+            lang = str(lang).strip().lower().replace('_', '-')
+            if lang == 'zh':
+                lang = 'zh-cn'
+            if lang not in ('zh-cn',):
+                return jsonify({
+                    "error": f"Unsupported language '{data.get('lang')}'. Supported: 'zh-cn'",
+                    "success": False
+                }), 400
+
+            translatable_sections = {
+                'basic', 'common_phrases',
+                'etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency',
+                'detailed_sense', 'examples', 'usage_notes',
+                'confusion_meta', 'confusion_profiles', 'confusion_examples', 'confusion_all'
+            }
+            if section not in translatable_sections:
+                return jsonify({
+                    "error": f"Language '{lang}' is not supported for section '{section}'",
+                    "success": False
+                }), 400
+
         if section == 'video_status':
             if not task_id:
                 return jsonify({
@@ -179,18 +202,26 @@ def dictionary_lookup():
             result = dictionary_service.get_video_status(task_id)
             status_code = 200 if result.get('success') else 404
             return jsonify(result), status_code
-        
+
         # Auto-default entry_index for entry-level sections
         # Most entry-level sections are not entry-specific, so default to 0
         if entry_index is None and section in ['etymology', 'word_family', 'usage_context', 'cultural_notes', 'frequency']:
             entry_index = 0
             logging.debug(f"[{word}] Auto-defaulting entry_index to 0 for {section}")
-        
+
         # --- Cache orchestration (delegated to cache_service) ---
         def fetch_from_service():
             """Fetch function for cache miss"""
-            return dictionary_service.lookup_section(word, section, sense_index, entry_index, phrase, confused_word)
-        
+            return dictionary_service.lookup_section(
+                word,
+                section,
+                sense_index,
+                entry_index,
+                phrase,
+                confused_word,
+                lang=lang
+            )
+
         result, status_code = cache_service.lookup_with_cache(
             word=word,
             section=section,
@@ -198,9 +229,10 @@ def dictionary_lookup():
             sense_index=sense_index,
             phrase=phrase,
             fetch_func=fetch_from_service,
-            confused_word=confused_word
+            confused_word=confused_word,
+            lang=lang
         )
-        
+
         return jsonify(result), status_code
     except Exception as e:
         logging.error(f"Error in dictionary lookup: {str(e)}")
@@ -229,11 +261,11 @@ def dictionary_test():
 def dictionary_suggest():
     """
     Word suggestion endpoint for autocomplete
-    
+
     Query params:
         q: Search query (min 2 chars)
         limit: Max suggestions (default 10, max 20)
-    
+
     Returns:
         {
             "query": str,
@@ -245,13 +277,13 @@ def dictionary_suggest():
     try:
         query = request.args.get('q', '').strip()
         limit = min(int(request.args.get('limit', 10)), 20)
-        
+
         if not query:
             return jsonify({
                 "error": "Missing 'q' query parameter",
                 "success": False
             }), 400
-        
+
         if len(query) < 2:
             return jsonify({
                 "query": query,
@@ -259,10 +291,10 @@ def dictionary_suggest():
                 "source": "none",
                 "success": True
             }), 200
-        
+
         result = suggestion_service.suggest(query, limit=limit)
         return jsonify(result), 200
-        
+
     except ValueError:
         return jsonify({
             "error": "Invalid 'limit' parameter (must be integer)",
@@ -279,12 +311,12 @@ def dictionary_suggest():
 def get_ai_phrase_videos():
     """
     List all AI-generated phrase videos for a given phrase
-    
+
     Query params:
         word: Word being looked up (required)
         phrase: Phrase to find videos for (required)
         status: Filter by status (optional) - "pending", "processing", "completed", "failed"
-    
+
     Returns:
         {
             "word": str,
@@ -310,16 +342,16 @@ def get_ai_phrase_videos():
         word = request.args.get('word', '').strip()
         phrase = request.args.get('phrase', '').strip()
         status = request.args.get('status', '').strip()
-        
+
         if not word or not phrase:
             return jsonify({
                 "error": "Missing 'word' and/or 'phrase' query parameters",
                 "success": False
             }), 400
-        
+
         status_filter = [status] if status else None
         videos = cache_service.list_ai_phrase_videos(word, phrase, status_filter)
-        
+
         return jsonify({
             "word": word,
             "phrase": phrase,
@@ -327,7 +359,7 @@ def get_ai_phrase_videos():
             "count": len(videos),
             "success": True
         }), 200
-        
+
     except Exception as e:
         logging.error(f"Error in get_ai_phrase_videos: {str(e)}")
         return jsonify({
