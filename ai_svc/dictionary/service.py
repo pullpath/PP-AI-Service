@@ -117,6 +117,16 @@ class DictionaryService:
             raise ValueError("DEEPSEEK_API_KEY environment variable is not set")
 
         no_thinking = {"thinking": {"type": "disabled"}}
+        self.deepseek_api_key = deepseek_api_key
+        self.no_thinking_model_config = no_thinking
+        self.basic_translation_parallelism = max(
+            1,
+            min(6, int(os.getenv("BASIC_TRANSLATION_PARALLELISM", "4")))
+        )
+        self.basic_translation_definitions_per_chunk = max(
+            1,
+            min(10, int(os.getenv("BASIC_TRANSLATION_DEFINITIONS_PER_CHUNK", "6")))
+        )
 
         # Create DeepSeek models with different token limits for optimization
         # Simple tasks (frequency, word_family): 256 tokens
@@ -829,18 +839,239 @@ class DictionaryService:
             return json.loads(content)
         return json.loads(str(content))
 
+    def _create_basic_translation_agent(self, name: str) -> Agent:
+        """Create a short-lived agent for an independent basic translation chunk."""
+        model = DeepSeek(
+            id="deepseek-v4-flash",
+            api_key=self.deepseek_api_key,
+            temperature=0,
+            max_tokens=768,
+            timeout=30.0,
+            max_retries=0,
+            extra_body=self.no_thinking_model_config
+        )
+        return Agent(
+            name=name,
+            model=model,
+            description="Translates one basic dictionary chunk into Simplified Chinese",
+            use_json_mode=True,
+            output_schema=ChineseBasicTranslation
+        )
+
+    def _build_basic_translation_chunks(self, word: str, basic_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Split basic data into independently translatable chunks."""
+        chunks = []
+        entries = basic_result.get("entries", [])
+        max_defs = self.basic_translation_definitions_per_chunk
+
+        for entry_position, entry in enumerate(entries):
+            entry_index = entry.get("entry_index", entry_position)
+            meanings = entry.get("meanings_summary", [])
+
+            for meaning_index, meaning in enumerate(meanings):
+                senses = meaning.get("senses", []) or []
+                if not senses:
+                    senses_batches = [([], 0)]
+                else:
+                    senses_batches = [
+                        (senses[start:start + max_defs], start)
+                        for start in range(0, len(senses), max_defs)
+                    ]
+
+                for senses_batch, sense_start in senses_batches:
+                    source = {
+                        "headword": basic_result.get("headword", word),
+                        "entries": [
+                            {
+                                "entry_index": entry_index,
+                                "meanings_summary": [
+                                    {
+                                        "part_of_speech": meaning.get("part_of_speech", ""),
+                                        "definition_count": len(senses_batch),
+                                        "senses": senses_batch
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                    chunks.append({
+                        "entry_position": entry_position,
+                        "entry_index": entry_index,
+                        "meaning_index": meaning_index,
+                        "sense_start": sense_start,
+                        "sense_count": len(senses_batch),
+                        "source": source
+                    })
+
+        return chunks
+
+    def _translate_basic_chunk(self, word: str, chunk: Dict[str, Any], chunk_index: int) -> Dict[str, Any]:
+        """Translate one basic-data chunk."""
+        prompt = get_basic_translation_prompt(
+            word,
+            json.dumps(chunk["source"], ensure_ascii=False)
+        )
+        agent = self._create_basic_translation_agent(f"BasicTranslationChunkAgent{chunk_index + 1}")
+        with metrics_collector.track("BasicTranslationChunkAgent", word, "basic_zh", prompt) as _t:
+            response = agent.run(prompt)
+            _t.set_response(response)
+
+        translation = self._agent_response_to_dict(response)
+        entries = translation.get("entries", [])
+        entry_translation = next(
+            (entry for entry in entries if entry.get("entry_index") == chunk["entry_index"]),
+            entries[0] if entries else {}
+        )
+        meanings = entry_translation.get("meanings_summary", [])
+        meaning_translation = meanings[0] if meanings else {}
+
+        return {
+            "success": True,
+            "chunk": chunk,
+            "meaning": meaning_translation
+        }
+
+    def _merge_basic_translation_chunks(self, basic_result: Dict[str, Any],
+                                        chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Merge translated chunks back into ChineseBasicTranslation shape."""
+        entries = []
+        source_entries = basic_result.get("entries", [])
+
+        for entry_position, source_entry in enumerate(source_entries):
+            entry_index = source_entry.get("entry_index", entry_position)
+            source_meanings = source_entry.get("meanings_summary", [])
+            entries.append({
+                "entry_index": entry_index,
+                "meanings_summary": [
+                    {
+                        "part_of_speech": "",
+                        "definitions": []
+                    }
+                    for _ in source_meanings
+                ]
+            })
+
+        sorted_results = sorted(
+            chunk_results,
+            key=lambda item: (
+                item["chunk"]["entry_position"],
+                item["chunk"]["meaning_index"],
+                item["chunk"]["sense_start"]
+            )
+        )
+
+        for item in sorted_results:
+            chunk = item["chunk"]
+            meaning = item.get("meaning", {})
+            entry_position = chunk["entry_position"]
+            meaning_index = chunk["meaning_index"]
+
+            if entry_position >= len(entries):
+                continue
+            if meaning_index >= len(entries[entry_position]["meanings_summary"]):
+                continue
+
+            target_meaning = entries[entry_position]["meanings_summary"][meaning_index]
+            if meaning.get("part_of_speech") and not target_meaning["part_of_speech"]:
+                target_meaning["part_of_speech"] = meaning["part_of_speech"]
+
+            definitions = meaning.get("definitions", []) or []
+            target_meaning["definitions"].extend(definitions)
+
+        return {
+            "entries": entries,
+            "meanings": entries[0]["meanings_summary"] if entries else []
+        }
+
+    def _translate_basic_section_parallel(self, word: str, basic_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate basic data by running smaller chunks concurrently."""
+        chunks = self._build_basic_translation_chunks(word, basic_result)
+        if len(chunks) <= 1 or self.basic_translation_parallelism <= 1:
+            return self._translate_basic_section_single(word, basic_result)
+
+        chunk_results = []
+        max_workers = min(self.basic_translation_parallelism, len(chunks))
+        logger.info(
+            f"[{word}] Basic zh translation: {len(chunks)} chunks, {max_workers} workers"
+        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(self._translate_basic_chunk, word, chunk, idx): idx
+                for idx, chunk in enumerate(chunks)
+            }
+            done, not_done = concurrent.futures.wait(
+                future_map.keys(),
+                timeout=35.0,
+                return_when=concurrent.futures.ALL_COMPLETED
+            )
+
+            for future in not_done:
+                future.cancel()
+
+            if not_done:
+                return {
+                    "success": False,
+                    "error": f"Timed out translating {len(not_done)} basic chunks"
+                }
+
+            for future in done:
+                idx = future_map[future]
+                try:
+                    result = future.result(timeout=0.1)
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Chunk {idx} failed: {e}"
+                    }
+
+                if not result.get("success"):
+                    return {
+                        "success": False,
+                        "error": f"Chunk {idx} failed: {result.get('error', 'unknown error')}"
+                    }
+
+                definitions = result.get("meaning", {}).get("definitions", []) or []
+                expected_count = result["chunk"].get("sense_count", 0)
+                if len(definitions) != expected_count:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Chunk {idx} returned {len(definitions)} definitions; "
+                            f"expected {expected_count}"
+                        )
+                    }
+                chunk_results.append(result)
+
+        return {
+            "success": True,
+            "translation": self._merge_basic_translation_chunks(basic_result, chunk_results)
+        }
+
+    def _translate_basic_section_single(self, word: str, basic_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate basic section data in one LLM call."""
+        source = {
+            "headword": basic_result.get("headword", word),
+            "entries": basic_result.get("entries", []),
+        }
+        prompt = get_basic_translation_prompt(word, json.dumps(source, ensure_ascii=False))
+        with metrics_collector.track("BasicTranslationAgent", word, "basic_zh", prompt) as _t:
+            response = self.basic_translation_agent.run(prompt)
+            _t.set_response(response)
+        return {"success": True, "translation": self._agent_response_to_dict(response)}
+
     def _translate_basic_section(self, word: str, basic_result: Dict[str, Any]) -> Dict[str, Any]:
         """Translate basic section data into Simplified Chinese."""
         try:
-            source = {
-                "headword": basic_result.get("headword", word),
-                "entries": basic_result.get("entries", []),
-            }
-            prompt = get_basic_translation_prompt(word, json.dumps(source, ensure_ascii=False))
-            with metrics_collector.track("BasicTranslationAgent", word, "basic_zh", prompt) as _t:
-                response = self.basic_translation_agent.run(prompt)
-                _t.set_response(response)
-            return {"success": True, "translation": self._agent_response_to_dict(response)}
+            parallel_result = self._translate_basic_section_parallel(word, basic_result)
+            if parallel_result.get("success"):
+                return parallel_result
+
+            logger.warning(
+                f"Parallel basic translation failed for '{word}', falling back to single call: "
+                f"{parallel_result.get('error')}"
+            )
+            return self._translate_basic_section_single(word, basic_result)
         except Exception as e:
             logger.warning(f"Failed to translate basic section for '{word}': {e}")
             return {"success": False, "error": str(e)}
