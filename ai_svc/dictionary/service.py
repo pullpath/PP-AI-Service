@@ -1899,9 +1899,16 @@ class DictionaryService:
                 _t.set_response(response)
 
             if isinstance(response.content, UsageContextInfo):
+                usage_data = response.content.model_dump()
+                # Defensive filter: remove the word itself from common_confusions
+                word_lower = word.strip().lower()
+                usage_data["common_confusions"] = [
+                    w for w in usage_data.get("common_confusions", [])
+                    if w.strip().lower() != word_lower
+                ]
                 return {
                     "success": True,
-                    "usage_context": response.content.model_dump()
+                    "usage_context": usage_data
                 }
             return {
                 "success": False,
