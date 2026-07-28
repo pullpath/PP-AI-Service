@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 
 from .prompts import get_translation_prompt
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 
@@ -21,11 +20,12 @@ class TranslationService:
     """Translates arbitrary text into a target language via DeepSeek."""
 
     def __init__(self):
+        load_dotenv()
         deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY", "")
         no_thinking = {"thinking": {"type": "disabled"}}
 
         translation_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-chat",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=1024,
@@ -57,6 +57,8 @@ class TranslationService:
             response = self.agent.run(prompt)
             # Extract plain-text content from the agent response
             translation = response.content
+            if translation is None:
+                raise ValueError("Agent returned empty response")
             if isinstance(translation, list):
                 # agno may return a list of content blocks
                 translation = "".join(
