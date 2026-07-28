@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, render_template, redirect, url_for
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import os
+import time
 from ai_svc import tool, openai
 import sys
 import logging
@@ -417,7 +418,7 @@ def translate_text():
         "success": true
     }
     """
-    start_time = __import__('time').time()
+    start_time = time.time()
     try:
         data = request.get_json()
         if not data or 'text' not in data:
@@ -457,7 +458,7 @@ def translate_text():
             "text": text,
             "target_lang": target_lang,
             "translation": result["translation"],
-            "execution_time": __import__('time').time() - start_time,
+            "execution_time": time.time() - start_time,
             "success": True
         })
     except Exception as e:
