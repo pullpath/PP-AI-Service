@@ -23,6 +23,7 @@ from ai_svc.dictionary.cache_routes import cache_bp
 from ai_svc.dictionary.suggest_service import suggestion_service
 from ai_svc.dictionary.video_task_service import video_task_service
 from ai_svc.metrics_collector import metrics_collector
+from ai_svc.translation import translation_service
 
 app = Flask(__name__)
 CORS(app)
@@ -391,6 +392,80 @@ def search():
 def scrape():
     result = tool.web_scraping(request.args.get('objective'), request.args.get('url'))
     return jsonify({"status": "ok", "result": result})
+
+@app.route('/api/translate', methods=['POST'])
+def translate_text():
+    """
+    Standalone text translation endpoint.
+
+    Request body:
+    {
+        "text": "She scrubbed the floor until it gleamed.",
+        "target_lang": "zh-cn"
+    }
+
+    - "text": Required. The text to translate (word, phrase, or sentence).
+    - "target_lang": Required. BCP-47 language tag for the target language
+                     (e.g. "zh-cn", "ja", "es", "fr", "de").
+
+    Response:
+    {
+        "text": "She scrubbed the floor until it gleamed.",
+        "target_lang": "zh-cn",
+        "translation": "她把地板擦得闪闪发光。",
+        "execution_time": 1.23,
+        "success": true
+    }
+    """
+    start_time = __import__('time').time()
+    try:
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({
+                "error": "Missing 'text' parameter in request body",
+                "success": False
+            }), 400
+
+        if 'target_lang' not in data:
+            return jsonify({
+                "error": "Missing 'target_lang' parameter in request body",
+                "success": False
+            }), 400
+
+        text = data['text'].strip()
+        if not text:
+            return jsonify({
+                "error": "text cannot be empty",
+                "success": False
+            }), 400
+
+        target_lang = data['target_lang'].strip()
+        if not target_lang:
+            return jsonify({
+                "error": "target_lang cannot be empty",
+                "success": False
+            }), 400
+
+        result = translation_service.translate(text, target_lang)
+        if not result.get("success"):
+            return jsonify({
+                "error": f"Translation failed: {result.get('error', 'unknown error')}",
+                "success": False
+            }), 500
+
+        return jsonify({
+            "text": text,
+            "target_lang": target_lang,
+            "translation": result["translation"],
+            "execution_time": __import__('time').time() - start_time,
+            "success": True
+        })
+    except Exception as e:
+        logging.error(f"[/api/translate] Unexpected error: {e}")
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
 
 if __name__ == '__main__':
     env = os.getenv('FLASK_ENV', 'development')
