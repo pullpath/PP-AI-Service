@@ -746,7 +746,14 @@ class DictionaryService:
             "success": True
         }
         """
-        api_result = self._fetch_from_api(word)
+        # Fire the free-API fetch and the Oxford pronunciation HEAD check concurrently —
+        # both are independent network calls, so running them in parallel saves ~500 ms.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            api_future = executor.submit(self._fetch_from_api, word)
+            pronunciation_future = executor.submit(get_pronunciation_url, word)
+            api_result = api_future.result()
+            # Resolved once, reused for every entry (all entries share the same headword)
+            pronunciation_url = pronunciation_future.result()
 
         if api_result.get("success"):
             logger.info(f"[{word}] Basic data: Using FREE API (hybrid_api_ai)")
@@ -789,7 +796,8 @@ class DictionaryService:
                         "senses": senses
                     })
 
-                pronunciation_data = self._extract_pronunciation_data(entry, word)
+                # Pass the pre-fetched pronunciation URL (resolved once before the loop)
+                pronunciation_data = self._extract_pronunciation_data(entry, pronunciation_url)
 
                 entries_info.append({
                     "entry_index": entry_idx,
@@ -1319,16 +1327,17 @@ class DictionaryService:
 
         return result
 
-    def _extract_pronunciation_data(self, entry: Dict[str, Any], word: str) -> Dict[str, str]:
+    def _extract_pronunciation_data(self, entry: Dict[str, Any], pronunciation_url: str) -> Dict[str, str]:
         """
-        Extract pronunciation data (audio URL + IPA) from a free-API entry,
-        falling back to Wiktionary when the original API URL is unavailable.
+        Extract pronunciation data (audio URL + IPA) from a free-API entry.
 
-        The original API URL is used as fallback when Wiktionary has no entry.
+        pronunciation_url is pre-resolved by the caller (Oxford CDN or empty string)
+        and used in preference over the original API audio URL, which is unreliable.
+        The original API URL serves as fallback when pronunciation_url is empty.
 
         Returns:
             {
-                "pronunciation": "<wiktionary_url_or_original_api_url>",
+                "pronunciation": "<oxford_url_or_original_api_url>",
                 "ipa": "/phonetic/",
             }
         """
@@ -1337,7 +1346,7 @@ class DictionaryService:
         ipa_text = ""
 
         # Extract audio URL from the API entry (prefer UK > US > any).
-        # This logic is unchanged — we still record what the API gave us.
+        # Kept as fallback in case the Oxford CDN URL is unavailable.
         for p in phonetics:
             audio = p.get("audio", "")
             if audio and ("-uk.mp3" in audio.lower() or "-uk-" in audio.lower()):
@@ -1367,11 +1376,10 @@ class DictionaryService:
         if not ipa_text:
             ipa_text = entry.get("phonetic", "")
 
-        # Always prefer Wiktionary/Wikimedia CDN URLs over the free API audio URLs,
+        # Always prefer the Oxford CDN URL over the free API audio URLs,
         # which are currently unreliable. Fall back to the original API URL only
-        # when Wiktionary has no entry for this word.
-        wiktionary_url = get_pronunciation_url(word)
-        resolved_url = wiktionary_url if wiktionary_url else audio_url
+        # when the Oxford URL is unavailable.
+        resolved_url = pronunciation_url if pronunciation_url else audio_url
 
         return {
             "pronunciation": resolved_url,
