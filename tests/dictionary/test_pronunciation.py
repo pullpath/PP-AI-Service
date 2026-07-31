@@ -1,6 +1,5 @@
 # tests/dictionary/test_pronunciation.py
 """Unit tests for the standalone pronunciation URL resolver."""
-import pytest
 from unittest.mock import patch, MagicMock
 from ai_svc.dictionary.pronunciation import get_pronunciation_url
 
