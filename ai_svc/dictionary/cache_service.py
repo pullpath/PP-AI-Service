@@ -2031,8 +2031,11 @@ class DictionaryCacheService:
             result = fetch_func()
 
             response_time = (time.time() - start_time) * 1000
-            self.metrics.record_miss(time.time() - start_time, result.get('data_source', 'unknown'))
-            self.track_metric('miss', word, section, response_time, result.get('data_source', 'service'))
+            # Use 'ai' as default source — avoids CHECK constraint failure when
+            # the AI backend returns an error and does not set data_source.
+            data_source = result.get('data_source', 'ai')
+            self.metrics.record_miss(time.time() - start_time, data_source)
+            self.track_metric('miss', word, section, response_time, data_source)
 
             # --- CACHE WRITE (only on success) ---
             if result.get('success'):
