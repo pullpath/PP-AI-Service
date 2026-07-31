@@ -789,7 +789,6 @@ class DictionaryService:
                         "senses": senses
                     })
 
-                # Pass word so the fallback service can resolve a Wiktionary audio URL
                 pronunciation_data = self._extract_pronunciation_data(entry, word)
 
                 entries_info.append({
@@ -1325,8 +1324,7 @@ class DictionaryService:
         Extract pronunciation data (audio URL + IPA) from a free-API entry,
         falling back to Wiktionary when the original API URL is unavailable.
 
-        The original API URL is preserved internally so it can be restored
-        if the upstream source recovers.
+        The original API URL is used as fallback when Wiktionary has no entry.
 
         Returns:
             {
@@ -1369,9 +1367,9 @@ class DictionaryService:
         if not ipa_text:
             ipa_text = entry.get("phonetic", "")
 
-        # Attempt to replace the (potentially broken) API audio URL with a
-        # stable Wiktionary/Wikimedia CDN URL.  Fall back to the original URL
-        # if Wiktionary has no entry for this word.
+        # Always prefer Wiktionary/Wikimedia CDN URLs over the free API audio URLs,
+        # which are currently unreliable. Fall back to the original API URL only
+        # when Wiktionary has no entry for this word.
         wiktionary_url = get_pronunciation_url(word)
         resolved_url = wiktionary_url if wiktionary_url else audio_url
 
