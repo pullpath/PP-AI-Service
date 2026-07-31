@@ -1,6 +1,4 @@
-"""
-Translation service package.
-"""
 from .service import TranslationService
+from .wotd_cache_service import WotdTranslationCacheService
 
-translation_service = TranslationService()
+__all__ = ["TranslationService", "WotdTranslationCacheService"]
