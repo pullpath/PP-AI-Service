@@ -1,7 +1,6 @@
 """Tests for WotdTranslationCacheService."""
 import os
 import time
-import tempfile
 import pytest
 from ai_svc.translation.wotd_cache_service import WotdTranslationCacheService
 
