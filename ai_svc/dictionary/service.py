@@ -2403,37 +2403,52 @@ class DictionaryService:
     def get_example_for_word(self, word: str) -> str:
         """Return the first available example sentence for a word.
 
-        Tries the inline example from the first sense of the basic section first.
-        Falls back to the dedicated examples section (entry 0, sense 0) if the
-        inline example is missing.
-        Returns an empty string if no example can be found.
+        Strategy (mirrors the main dictionary page behaviour):
+        1. Fetch the free-API example for the first sense (entry 0, sense 0).
+           Many words have no inline example here.
+        2. Regardless of whether a free-API example exists, call the LLM to
+           fill up to 2 examples (same pattern as _fetch_sense_examples_standalone).
+        3. Return the first non-empty example from the merged list.
+        Returns an empty string only if all sources fail.
         """
         try:
-            basic_result = self.lookup_section(word, "basic", entry_index=0)
-            if basic_result.get("success"):
-                entries = basic_result.get("entries", [])
+            api_data = self._fetch_from_api(word)
+            if not api_data.get("success"):
+                logger.warning(f"[get_example_for_word] API failed for '{word}': {api_data.get('error')}")
+            else:
+                entries = api_data.get("entries", [])
                 if entries:
-                    entry = entries[0]
-                    meanings_summary = entry.get("meanings_summary", [])
-                    if meanings_summary:
-                        first_summary = meanings_summary[0]
-                        senses = first_summary.get("senses", [])
-                        if senses and senses[0].get("example"):
-                            return senses[0]["example"]
-        except Exception as e:
-            logger.warning(f"[get_example_for_word] basic section failed for '{word}': {e}")
+                    meanings = entries[0].get("meanings", [])
+                    # Flatten to sense 0
+                    definition_obj = None
+                    for meaning in meanings:
+                        definitions = meaning.get("definitions", [])
+                        if definitions:
+                            definition_obj = definitions[0]
+                            break
 
-        # Fallback: dedicated examples section
-        try:
-            examples_result = self.lookup_section(
-                word, "examples", entry_index=0, sense_index=0
-            )
-            if examples_result.get("success"):
-                examples = examples_result.get("examples", [])
-                if examples and examples[0]:
-                    return examples[0]
+                    if definition_obj is not None:
+                        api_example = definition_obj.get("example") or ""
+                        api_examples = [api_example] if api_example else []
+                        basic_definition = definition_obj.get("definition", "")
+
+                        examples_needed = max(0, 2 - len(api_examples))
+                        result = self._fetch_sense_usage_examples(
+                            word, 0, basic_definition, api_examples,
+                            examples_needed, collocations_needed=0
+                        )
+
+                        if result.get("success"):
+                            ai_examples = result["data"]["examples"]
+                            merged = list(dict.fromkeys(api_examples + ai_examples))
+                            for ex in merged:
+                                if ex:
+                                    return ex
+                        elif api_example:
+                            # LLM failed but we have the free-API example — use it
+                            return api_example
         except Exception as e:
-            logger.warning(f"[get_example_for_word] examples section failed for '{word}': {e}")
+            logger.warning(f"[get_example_for_word] failed for '{word}': {e}")
 
         return ""
 
