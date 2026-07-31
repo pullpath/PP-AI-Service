@@ -2400,6 +2400,43 @@ class DictionaryService:
 
 
 
+    def get_example_for_word(self, word: str) -> str:
+        """Return the first available example sentence for a word.
+
+        Tries the inline example from the first sense of the basic section first.
+        Falls back to the dedicated examples section (entry 0, sense 0) if the
+        inline example is missing.
+        Returns an empty string if no example can be found.
+        """
+        try:
+            basic_result = self.lookup_section(word, "basic", entry_index=0)
+            if basic_result.get("success"):
+                entries = basic_result.get("entries", [])
+                if entries:
+                    entry = entries[0]
+                    meanings_summary = entry.get("meanings_summary", [])
+                    if meanings_summary:
+                        first_summary = meanings_summary[0]
+                        senses = first_summary.get("senses", [])
+                        if senses and senses[0].get("example"):
+                            return senses[0]["example"]
+        except Exception as e:
+            logger.warning(f"[get_example_for_word] basic section failed for '{word}': {e}")
+
+        # Fallback: dedicated examples section
+        try:
+            examples_result = self.lookup_section(
+                word, "examples", entry_index=0, sense_index=0
+            )
+            if examples_result.get("success"):
+                examples = examples_result.get("examples", [])
+                if examples and examples[0]:
+                    return examples[0]
+        except Exception as e:
+            logger.warning(f"[get_example_for_word] examples section failed for '{word}': {e}")
+
+        return ""
+
 
 # Global instance
 dictionary_service = DictionaryService()
