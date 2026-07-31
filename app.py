@@ -24,9 +24,8 @@ from ai_svc.dictionary.cache_routes import cache_bp
 from ai_svc.dictionary.suggest_service import suggestion_service
 from ai_svc.dictionary.video_task_service import video_task_service
 from ai_svc.metrics_collector import metrics_collector
-from ai_svc.translation import TranslationService
+from ai_svc.translation import TranslationService, WotdTranslationCacheService
 translation_service = TranslationService()
-from ai_svc.translation import WotdTranslationCacheService
 wotd_translation_cache_service = WotdTranslationCacheService()
 
 app = Flask(__name__)
@@ -485,54 +484,58 @@ def wotd_translate():
         "success": true
     }
     """
-    data = request.get_json(silent=True) or {}
-    word = (data.get('word') or '').strip()
-    target_lang = (data.get('target_lang') or '').strip()
+    try:
+        data = request.get_json(silent=True) or {}
+        word = (data.get('word') or '').strip()
+        target_lang = (data.get('target_lang') or '').strip()
 
-    if not word:
-        return jsonify({'error': "Missing or empty 'word' parameter", 'success': False}), 400
-    if not target_lang:
-        return jsonify({'error': "Missing or empty 'target_lang' parameter", 'success': False}), 400
+        if not word:
+            return jsonify({'error': "Missing or empty 'word' parameter", 'success': False}), 400
+        if not target_lang:
+            return jsonify({'error': "Missing or empty 'target_lang' parameter", 'success': False}), 400
 
-    # Fetch current example sentence server-side
-    example = dictionary_service.get_example_for_word(word)
-    if not example:
-        return jsonify({
-            'error': f"No example sentence found for word '{word}'",
-            'success': False
-        }), 500
+        # Fetch current example sentence server-side
+        example = dictionary_service.get_example_for_word(word)
+        if not example:
+            return jsonify({
+                'error': f"No example sentence found for word '{word}'",
+                'success': False
+            }), 500
 
-    # Check cache (validates that the stored example still matches)
-    cached = wotd_translation_cache_service.get(word, target_lang, example)
-    if cached is not None:
+        # Check cache (validates that the stored example still matches)
+        cached = wotd_translation_cache_service.get(word, target_lang, example)
+        if cached is not None:
+            return jsonify({
+                'word': word,
+                'target_lang': target_lang,
+                'example_sentence': example,
+                'translation': cached,
+                'cache_status': 'hit',
+                'success': True
+            })
+
+        # Cache miss — call LLM
+        result = translation_service.translate(example, target_lang)
+        if not result.get('success'):
+            return jsonify({
+                'error': f"Translation failed: {result.get('error', 'unknown error')}",
+                'success': False
+            }), 500
+
+        translation = result['translation']
+        wotd_translation_cache_service.set(word, target_lang, example, translation)
+
         return jsonify({
             'word': word,
             'target_lang': target_lang,
             'example_sentence': example,
-            'translation': cached,
-            'cache_status': 'hit',
+            'translation': translation,
+            'cache_status': 'miss',
             'success': True
         })
-
-    # Cache miss — call LLM
-    result = translation_service.translate(example, target_lang)
-    if not result.get('success'):
-        return jsonify({
-            'error': f"Translation failed: {result.get('error', 'unknown error')}",
-            'success': False
-        }), 500
-
-    translation = result['translation']
-    wotd_translation_cache_service.set(word, target_lang, example, translation)
-
-    return jsonify({
-        'word': word,
-        'target_lang': target_lang,
-        'example_sentence': example,
-        'translation': translation,
-        'cache_status': 'miss',
-        'success': True
-    })
+    except Exception as e:
+        logging.error(f"[/api/wotd/translate] Unexpected error: {e}")
+        return jsonify({'error': str(e), 'success': False}), 500
 
 if __name__ == '__main__':
     env = os.getenv('FLASK_ENV', 'development')
