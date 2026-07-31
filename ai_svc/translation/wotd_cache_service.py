@@ -9,7 +9,7 @@ import logging
 import threading
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Optional
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,37 @@ class WotdTranslationCacheService:
         conn = sqlite3.connect(self.db_path, timeout=5.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def get_cached(self, word: str, target_lang: str) -> Optional[Tuple[str, str]]:
+        """Return (example_sentence, translation) if an entry exists, without validation.
+
+        Fast path: no dictionary call needed. Returns whatever is stored.
+        Returns None if no entry exists for (word, target_lang).
+        Updates last_accessed_at on hit.
+        """
+        conn = self._read_connection()
+        try:
+            row = conn.execute(
+                "SELECT example_sentence, translation FROM wotd_translation_cache "
+                "WHERE word = ? AND target_lang = ?",
+                (word, target_lang)
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            return None
+
+        now = int(time.time())
+        with self._write_transaction() as conn:
+            conn.execute(
+                "UPDATE wotd_translation_cache SET last_accessed_at = ? "
+                "WHERE word = ? AND target_lang = ?",
+                (now, word, target_lang)
+            )
+
+        logger.info(f"[wotd_cache] Fast cache hit for '{word}' ({target_lang})")
+        return (row["example_sentence"], row["translation"])
 
     def get(self, word: str, target_lang: str, current_example: str) -> Optional[str]:
         """Return the cached translation if present and the example matches.

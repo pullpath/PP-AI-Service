@@ -494,25 +494,26 @@ def wotd_translate():
         if not target_lang:
             return jsonify({'error': "Missing or empty 'target_lang' parameter", 'success': False}), 400
 
-        # Fetch current example sentence server-side
+        # Fast path: check cache before touching the dictionary service
+        cached_entry = wotd_translation_cache_service.get_cached(word, target_lang)
+        if cached_entry is not None:
+            example_sentence, translation = cached_entry
+            return jsonify({
+                'word': word,
+                'target_lang': target_lang,
+                'example_sentence': example_sentence,
+                'translation': translation,
+                'cache_status': 'hit',
+                'success': True
+            })
+
+        # Cache miss — fetch example sentence from dictionary service
         example = dictionary_service.get_example_for_word(word)
         if not example:
             return jsonify({
                 'error': f"No example sentence found for word '{word}'",
                 'success': False
             }), 500
-
-        # Check cache (validates that the stored example still matches)
-        cached = wotd_translation_cache_service.get(word, target_lang, example)
-        if cached is not None:
-            return jsonify({
-                'word': word,
-                'target_lang': target_lang,
-                'example_sentence': example,
-                'translation': cached,
-                'cache_status': 'hit',
-                'success': True
-            })
 
         # Cache miss — call LLM
         result = translation_service.translate(example, target_lang)

@@ -59,8 +59,10 @@ def test_empty_word_returns_400(client):
 
 
 def test_cache_hit_returns_cached_translation(client):
-    client._mock_dict.get_example_for_word.return_value = "She found it by serendipity."
-    client._mock_cache.get.return_value = "她偶然发现了它。"
+    # get_cached returns (example_sentence, translation) — no dictionary call needed
+    client._mock_cache.get_cached.return_value = (
+        "She found it by serendipity.", "她偶然发现了它。"
+    )
 
     resp = post_wotd_translate(client, {"word": "serendipity", "target_lang": "zh-cn"})
     assert resp.status_code == 200
@@ -69,13 +71,14 @@ def test_cache_hit_returns_cached_translation(client):
     assert data["translation"] == "她偶然发现了它。"
     assert data["cache_status"] == "hit"
     assert data["example_sentence"] == "She found it by serendipity."
-    # LLM should NOT have been called
+    # Dictionary service and LLM should NOT have been called on a cache hit
+    client._mock_dict.get_example_for_word.assert_not_called()
     client._mock_trans.translate.assert_not_called()
 
 
 def test_cache_miss_calls_llm_and_caches(client):
+    client._mock_cache.get_cached.return_value = None  # miss
     client._mock_dict.get_example_for_word.return_value = "She found it by serendipity."
-    client._mock_cache.get.return_value = None  # miss
     client._mock_trans.translate.return_value = {
         "success": True, "translation": "她偶然发现了它。"
     }
@@ -93,8 +96,8 @@ def test_cache_miss_calls_llm_and_caches(client):
 
 
 def test_no_example_returns_500(client):
+    client._mock_cache.get_cached.return_value = None  # miss — must fetch example
     client._mock_dict.get_example_for_word.return_value = ""
-    client._mock_cache.get.return_value = None
 
     resp = post_wotd_translate(client, {"word": "unknownword", "target_lang": "zh-cn"})
     assert resp.status_code == 500
@@ -104,8 +107,8 @@ def test_no_example_returns_500(client):
 
 
 def test_translation_failure_returns_500(client):
+    client._mock_cache.get_cached.return_value = None  # miss
     client._mock_dict.get_example_for_word.return_value = "She found it by serendipity."
-    client._mock_cache.get.return_value = None
     client._mock_trans.translate.return_value = {
         "success": False, "error": "DeepSeek timeout"
     }
