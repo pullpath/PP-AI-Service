@@ -24,7 +24,8 @@ from ai_svc.dictionary.cache_routes import cache_bp
 from ai_svc.dictionary.suggest_service import suggestion_service
 from ai_svc.dictionary.video_task_service import video_task_service
 from ai_svc.metrics_collector import metrics_collector
-from ai_svc.translation import translation_service
+from ai_svc.translation import TranslationService
+translation_service = TranslationService()
 
 app = Flask(__name__)
 CORS(app)
