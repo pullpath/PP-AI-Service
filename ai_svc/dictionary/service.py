@@ -19,6 +19,7 @@ from bilibili_api import Credential, sync
 from pathlib import Path
 
 from .bilibili_search import BilibiliVideoSearch
+from .pronunciation import get_pronunciation_url  # Wiktionary-backed audio URL fallback
 from .video_task_service import video_task_service
 from ai_svc.metrics_collector import metrics_collector
 
@@ -788,7 +789,8 @@ class DictionaryService:
                         "senses": senses
                     })
 
-                pronunciation_data = self._extract_pronunciation_data(entry)
+                # Pass word so the fallback service can resolve a Wiktionary audio URL
+                pronunciation_data = self._extract_pronunciation_data(entry, word)
 
                 entries_info.append({
                     "entry_index": entry_idx,
@@ -1318,21 +1320,26 @@ class DictionaryService:
 
         return result
 
-    def _extract_pronunciation_data(self, entry: Dict[str, Any]) -> Dict[str, str]:
+    def _extract_pronunciation_data(self, entry: Dict[str, Any], word: str) -> Dict[str, str]:
         """
-        Extract pronunciation data (audio URL + IPA) from API entry
+        Extract pronunciation data (audio URL + IPA) from a free-API entry,
+        falling back to Wiktionary when the original API URL is unavailable.
+
+        The original API URL is preserved internally so it can be restored
+        if the upstream source recovers.
 
         Returns:
-        {
-            "pronunciation": "audio_url",  # Empty string if not found
-            "ipa": "/skrʌb/"                # Empty string if not found
-        }
+            {
+                "pronunciation": "<wiktionary_url_or_original_api_url>",
+                "ipa": "/phonetic/",
+            }
         """
         phonetics = entry.get("phonetics", [])
         audio_url = ""
         ipa_text = ""
 
-        # Extract audio URL (prefer UK > US > any)
+        # Extract audio URL from the API entry (prefer UK > US > any).
+        # This logic is unchanged — we still record what the API gave us.
         for p in phonetics:
             audio = p.get("audio", "")
             if audio and ("-uk.mp3" in audio.lower() or "-uk-" in audio.lower()):
@@ -1362,9 +1369,15 @@ class DictionaryService:
         if not ipa_text:
             ipa_text = entry.get("phonetic", "")
 
+        # Attempt to replace the (potentially broken) API audio URL with a
+        # stable Wiktionary/Wikimedia CDN URL.  Fall back to the original URL
+        # if Wiktionary has no entry for this word.
+        wiktionary_url = get_pronunciation_url(word)
+        resolved_url = wiktionary_url if wiktionary_url else audio_url
+
         return {
-            "pronunciation": audio_url,
-            "ipa": ipa_text
+            "pronunciation": resolved_url,
+            "ipa": ipa_text,
         }
 
     def _fetch_entry_level_section(self, word: str, section: str, entry_index: Optional[int], start_time: float) -> Dict[str, Any]:
