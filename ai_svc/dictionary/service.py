@@ -59,7 +59,12 @@ logger = logging.getLogger(__name__)
 class DictionaryService:
     """Dictionary service with hybrid API + AI architecture"""
 
-    DICTIONARY_API_BASE = "https://api.dictionaryapi.dev/api/v2/entries/en"
+    # dictionaryapi.dev returns intermittent 502s under load; freedictionaryapi.com
+    # (Wiktionary-backed, no API key, 1000 req/hour/IP) is the hotswap replacement.
+    # _fetch_from_api() adapts its response into the dictionaryapi.dev entry shape
+    # below so every downstream consumer (_fetch_basic, _fetch_entry_level_section,
+    # _fetch_single_detailed_sense_2d, etc.) needs no changes.
+    DICTIONARY_API_BASE = "https://freedictionaryapi.com/api/v1/entries/en"
 
     # Bilibili search configuration
     BILIBILI_PAGE_SIZE = 50
@@ -720,7 +725,7 @@ class DictionaryService:
             "entries": [
                 {
                     "entry_index": 0,
-                    "pronunciation": "https://api.dictionaryapi.dev/media/pronunciations/en/scrub-uk.mp3",
+                    "pronunciation": "https://www.oxfordlearnersdictionaries.com/media/english/us_pron/s/scr/scrub/scrub__us_1.mp3",
                     "ipa": "/skrʌb/",
                     "meanings_summary": [
                         {
@@ -1521,6 +1526,44 @@ class DictionaryService:
                 "success": False
             }
 
+    def _flatten_senses(self, senses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Recursively flatten freedictionaryapi.com senses/subsenses into a flat definitions list"""
+        flat = []
+        for sense in senses:
+            examples = sense.get("examples") or []
+            flat.append({
+                "definition": sense.get("definition", ""),
+                "example": examples[0] if examples else "",
+                "synonyms": sense.get("synonyms", []) or [],
+                "antonyms": sense.get("antonyms", []) or []
+            })
+            flat.extend(self._flatten_senses(sense.get("subsenses") or []))
+        return flat
+
+    def _adapt_freedictionaryapi_entries(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Adapt freedictionaryapi.com's response into dictionaryapi.dev's raw entry shape,
+        so downstream code (which parses entry.phonetics/phonetic and
+        entry.meanings[].{partOfSpeech, definitions[]}) needs no changes.
+        """
+        entries = []
+        for raw_entry in data.get("entries", []):
+            pronunciations = raw_entry.get("pronunciations") or []
+            ipa_text = next((p.get("text", "") for p in pronunciations if p.get("text")), "")
+
+            entries.append({
+                "word": data.get("word", ""),
+                "phonetic": ipa_text,
+                "phonetics": [{"text": ipa_text, "audio": ""}] if ipa_text else [],
+                "meanings": [{
+                    "partOfSpeech": raw_entry.get("partOfSpeech", "unknown"),
+                    "definitions": self._flatten_senses(raw_entry.get("senses") or []),
+                    "synonyms": raw_entry.get("synonyms", []) or [],
+                    "antonyms": raw_entry.get("antonyms", []) or []
+                }]
+            })
+        return entries
+
     def _fetch_from_api(self, word: str) -> Dict[str, Any]:
         """
         Fetch basic dictionary data from free API with entry-level structure
@@ -1528,7 +1571,7 @@ class DictionaryService:
         Returns entry-aware structure:
         {
             "success": True,
-            "entries": [entry1, entry2, ...],  # Raw API entries
+            "entries": [entry1, entry2, ...],  # Adapted to dictionaryapi.dev entry shape
             "total_entries": 2
         }
         """
@@ -1538,12 +1581,23 @@ class DictionaryService:
 
             if response.status_code == 200:
                 data = response.json()
-                if isinstance(data, list) and len(data) > 0:
+                entries = self._adapt_freedictionaryapi_entries(data)
+                if entries:
                     return {
                         "success": True,
-                        "entries": data,
-                        "total_entries": len(data)
+                        "entries": entries,
+                        "total_entries": len(entries)
                     }
+                return {
+                    "success": False,
+                    "error": "Word not found"
+                }
+
+            if response.status_code == 429:
+                return {
+                    "success": False,
+                    "error": "API rate limit exceeded"
+                }
 
             return {
                 "success": False,

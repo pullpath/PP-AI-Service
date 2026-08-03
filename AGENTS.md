@@ -149,7 +149,7 @@ The project includes two AutoGen-based agents:
 The dictionary service uses a **hybrid API + AI architecture** for optimal performance:
 
 1. **Step 1 - Free API** (~0.5-1s):
-   - Fetches basic data from https://api.dictionaryapi.dev/api/v2/entries/en/<word>
+   - Fetches basic data from https://freedictionaryapi.com/api/v1/entries/en/<word>
    - Provides: pronunciation, definitions, examples, synonyms, antonyms
    
 2. **Step 2 - AI Enhancement** (~5-6s with 4-agent parallel):

@@ -238,7 +238,7 @@ Response shape:
   "entries": [
     {
       "entry_index": 0,
-      "pronunciation": "https://api.dictionaryapi.dev/media/pronunciations/en/run-us.mp3",
+      "pronunciation": "https://www.oxfordlearnersdictionaries.com/media/english/us_pron/r/run/run__/run__us_1.mp3",
       "ipa": "/ɹʌn/",
       "meanings_summary": [
         {
