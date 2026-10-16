@@ -22,13 +22,16 @@ Content-Type: application/json
 | Variable | Default |
 | --- | --- |
 | `OPENAI_API_KEY` | required |
-| `OPENAI_TTS_BASE_URL` | official `https://api.openai.com/v1`; set it to use a proxy (trailing slash is stripped) |
+| `OPENAI_BASE_URL` | official `https://api.openai.com/v1`; set it to use a proxy (trailing slash is stripped). Shared with the OpenAI option of `/api/see` |
 | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` (style instructions are sent only to `gpt-4o*` models) |
 | `OPENAI_TTS_VOICE` | `nova` |
 
-Without `OPENAI_TTS_BASE_URL` it calls the official endpoint directly. It never reads `OPENAI_API_BASE`,
-`OPENAI_BASE_URL` or `X-PP-TOKEN` (those belong to other routes and may be exported in your shell), and it
-sends no custom headers, so a proxy must accept a plain `Authorization: Bearer <OPENAI_API_KEY>` request. This is independent of
+Without `OPENAI_BASE_URL` it calls the official endpoint directly. It never reads the legacy `OPENAI_API_BASE`
+or `X-PP-TOKEN` and sends no custom headers, so a proxy must accept a plain
+`Authorization: Bearer <OPENAI_API_KEY>` request.
+
+Note: `load_dotenv()` does not override variables already set in the environment, so an `OPENAI_BASE_URL`
+exported by your shell (e.g. in `~/.bash_profile`) wins over the one in `.env`. This is independent of
 `AI_PROVIDER`, which only chooses the vision model for `/api/see`.
 
 Code: `ai_svc/tts/` (`routes.py`, `service.py`), registered in `app.py` as a blueprint. Tests: `tests/tts/`.
