@@ -20,9 +20,9 @@ def test_missing_image_returns_400(client):
 
 
 def test_success_builds_data_url(client):
-    with patch.object(app_module.openai, 'vision', return_value='一只橘猫') as m:
+    with patch.object(app_module.openai, 'vision', return_value='A fluffy orange cat') as m:
         resp = client.post('/api/see', json={"image": "AAAA"})
-    assert resp.get_json() == {"text": "一只橘猫"}
+    assert resp.get_json() == {"text": "A fluffy orange cat"}
     assert m.call_args.kwargs['images'] == ["data:image/jpeg;base64,AAAA"]
 
 

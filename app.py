@@ -115,11 +115,11 @@ def image():
 # ── /api/see: Hear the Color demo ──
 SEE_PROMPT = (
     "You are the AI eyes of a visually impaired person. Describe the scene in front of you "
-    "in one warm, specific sentence in Chinese, no more than 40 Chinese characters. "
+    "in one warm, specific English sentence, no more than 25 words. "
     "Include: what objects are there, what colors, what mood. "
     "Do NOT start with \"I see\"; just describe directly. "
-    "If the image is blurry or unclear, reply exactly: 画面有点模糊，请靠近一些。 "
-    "Output only the Chinese sentence."
+    "If the image is blurry or unclear, reply exactly: "The image is a bit blurry, please move closer." "
+    "Output only the sentence."
 )
 SEE_RATE_LIMIT = 20          # max requests per IP per window
 SEE_RATE_WINDOW = 60         # seconds
