@@ -53,6 +53,7 @@ PP-AI-Service/
 ├── ai_svc/                    # Core AI service modules
 │   ├── __init__.py
 │   ├── openai.py             # OpenAI API integrations
+│   ├── see/                  # Scene description for Hear the Color (/api/see), registered as a blueprint
 │   ├── tool.py               # Utility functions (search, image detection)
 │   └── dictionary/           # Dictionary service (Hybrid API + AI)
 │       ├── __init__.py

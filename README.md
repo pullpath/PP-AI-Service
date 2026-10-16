@@ -206,6 +206,11 @@ PP-AI-Service/
 │   │   ├── schemas.py        # Pydantic models
 │   │   ├── prompts.py        # AI prompts
 │   │   └── enums.py          # Enumerations
+│   ├── see/                  # Scene description for Hear the Color (/api/see)
+│   │   ├── routes.py         # Blueprint
+│   │   ├── service.py        # Model call
+│   │   ├── provider.py       # AI_PROVIDER switching
+│   │   └── ...
 │   ├── openai.py             # OpenAI integrations
 │   └── tool.py               # Web search/scraping
 ├── docs/                     # Documentation
