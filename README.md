@@ -67,6 +67,7 @@ ARK_API_KEY=your_volcengine_api_key
 # OpenAI Services
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_API_BASE=your_proxy_url  # Optional
+AI_PROVIDER=openai              # /api/see only: openai (default) or deepseek, see docs/SEE_API.md
 X-PP-TOKEN=your_proxy_token     # Optional
 
 # Bilibili API (optional - for subtitle access in video search)
@@ -164,6 +165,7 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 
 - `POST /api/transcribe` - Audio transcription
 - `POST /api/image` - Image analysis
+- `POST /api/see` - One-sentence scene description for visually impaired users (see [docs/SEE_API.md](docs/SEE_API.md))
 - `GET /api/search?q=query` - Web search
 - `GET /api/scrape?url=url` - Web scraping
 - `GET /api/ai_phrase_videos` - List AI-generated videos for a phrase
