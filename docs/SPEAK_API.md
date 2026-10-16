@@ -22,11 +22,13 @@ Content-Type: application/json
 | Variable | Default |
 | --- | --- |
 | `OPENAI_API_KEY` | required |
+| `OPENAI_TTS_BASE_URL` | official `https://api.openai.com/v1`; set it to use a proxy (trailing slash is stripped) |
 | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` (style instructions are sent only to `gpt-4o*` models) |
 | `OPENAI_TTS_VOICE` | `nova` |
 
-It always calls the official `https://api.openai.com/v1` endpoint and ignores `OPENAI_API_BASE`,
-`OPENAI_BASE_URL` and `X-PP-TOKEN`, so the server must be able to reach OpenAI directly. This is independent of
+Without `OPENAI_TTS_BASE_URL` it calls the official endpoint directly. It never reads `OPENAI_API_BASE`,
+`OPENAI_BASE_URL` or `X-PP-TOKEN` (those belong to other routes and may be exported in your shell), and it
+sends no custom headers, so a proxy must accept a plain `Authorization: Bearer <OPENAI_API_KEY>` request. This is independent of
 `AI_PROVIDER`, which only chooses the vision model for `/api/see`.
 
 Code: `ai_svc/tts/` (`routes.py`, `service.py`), registered in `app.py` as a blueprint. Tests: `tests/tts/`.

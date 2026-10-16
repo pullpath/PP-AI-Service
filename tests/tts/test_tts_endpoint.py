@@ -56,7 +56,7 @@ def _fake_client(captured):
 
 
 def test_service_uses_official_endpoint_and_ignores_proxy_settings(monkeypatch):
-    for k in ('OPENAI_TTS_MODEL', 'OPENAI_TTS_VOICE'):
+    for k in ('OPENAI_TTS_BASE_URL', 'OPENAI_TTS_MODEL', 'OPENAI_TTS_VOICE'):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv('OPENAI_API_BASE', 'https://legacy-proxy.example.com')
     monkeypatch.setenv('OPENAI_BASE_URL', 'https://another-proxy.example.com')
@@ -77,3 +77,18 @@ def test_tts1_has_no_instructions(monkeypatch):
     with patch('ai_svc.tts.service.OpenAI', _fake_client(captured)):
         tts_service.synthesize('hi')
     assert 'instructions' not in captured['create']
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("https://proxy.example.com/v1", "https://proxy.example.com/v1"),
+    ("https://proxy.example.com/v1/", "https://proxy.example.com/v1"),
+    ("  ", "https://api.openai.com/v1"),
+    ("", "https://api.openai.com/v1"),
+])
+def test_tts_base_url_override(monkeypatch, value, expected):
+    monkeypatch.setenv('OPENAI_TTS_BASE_URL', value)
+    monkeypatch.setenv('OPENAI_BASE_URL', 'https://should-not-be-used.example.com')
+    captured = {}
+    with patch('ai_svc.tts.service.OpenAI', _fake_client(captured)):
+        tts_service.synthesize('hi')
+    assert captured['init']['base_url'] == expected
