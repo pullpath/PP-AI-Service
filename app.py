@@ -118,7 +118,7 @@ SEE_PROMPT = (
     "in one warm, specific English sentence, no more than 25 words. "
     "Include: what objects are there, what colors, what mood. "
     "Do NOT start with \"I see\"; just describe directly. "
-    "If the image is blurry or unclear, reply exactly: "The image is a bit blurry, please move closer." "
+    "If the image is blurry or unclear, reply exactly: \"The image is a bit blurry, please move closer.\" "
     "Output only the sentence."
 )
 SEE_RATE_LIMIT = 20          # max requests per IP per window
