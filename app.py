@@ -8,6 +8,8 @@ import sys
 import logging
 from dotenv import load_dotenv
 import base64
+import threading
+from collections import defaultdict, deque
 from typing import List
 
 load_dotenv()
@@ -104,9 +106,60 @@ def image():
         b64 = base64.b64encode(image_data).decode('utf-8')
         base64_images.append(f"data:image/{image_type};base64,{b64}")
 
-    result = openai.vision(images=base64_images, prompt_text=prompt_text)
+    # /api/image 固定走 OpenAI，不受 AI_PROVIDER 影响
+    result = openai.vision(images=base64_images, prompt_text=prompt_text, provider='openai')
 
     return jsonify({"content": result})
+
+
+# ── /api/see：Hear the Color 视障辅助 demo ──────────────────────────
+SEE_PROMPT = (
+    "你是一位视障人士的AI眼睛。请用一句温暖、具体的中文描述眼前的场景，不超过40个字。"
+    "包含：有什么物体、什么颜色、什么氛围。不要以“我看到”开头，直接描述。"
+    "如果画面模糊或看不清，就说“画面有点模糊，请靠近一些”。"
+)
+SEE_RATE_LIMIT = 20          # 每个 IP 每分钟最多请求数
+SEE_RATE_WINDOW = 60         # 秒
+_see_hits = defaultdict(deque)
+_see_lock = threading.Lock()
+
+
+def _see_rate_limited(ip):
+    """简单的内存滑动窗口限流，返回 True 表示超限"""
+    now = time.time()
+    with _see_lock:
+        hits = _see_hits[ip]
+        while hits and now - hits[0] > SEE_RATE_WINDOW:
+            hits.popleft()
+        if not hits:
+            # 顺手清理空闲 IP，防止字典无限增长
+            _see_hits.pop(ip, None)
+            hits = _see_hits[ip]
+        if len(hits) >= SEE_RATE_LIMIT:
+            return True
+        hits.append(now)
+        return False
+
+
+@app.route('/api/see', methods=['POST'])
+def see():
+    # 经 Nginx 转发，真实 IP 在 X-Real-IP 里
+    ip = request.headers.get('X-Real-IP') or request.remote_addr or 'unknown'
+    if _see_rate_limited(ip):
+        return jsonify({"error": "too many requests"}), 429
+
+    data = request.get_json(silent=True) or {}
+    image = data.get('image')
+    if not image or not isinstance(image, str):
+        return jsonify({"error": "missing image"}), 400
+
+    try:
+        data_url = f"data:image/jpeg;base64,{image}"
+        text = openai.vision(images=[data_url], prompt_text=SEE_PROMPT, max_tokens=200)
+        return jsonify({"text": text})
+    except Exception as e:
+        logging.error(f"[/api/see] vision call failed: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/dictionary', methods=['POST'])
 def dictionary_lookup():
