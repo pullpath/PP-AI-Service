@@ -33,10 +33,16 @@ class SeeService:
         if get_provider_name() == "openai":
             headers = {"x-pp-token": os.getenv("X-PP-TOKEN")}
 
+        # DeepSeek models reason by default, and the hidden reasoning tokens count against max_tokens, so a
+        # small cap leaves an empty answer (finish_reason "length"). Turn thinking off, as the translation
+        # service does; a one-sentence description doesn't need it.
+        extra_body = {"thinking": {"type": "disabled"}} if get_provider_name() == "deepseek" else None
+
         client = OpenAI(api_key=api_key, base_url=base_url, default_headers=headers)
         result = client.chat.completions.create(
             model=model,
-            max_tokens=200,
+            max_tokens=300,
+            extra_body=extra_body,
             messages=[{
                 "role": "user",
                 "content": [
@@ -46,4 +52,9 @@ class SeeService:
                 ],
             }],
         )
-        return result.choices[0].message.content
+        choice = result.choices[0]
+        text = (choice.message.content or "").strip()
+        if not text:
+            # Never return an empty description as a success
+            raise RuntimeError(f"Model returned an empty description (finish_reason={choice.finish_reason})")
+        return text

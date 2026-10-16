@@ -61,7 +61,7 @@ def test_provider_unknown(monkeypatch):
         provider.get_vision_provider()
 
 
-def _fake_client(captured):
+def _fake_client(captured, content='A red mug on a desk.'):
     class FakeClient:
         def __init__(self, **kwargs):
             captured['init'] = kwargs
@@ -69,8 +69,8 @@ def _fake_client(captured):
 
         def create(self, **kwargs):
             captured['create'] = kwargs
-            msg = type('M', (), {'content': 'A red mug on a desk.'})()
-            return type('R', (), {'choices': [type('Ch', (), {'message': msg})()]})()
+            msg = type('M', (), {'content': content})()
+            return type('R', (), {'choices': [type('Ch', (), {'message': msg, 'finish_reason': 'length'})()]})()
     return FakeClient
 
 
@@ -94,3 +94,27 @@ def test_describe_openai_sends_proxy_header(monkeypatch):
     with patch('ai_svc.see.service.OpenAI', _fake_client(captured)):
         see_service.describe('AAAA')
     assert captured['init']['default_headers'] == {'x-pp-token': 'tok'}
+
+
+def test_deepseek_disables_thinking(monkeypatch):
+    monkeypatch.setenv('AI_PROVIDER', 'deepseek')
+    monkeypatch.setenv('DEEPSEEK_API_KEY', 'k')
+    captured = {}
+    with patch('ai_svc.see.service.OpenAI', _fake_client(captured)):
+        see_service.describe('AAAA')
+    assert captured['create']['extra_body'] == {"thinking": {"type": "disabled"}}
+
+
+def test_openai_has_no_extra_body(monkeypatch):
+    monkeypatch.setenv('AI_PROVIDER', 'openai')
+    captured = {}
+    with patch('ai_svc.see.service.OpenAI', _fake_client(captured)):
+        see_service.describe('AAAA')
+    assert captured['create']['extra_body'] is None
+
+
+def test_empty_model_reply_is_an_error(monkeypatch):
+    monkeypatch.setenv('AI_PROVIDER', 'openai')
+    with patch('ai_svc.see.service.OpenAI', _fake_client({}, content='')):
+        with pytest.raises(RuntimeError):
+            see_service.describe('AAAA')
