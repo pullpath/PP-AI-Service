@@ -3,7 +3,6 @@ Scene description service for Hear the Color.
 Sends one camera frame to a multimodal LLM (OpenAI or DeepSeek) and returns a short description.
 """
 import logging
-import os
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -28,17 +27,12 @@ class SeeService:
         """
         prompt = get_see_prompt(language_name(normalize_language(lang)))
         base_url, api_key, model = get_vision_provider()
-        # x-pp-token is only for our own OpenAI proxy; don't send it to DeepSeek
-        headers = None
-        if get_provider_name() == "openai":
-            headers = {"x-pp-token": os.getenv("X-PP-TOKEN")}
-
         # DeepSeek models reason by default, and the hidden reasoning tokens count against max_tokens, so a
         # small cap leaves an empty answer (finish_reason "length"). Turn thinking off, as the translation
         # service does; a one-sentence description doesn't need it.
         extra_body = {"thinking": {"type": "disabled"}} if get_provider_name() == "deepseek" else None
 
-        client = OpenAI(api_key=api_key, base_url=base_url, default_headers=headers)
+        client = OpenAI(api_key=api_key, base_url=base_url)
         result = client.chat.completions.create(
             model=model,
             max_tokens=300,

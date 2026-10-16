@@ -49,10 +49,21 @@ def test_provider_deepseek(monkeypatch):
     assert provider.get_vision_provider() == ('https://api.deepseek.com', 'k', 'deepseek-flash')
 
 
-def test_provider_default_openai(monkeypatch):
+def test_provider_default_is_deepseek(monkeypatch):
     monkeypatch.delenv('AI_PROVIDER', raising=False)
+    monkeypatch.delenv('DEEPSEEK_MODEL', raising=False)
+    monkeypatch.delenv('DEEPSEEK_BASE_URL', raising=False)
+    assert provider.get_vision_provider()[0] == 'https://api.deepseek.com'
+    assert provider.get_vision_provider()[2] == 'deepseek-flash'
+
+
+def test_openai_ignores_legacy_proxy_settings(monkeypatch):
+    monkeypatch.setenv('AI_PROVIDER', 'openai')
+    monkeypatch.setenv('OPENAI_API_BASE', 'https://proxy.example.com/v1')
+    monkeypatch.delenv('OPENAI_BASE_URL', raising=False)
     monkeypatch.delenv('OPENAI_MODEL', raising=False)
-    assert provider.get_vision_provider()[2] == 'gpt-4o-mini'
+    base_url, _, model = provider.get_vision_provider()
+    assert base_url is None and model == 'gpt-4o-mini'
 
 
 def test_provider_unknown(monkeypatch):
@@ -80,21 +91,20 @@ def test_describe_deepseek_has_no_proxy_header(monkeypatch):
     captured = {}
     with patch('ai_svc.see.service.OpenAI', _fake_client(captured)):
         assert see_service.describe('AAAA') == 'A red mug on a desk.'
-    assert captured['init']['default_headers'] is None
+    assert 'default_headers' not in captured['init']
     assert captured['init']['base_url'] == 'https://api.deepseek.com'
     url = captured['create']['messages'][0]['content'][1]['image_url']['url']
     assert url == 'data:image/jpeg;base64,AAAA'
 
 
-def test_describe_openai_sends_proxy_header(monkeypatch):
+def test_describe_never_sends_proxy_header(monkeypatch):
     monkeypatch.setenv('AI_PROVIDER', 'openai')
     monkeypatch.setenv('X-PP-TOKEN', 'tok')
     monkeypatch.setenv('OPENAI_API_KEY', 'k')
     captured = {}
     with patch('ai_svc.see.service.OpenAI', _fake_client(captured)):
         see_service.describe('AAAA')
-    assert captured['init']['default_headers'] == {'x-pp-token': 'tok'}
-
+    assert 'default_headers' not in captured['init']
 
 def test_deepseek_disables_thinking(monkeypatch):
     monkeypatch.setenv('AI_PROVIDER', 'deepseek')

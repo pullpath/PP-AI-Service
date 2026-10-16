@@ -1,7 +1,7 @@
 """
 Vision provider selection for the scene description service.
 
-AI_PROVIDER picks the backend: "openai" (default) or "deepseek". Both speak the OpenAI
+AI_PROVIDER picks the backend: "deepseek" (default) or "openai". Both speak the OpenAI
 chat-completions format, so only base_url, api_key and model differ.
 """
 import os
@@ -13,7 +13,7 @@ DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 
 
 def get_provider_name() -> str:
-    return (os.getenv("AI_PROVIDER") or "openai").strip().lower()
+    return (os.getenv("AI_PROVIDER") or "deepseek").strip().lower()
 
 
 def _strip_slash(base_url: Optional[str]) -> Optional[str]:
@@ -33,8 +33,9 @@ def get_vision_provider() -> Tuple[Optional[str], Optional[str], str]:
     if provider != "openai":
         raise ValueError(f"Unsupported AI_PROVIDER '{provider}', expected 'openai' or 'deepseek'")
     return (
-        # OPENAI_API_BASE is the legacy name already used by ai_svc.openai
-        _strip_slash(os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")),
+        # None means the official https://api.openai.com/v1. The legacy OPENAI_API_BASE proxy setting used by
+        # other routes is deliberately NOT read here.
+        _strip_slash(os.getenv("OPENAI_BASE_URL")),
         os.getenv("OPENAI_API_KEY"),
         os.getenv("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL,
     )

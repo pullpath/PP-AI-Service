@@ -33,17 +33,20 @@ Selected with `AI_PROVIDER` in `.env`; restart Flask after changing it.
 
 | Variable | Default |
 | --- | --- |
-| `AI_PROVIDER` | `openai` (or `deepseek`) |
+| `AI_PROVIDER` | `deepseek` (or `openai`) |
 | `OPENAI_API_KEY` | none |
-| `OPENAI_BASE_URL` | falls back to legacy `OPENAI_API_BASE` |
+| `OPENAI_BASE_URL` | official OpenAI endpoint |
 | `OPENAI_MODEL` | `gpt-4o-mini` |
 | `DEEPSEEK_API_KEY` | none |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | `deepseek-flash` |
 
-The model must accept image input. Existing routes, including `/api/image`, are untouched and keep using
-`ai_svc/openai.py` with OpenAI; `AI_PROVIDER` only affects `/api/see`. The `x-pp-token` proxy header is
-sent only to OpenAI.
+The model must accept image input. DeepSeek is the default. For DeepSeek, thinking is turned off in the request:
+reasoning tokens would otherwise eat the small `max_tokens` budget and leave an empty description.
+
+This module is independent of the proxy setup used elsewhere: it never reads `OPENAI_API_BASE` or `X-PP-TOKEN`,
+and sends no custom headers. Existing routes, including `/api/image`, are untouched and keep using
+`ai_svc/openai.py`.
 
 ## Code layout
 
