@@ -1,12 +1,13 @@
 """
 Flask Blueprint for the scene description route used by Hear the Color.
 
-POST /api/see  { "image": "<base64 JPEG, no data: prefix>" }  ->  { "text": "..." }
+POST /api/see  { "image": "<base64 JPEG, no data: prefix>", "lang": "<optional BCP-47 tag>" }  ->  { "text": "..." }
 """
 import logging
 
 from flask import Blueprint, jsonify, request
 
+from .language import normalize_language
 from .rate_limit import RateLimiter
 from .service import SeeService
 
@@ -28,8 +29,11 @@ def see():
     if not image or not isinstance(image, str):
         return jsonify({"error": "missing image"}), 400
 
+    # Invalid or missing lang silently falls back to English
+    lang = normalize_language(data.get('lang'))
+
     try:
-        return jsonify({"text": see_service.describe(image)})
+        return jsonify({"text": see_service.describe(image, lang)})
     except Exception as e:
         logging.error(f"[/api/see] vision call failed: {e}")
         return jsonify({"error": str(e)}), 500

@@ -8,7 +8,8 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .prompts import SEE_PROMPT
+from .language import language_name, normalize_language
+from .prompts import get_see_prompt
 from .provider import get_provider_name, get_vision_provider
 
 logger = logging.getLogger(__name__)
@@ -20,8 +21,12 @@ class SeeService:
     def __init__(self):
         load_dotenv()
 
-    def describe(self, image_b64: str) -> str:
-        """Describe a base64 JPEG (WITHOUT the data: prefix). Raises on provider errors."""
+    def describe(self, image_b64: str, lang: str = "en") -> str:
+        """Describe a base64 JPEG (WITHOUT the data: prefix) in the language of the BCP-47 tag lang.
+
+        Raises on provider errors.
+        """
+        prompt = get_see_prompt(language_name(normalize_language(lang)))
         base_url, api_key, model = get_vision_provider()
         # x-pp-token is only for our own OpenAI proxy; don't send it to DeepSeek
         headers = None
@@ -35,7 +40,7 @@ class SeeService:
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": SEE_PROMPT},
+                    {"type": "text", "text": prompt},
                     {"type": "image_url",
                      "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
                 ],

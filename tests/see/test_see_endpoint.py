@@ -24,7 +24,7 @@ def test_success_returns_text(client):
     with patch.object(see_service, 'describe', return_value='A fluffy orange cat') as m:
         resp = client.post('/api/see', json={"image": "AAAA"})
     assert resp.get_json() == {"text": "A fluffy orange cat"}
-    m.assert_called_once_with("AAAA")
+    m.assert_called_once_with("AAAA", "en")
 
 
 def test_vision_error_returns_500(client):

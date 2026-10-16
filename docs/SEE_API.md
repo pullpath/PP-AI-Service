@@ -9,8 +9,12 @@ impaired users). Design background: [`hear-the-color/docs/DESIGN.md`](../../hear
 POST /api/see
 Content-Type: application/json
 
-{ "image": "<base64 JPEG, WITHOUT the data:image/jpeg;base64, prefix>" }
+{ "image": "<base64 JPEG, WITHOUT the data:image/jpeg;base64, prefix>", "lang": "zh-CN" }
 ```
+
+`lang` is optional: a BCP-47 tag for the language of the description. It is validated (letters and digits only,
+short subtags) and mapped to a language name before it is put in the prompt; a missing or malformed value
+falls back to English. Error bodies stay English; the frontend shows its own translated messages.
 
 ## Responses
 
@@ -50,10 +54,11 @@ Self-contained module `ai_svc/see/`, registered in `app.py` as a blueprint (like
 | `routes.py` | `see_bp` blueprint, `POST /api/see` |
 | `service.py` | `SeeService.describe()`: builds the request and calls the model |
 | `provider.py` | `get_vision_provider()` -> `(base_url, api_key, model)` from `AI_PROVIDER` |
-| `prompts.py` | `SEE_PROMPT` |
+| `prompts.py` | `SEE_PROMPT_TEMPLATE` / `get_see_prompt(language)` |
+| `language.py` | `normalize_language()` (validation) and `language_name()` (tag to prompt language) |
 | `rate_limit.py` | In-memory sliding-window `RateLimiter` |
 
-Tests: `tests/see/test_see_endpoint.py`.
+Tests: `tests/see/`.
 
 ## Try it
 
