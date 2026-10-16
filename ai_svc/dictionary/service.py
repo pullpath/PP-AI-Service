@@ -140,7 +140,7 @@ class DictionaryService:
         # Complex tasks (detailed_sense): 1024 tokens
 
         simple_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=512,
@@ -150,7 +150,7 @@ class DictionaryService:
         )
 
         medium_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=1024,
@@ -160,7 +160,7 @@ class DictionaryService:
         )
 
         complex_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=2048,  # Further reduced to speed up
@@ -195,7 +195,7 @@ class DictionaryService:
         )
 
         confusion_meta_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=800,
@@ -205,7 +205,7 @@ class DictionaryService:
         )
 
         confusion_profiles_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=800,
@@ -215,7 +215,7 @@ class DictionaryService:
         )
 
         confusion_examples_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=800,
@@ -286,7 +286,7 @@ class DictionaryService:
 
         # Agent 1: Core metadata WITHOUT definition (API always provides definition)
         core_metadata_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=400,
@@ -297,7 +297,7 @@ class DictionaryService:
 
         # Agent 2: Examples and collocations (3 examples, 3 collocations) - bumped to avoid truncation
         usage_examples_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=1600,
@@ -308,7 +308,7 @@ class DictionaryService:
 
         # Agent 3: Related words (3 synonyms, 3 antonyms, 3 phrases) - bumped to avoid truncation
         related_words_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=400,
@@ -319,7 +319,7 @@ class DictionaryService:
 
         # Agent 4: Usage notes (2-3 sentences) - smallest tokens
         usage_notes_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=400,
@@ -361,7 +361,7 @@ class DictionaryService:
         )
 
         conversation_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0.7,
             max_tokens=2048,
@@ -379,7 +379,7 @@ class DictionaryService:
         )
 
         translation_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=1024,
@@ -856,7 +856,7 @@ class DictionaryService:
     def _create_basic_translation_agent(self, name: str) -> Agent:
         """Create a short-lived agent for an independent basic translation chunk."""
         model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=self.deepseek_api_key,
             temperature=0,
             max_tokens=768,

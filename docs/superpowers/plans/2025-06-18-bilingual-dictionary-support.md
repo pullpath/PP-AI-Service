@@ -182,7 +182,7 @@ get_usage_notes_translation_prompt, get_common_phrases_translation_prompt,
 
 ```python
 translation_model = DeepSeek(
-    id="deepseek-v4-flash",
+    id="deepseek-flash",
     api_key=deepseek_api_key,
     temperature=0,
     max_tokens=1024,

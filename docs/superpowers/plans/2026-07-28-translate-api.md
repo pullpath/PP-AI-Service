@@ -101,7 +101,7 @@ class TranslationService:
         no_thinking = {"thinking": {"type": "disabled"}}
 
         translation_model = DeepSeek(
-            id="deepseek-v4-flash",
+            id="deepseek-flash",
             api_key=deepseek_api_key,
             temperature=0,
             max_tokens=1024,
