@@ -106,33 +106,36 @@ def image():
         b64 = base64.b64encode(image_data).decode('utf-8')
         base64_images.append(f"data:image/{image_type};base64,{b64}")
 
-    # /api/image 固定走 OpenAI，不受 AI_PROVIDER 影响
+    # /api/image always uses OpenAI, regardless of AI_PROVIDER
     result = openai.vision(images=base64_images, prompt_text=prompt_text, provider='openai')
 
     return jsonify({"content": result})
 
 
-# ── /api/see：Hear the Color 视障辅助 demo ──────────────────────────
+# ── /api/see: Hear the Color demo ──
 SEE_PROMPT = (
-    "你是一位视障人士的AI眼睛。请用一句温暖、具体的中文描述眼前的场景，不超过40个字。"
-    "包含：有什么物体、什么颜色、什么氛围。不要以“我看到”开头，直接描述。"
-    "如果画面模糊或看不清，就说“画面有点模糊，请靠近一些”。"
+    "You are the AI eyes of a visually impaired person. Describe the scene in front of you "
+    "in one warm, specific sentence in Chinese, no more than 40 Chinese characters. "
+    "Include: what objects are there, what colors, what mood. "
+    "Do NOT start with \"I see\"; just describe directly. "
+    "If the image is blurry or unclear, reply exactly: 画面有点模糊，请靠近一些。 "
+    "Output only the Chinese sentence."
 )
-SEE_RATE_LIMIT = 20          # 每个 IP 每分钟最多请求数
-SEE_RATE_WINDOW = 60         # 秒
+SEE_RATE_LIMIT = 20          # max requests per IP per window
+SEE_RATE_WINDOW = 60         # seconds
 _see_hits = defaultdict(deque)
 _see_lock = threading.Lock()
 
 
 def _see_rate_limited(ip):
-    """简单的内存滑动窗口限流，返回 True 表示超限"""
+    """Simple in-memory sliding-window rate limit; returns True when the limit is exceeded"""
     now = time.time()
     with _see_lock:
         hits = _see_hits[ip]
         while hits and now - hits[0] > SEE_RATE_WINDOW:
             hits.popleft()
         if not hits:
-            # 顺手清理空闲 IP，防止字典无限增长
+            # Drop idle IPs so the dict doesn't grow forever
             _see_hits.pop(ip, None)
             hits = _see_hits[ip]
         if len(hits) >= SEE_RATE_LIMIT:
@@ -143,7 +146,7 @@ def _see_rate_limited(ip):
 
 @app.route('/api/see', methods=['POST'])
 def see():
-    # 经 Nginx 转发，真实 IP 在 X-Real-IP 里
+    # Behind Nginx, the real client IP is in X-Real-IP
     ip = request.headers.get('X-Real-IP') or request.remote_addr or 'unknown'
     if _see_rate_limited(ip):
         return jsonify({"error": "too many requests"}), 429
