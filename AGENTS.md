@@ -90,7 +90,7 @@ PP-AI-Service/
 - `/api/dictionary/test` (GET) - Dictionary test endpoint
 - `/api/transcribe` (POST) - Audio transcription
 - `/api/image` (POST) - Image analysis with prompts
-- `/api/see` (POST) - Scene description for Hear the Color (provider via `AI_PROVIDER`, see `docs/SEE_API.md`)
+- `/api/see` (POST) - Scene description for Hear the Color (provider via `AI_PROVIDER`, code in `ai_svc/see/`, see `docs/SEE_API.md`)
 - `/api/search` (GET) - Web search
 - `/api/scrape` (GET) - Web scraping
 

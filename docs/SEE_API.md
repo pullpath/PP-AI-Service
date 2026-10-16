@@ -37,9 +37,23 @@ Selected with `AI_PROVIDER` in `.env`; restart Flask after changing it.
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | `deepseek-flash` |
 
-The model must accept image input. `/api/image` ignores `AI_PROVIDER` and always uses OpenAI. The
-`x-pp-token` proxy header is sent only to OpenAI. Implementation: `get_vision_provider()` and `vision()` in
-`ai_svc/openai.py`, route in `app.py`, tests in `tests/test_see_endpoint.py`.
+The model must accept image input. Existing routes, including `/api/image`, are untouched and keep using
+`ai_svc/openai.py` with OpenAI; `AI_PROVIDER` only affects `/api/see`. The `x-pp-token` proxy header is
+sent only to OpenAI.
+
+## Code layout
+
+Self-contained module `ai_svc/see/`, registered in `app.py` as a blueprint (like `ai_svc/dictionary`):
+
+| File | Role |
+| --- | --- |
+| `routes.py` | `see_bp` blueprint, `POST /api/see` |
+| `service.py` | `SeeService.describe()`: builds the request and calls the model |
+| `provider.py` | `get_vision_provider()` -> `(base_url, api_key, model)` from `AI_PROVIDER` |
+| `prompts.py` | `SEE_PROMPT` |
+| `rate_limit.py` | In-memory sliding-window `RateLimiter` |
+
+Tests: `tests/see/test_see_endpoint.py`.
 
 ## Try it
 

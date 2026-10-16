@@ -8,8 +8,6 @@ import sys
 import logging
 from dotenv import load_dotenv
 import base64
-import threading
-from collections import defaultdict, deque
 from typing import List
 
 load_dotenv()
@@ -26,6 +24,7 @@ from ai_svc.dictionary.cache_routes import cache_bp
 from ai_svc.dictionary.suggest_service import suggestion_service
 from ai_svc.dictionary.video_task_service import video_task_service
 from ai_svc.metrics_collector import metrics_collector
+from ai_svc.see import see_bp
 from ai_svc.translation import TranslationService, WotdTranslationCacheService
 translation_service = TranslationService()
 wotd_translation_cache_service = WotdTranslationCacheService()
@@ -38,6 +37,8 @@ cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 # Register cache management blueprint
 app.register_blueprint(cache_bp)
+# Hear the Color: POST /api/see
+app.register_blueprint(see_bp)
 
 
 @app.route('/')
@@ -106,63 +107,9 @@ def image():
         b64 = base64.b64encode(image_data).decode('utf-8')
         base64_images.append(f"data:image/{image_type};base64,{b64}")
 
-    # /api/image always uses OpenAI, regardless of AI_PROVIDER
-    result = openai.vision(images=base64_images, prompt_text=prompt_text, provider='openai')
+    result = openai.vision(images=base64_images, prompt_text=prompt_text)
 
     return jsonify({"content": result})
-
-
-# ── /api/see: Hear the Color demo ──
-SEE_PROMPT = (
-    "You are the AI eyes of a visually impaired person. Describe the scene in front of you "
-    "in one warm, specific English sentence, no more than 25 words. "
-    "Include: what objects are there, what colors, what mood. "
-    "Do NOT start with \"I see\"; just describe directly. "
-    "If the image is blurry or unclear, reply exactly: \"The image is a bit blurry, please move closer.\" "
-    "Output only the sentence."
-)
-SEE_RATE_LIMIT = 20          # max requests per IP per window
-SEE_RATE_WINDOW = 60         # seconds
-_see_hits = defaultdict(deque)
-_see_lock = threading.Lock()
-
-
-def _see_rate_limited(ip):
-    """Simple in-memory sliding-window rate limit; returns True when the limit is exceeded"""
-    now = time.time()
-    with _see_lock:
-        hits = _see_hits[ip]
-        while hits and now - hits[0] > SEE_RATE_WINDOW:
-            hits.popleft()
-        if not hits:
-            # Drop idle IPs so the dict doesn't grow forever
-            _see_hits.pop(ip, None)
-            hits = _see_hits[ip]
-        if len(hits) >= SEE_RATE_LIMIT:
-            return True
-        hits.append(now)
-        return False
-
-
-@app.route('/api/see', methods=['POST'])
-def see():
-    # Behind Nginx, the real client IP is in X-Real-IP
-    ip = request.headers.get('X-Real-IP') or request.remote_addr or 'unknown'
-    if _see_rate_limited(ip):
-        return jsonify({"error": "too many requests"}), 429
-
-    data = request.get_json(silent=True) or {}
-    image = data.get('image')
-    if not image or not isinstance(image, str):
-        return jsonify({"error": "missing image"}), 400
-
-    try:
-        data_url = f"data:image/jpeg;base64,{image}"
-        text = openai.vision(images=[data_url], prompt_text=SEE_PROMPT, max_tokens=200)
-        return jsonify({"text": text})
-    except Exception as e:
-        logging.error(f"[/api/see] vision call failed: {e}")
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/dictionary', methods=['POST'])
 def dictionary_lookup():
