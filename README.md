@@ -166,6 +166,7 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 - `POST /api/transcribe` - Audio transcription
 - `POST /api/image` - Image analysis
 - `POST /api/see` - One-sentence scene description for visually impaired users (see [docs/SEE_API.md](docs/SEE_API.md))
+- `POST /api/speak` - Text to speech (MP3) for Hear the Color (see [docs/SPEAK_API.md](docs/SPEAK_API.md))
 - `GET /api/search?q=query` - Web search
 - `GET /api/scrape?url=url` - Web scraping
 - `GET /api/ai_phrase_videos` - List AI-generated videos for a phrase

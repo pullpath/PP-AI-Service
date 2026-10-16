@@ -35,6 +35,7 @@ Flask app.py
   +-- POST /api/transcribe
   +-- POST /api/image
   +-- POST /api/see            (ai_svc/see blueprint; see docs/SEE_API.md)
+  +-- POST /api/speak          (ai_svc/tts blueprint; see docs/SPEAK_API.md)
   +-- GET  /api/search
   +-- GET  /api/scrape
 ```

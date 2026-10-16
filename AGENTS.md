@@ -92,6 +92,7 @@ PP-AI-Service/
 - `/api/transcribe` (POST) - Audio transcription
 - `/api/image` (POST) - Image analysis with prompts
 - `/api/see` (POST) - Scene description for Hear the Color (provider via `AI_PROVIDER`, code in `ai_svc/see/`, see `docs/SEE_API.md`)
+- `/api/speak` (POST) - Text to speech for Hear the Color (OpenAI TTS, code in `ai_svc/tts/`, see `docs/SPEAK_API.md`)
 - `/api/search` (GET) - Web search
 - `/api/scrape` (GET) - Web scraping
 

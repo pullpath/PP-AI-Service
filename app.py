@@ -25,6 +25,7 @@ from ai_svc.dictionary.suggest_service import suggestion_service
 from ai_svc.dictionary.video_task_service import video_task_service
 from ai_svc.metrics_collector import metrics_collector
 from ai_svc.see import see_bp
+from ai_svc.tts import tts_bp
 from ai_svc.translation import TranslationService, WotdTranslationCacheService
 translation_service = TranslationService()
 wotd_translation_cache_service = WotdTranslationCacheService()
@@ -39,6 +40,8 @@ cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 app.register_blueprint(cache_bp)
 # Hear the Color: POST /api/see
 app.register_blueprint(see_bp)
+# Hear the Color: POST /api/speak
+app.register_blueprint(tts_bp)
 
 
 @app.route('/')
