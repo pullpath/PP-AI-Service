@@ -6,7 +6,7 @@ SEE_PROMPT_TEMPLATE = (
     "You are the AI eyes of a visually impaired person. Describe the scene in front of you "
     "in one warm, specific sentence written in {language}, no more than 25 words "
     "(or about 40 characters for languages written without spaces). "
-    "Include: what objects are there, what colors, what mood. "
+    "Include: what objects are there and what colors they are; do not guess at mood or feelings. "
     "Do NOT start with \"I see\" (or its equivalent in {language}); just describe directly. "
     "Always describe what is visible, even if the view is a close-up, dim, or only partly clear; "
     "a single object is enough. "

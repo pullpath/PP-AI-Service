@@ -140,3 +140,11 @@ def test_route_ignores_an_invalid_changed_zone(client, bad):
     with patch.object(see_service, 'describe_change', return_value=('x', True)) as m:
         client.post('/api/see', json={"image": "AAAA", "previous": "A desk.", "changed_zone": bad})
     assert m.call_args.args[3] is None
+
+
+def test_prompt_asks_for_objects_and_colors_not_mood():
+    p = get_see_prompt("English")
+    assert "what objects are there and what colors they are" in p
+    # It no longer asks for a mood, and tells the model not to guess at one
+    assert "what mood" not in p
+    assert "do not guess at mood" in p
