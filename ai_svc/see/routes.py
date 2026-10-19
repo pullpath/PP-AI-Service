@@ -20,6 +20,7 @@ from flask import Blueprint, jsonify, request
 from ai_svc.rate_limit import RateLimiter
 from ai_svc.tts.service import tts_service
 from .language import normalize_language
+from .prompts import CHANGED_ZONES
 from .service import SeeService
 
 # Upper bound on the "previous" description accepted from a client
@@ -51,10 +52,14 @@ def see():
     previous = data.get('previous')
     previous = previous[:MAX_PREVIOUS_CHARS] if isinstance(previous, str) and previous.strip() else None
 
+    # Where the camera saw the change; only the known names are accepted
+    changed_zone = data.get('changed_zone')
+    changed_zone = changed_zone if changed_zone in CHANGED_ZONES else None
+
     changed = None
     try:
         if previous:
-            text, changed = see_service.describe_change(image, lang, previous)
+            text, changed = see_service.describe_change(image, lang, previous, changed_zone)
         else:
             text = see_service.describe(image, lang)
     except Exception as e:

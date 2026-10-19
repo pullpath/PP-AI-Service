@@ -49,6 +49,10 @@ instructions. With it the model describes only what is new, and the response gai
 { "text": "", "changed": false }
 ```
 
+`changed_zone` (optional, with `previous`) is one of `left`, `center`, `right`, `wide`: where the camera saw the
+change. Anything else is ignored. The model is then asked to say where it is and that something "came in from"
+that side.
+
 `changed: false` means nothing meaningful changed: `text` is empty and no speech is generated, even with
 `include_audio`. Without `previous` the response is exactly as before (no `changed` key).
 

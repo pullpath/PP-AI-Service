@@ -39,19 +39,19 @@ class SeeService:
         """
         return self._ask(image_b64, lang, None)
 
-    def describe_change(self, image_b64: str, lang: str, previous: str) -> tuple[str, bool]:
+    def describe_change(self, image_b64: str, lang: str, previous: str, zone: str | None = None) -> tuple[str, bool]:
         """Describe only what is new compared to the earlier description `previous`.
 
         Returns (text, changed). changed is False when the model reports that nothing meaningful changed;
         the text is then empty. Raises on provider errors.
         """
-        text = self._ask(image_b64, lang, previous)
+        text = self._ask(image_b64, lang, previous, zone)
         if _is_unchanged(text):
             return "", False
         return text, True
 
-    def _ask(self, image_b64: str, lang: str, previous: str | None) -> str:
-        prompt = get_see_prompt(language_name(normalize_language(lang)), previous)
+    def _ask(self, image_b64: str, lang: str, previous: str | None, zone: str | None = None) -> str:
+        prompt = get_see_prompt(language_name(normalize_language(lang)), previous, zone)
         base_url, api_key, model = get_vision_provider()
         # DeepSeek models reason by default, and the hidden reasoning tokens count against max_tokens, so a
         # small cap leaves an empty answer (finish_reason "length"). Turn thinking off, as the translation

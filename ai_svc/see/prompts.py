@@ -29,7 +29,21 @@ CHANGE_ONLY_SUFFIX = (
 )
 
 
-def get_see_prompt(language: str, previous: str | None = None) -> str:
+# Where the camera saw the change (a fixed set, so it is safe to put in the prompt)
+CHANGED_ZONES = {
+    "left": "the left part of the view",
+    "center": "the middle part of the view",
+    "right": "the right part of the view",
+    "wide": "most of the view",
+}
+
+ZONE_SUFFIX = (
+    " The camera noticed the change in {where}: say where it is, and if something has just entered the view, "
+    "say that it came in from that side (for example \"a pen came in from the left\")."
+)
+
+
+def get_see_prompt(language: str, previous: str | None = None, zone: str | None = None) -> str:
     """Build the prompt asking for the description in the given language name (e.g. "Japanese").
 
     With previous (the description the listener last heard) the model is asked for only what is new,
@@ -38,4 +52,6 @@ def get_see_prompt(language: str, previous: str | None = None) -> str:
     prompt = SEE_PROMPT_TEMPLATE.format(language=language)
     if previous:
         prompt += CHANGE_ONLY_SUFFIX.format(previous=previous.replace('"', "'"), marker=UNCHANGED_MARKER)
+        if zone in CHANGED_ZONES:
+            prompt += ZONE_SUFFIX.format(where=CHANGED_ZONES[zone])
     return prompt
