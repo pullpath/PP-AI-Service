@@ -14,9 +14,9 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from ai_svc.tts.routes import tts_service
+from ai_svc.rate_limit import RateLimiter
+from ai_svc.tts.service import tts_service
 from .language import normalize_language
-from .rate_limit import RateLimiter
 from .service import SeeService
 
 see_bp = Blueprint('see', __name__)

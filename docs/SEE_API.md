@@ -77,7 +77,7 @@ Self-contained module `ai_svc/see/`, registered in `app.py` as a blueprint (like
 | `provider.py` | `get_vision_provider()` -> `(base_url, api_key, model)` from `AI_PROVIDER` |
 | `prompts.py` | `SEE_PROMPT_TEMPLATE` / `get_see_prompt(language)` |
 | `language.py` | `normalize_language()` (validation) and `language_name()` (tag to prompt language) |
-| `rate_limit.py` | In-memory sliding-window `RateLimiter` |
+| `../rate_limit.py` | In-memory sliding-window `RateLimiter` (shared with `ai_svc/tts`) |
 
 Tests: `tests/see/`.
 

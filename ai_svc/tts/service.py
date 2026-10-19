@@ -72,3 +72,7 @@ class TtsService:
         if not audio:
             raise RuntimeError("TTS provider returned no audio")
         return audio
+
+
+# Shared instance: /api/speak and /api/see (include_audio) use the same client, so its warm connection is reused
+tts_service = TtsService()

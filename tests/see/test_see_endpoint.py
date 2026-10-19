@@ -132,7 +132,7 @@ def test_empty_model_reply_is_an_error(monkeypatch):
 
 
 def test_include_audio_returns_text_and_audio(client):
-    from ai_svc.tts.routes import tts_service
+    from ai_svc.tts.service import tts_service
     with patch.object(see_service, 'describe', return_value='A red mug.'), \
          patch.object(tts_service, 'synthesize', return_value=b'ID3mp3') as tts:
         resp = client.post('/api/see', json={"image": "AAAA", "include_audio": True})
@@ -146,7 +146,7 @@ def test_include_audio_returns_text_and_audio(client):
 
 @pytest.mark.parametrize("flag", [None, False, "true", 1, "yes"])
 def test_audio_only_for_json_true(client, flag):
-    from ai_svc.tts.routes import tts_service
+    from ai_svc.tts.service import tts_service
     payload = {"image": "AAAA"}
     if flag is not None:
         payload["include_audio"] = flag
@@ -158,7 +158,7 @@ def test_audio_only_for_json_true(client, flag):
 
 
 def test_tts_failure_still_returns_text(client):
-    from ai_svc.tts.routes import tts_service
+    from ai_svc.tts.service import tts_service
     with patch.object(see_service, 'describe', return_value='A red mug.'), \
          patch.object(tts_service, 'synthesize', side_effect=RuntimeError('tts down')):
         resp = client.post('/api/see', json={"image": "AAAA", "include_audio": True})
@@ -168,7 +168,7 @@ def test_tts_failure_still_returns_text(client):
 
 
 def test_vision_failure_skips_tts(client):
-    from ai_svc.tts.routes import tts_service
+    from ai_svc.tts.service import tts_service
     with patch.object(see_service, 'describe', side_effect=RuntimeError('boom')), \
          patch.object(tts_service, 'synthesize') as tts:
         resp = client.post('/api/see', json={"image": "AAAA", "include_audio": True})

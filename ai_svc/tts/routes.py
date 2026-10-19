@@ -9,12 +9,11 @@ import logging
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
-from ai_svc.see.rate_limit import RateLimiter
-from .service import MAX_TEXT_LENGTH, TtsService
+from ai_svc.rate_limit import RateLimiter
+from .service import MAX_TEXT_LENGTH, tts_service
 
 tts_bp = Blueprint('tts', __name__)
 
-tts_service = TtsService()
 # One description per cycle, so this is generous; it mainly caps cost if the route is abused
 rate_limiter = RateLimiter(max_requests=30, window_seconds=60)
 
