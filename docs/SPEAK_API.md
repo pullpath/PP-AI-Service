@@ -1,7 +1,9 @@
 # `POST /api/speak`
 
 Natural-sounding speech for the [Hear the Color](../../hear-the-color) frontend, using OpenAI's speech API.
-The frontend falls back to the browser voice if this route fails.
+Hear the Color normally gets its audio from `/api/see` with `include_audio: true` (one round trip); this route
+is the standalone version for other clients and the frontend's fallback. The frontend falls back to the browser
+voice if both fail.
 
 ```http
 GET /api/speak?text=A%20bright%20red%20mug%20rests%20on%20a%20sunny%20wooden%20desk.

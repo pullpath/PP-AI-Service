@@ -128,3 +128,49 @@ def test_empty_model_reply_is_an_error(monkeypatch):
     with patch('ai_svc.see.service.OpenAI', _fake_client({}, content='')):
         with pytest.raises(RuntimeError):
             see_service.describe('AAAA')
+
+
+
+def test_include_audio_returns_text_and_audio(client):
+    from ai_svc.tts.routes import tts_service
+    with patch.object(see_service, 'describe', return_value='A red mug.'), \
+         patch.object(tts_service, 'synthesize', return_value=b'ID3mp3') as tts:
+        resp = client.post('/api/see', json={"image": "AAAA", "include_audio": True})
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["text"] == 'A red mug.' and body["audio_format"] == 'mp3'
+    import base64
+    assert base64.b64decode(body["audio"]) == b'ID3mp3'
+    tts.assert_called_once_with('A red mug.')
+
+
+@pytest.mark.parametrize("flag", [None, False, "true", 1, "yes"])
+def test_audio_only_for_json_true(client, flag):
+    from ai_svc.tts.routes import tts_service
+    payload = {"image": "AAAA"}
+    if flag is not None:
+        payload["include_audio"] = flag
+    with patch.object(see_service, 'describe', return_value='x'), \
+         patch.object(tts_service, 'synthesize') as tts:
+        body = client.post('/api/see', json=payload).get_json()
+    assert body == {"text": "x"}
+    tts.assert_not_called()
+
+
+def test_tts_failure_still_returns_text(client):
+    from ai_svc.tts.routes import tts_service
+    with patch.object(see_service, 'describe', return_value='A red mug.'), \
+         patch.object(tts_service, 'synthesize', side_effect=RuntimeError('tts down')):
+        resp = client.post('/api/see', json={"image": "AAAA", "include_audio": True})
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body == {"text": "A red mug.", "audio_error": "tts down"}
+
+
+def test_vision_failure_skips_tts(client):
+    from ai_svc.tts.routes import tts_service
+    with patch.object(see_service, 'describe', side_effect=RuntimeError('boom')), \
+         patch.object(tts_service, 'synthesize') as tts:
+        resp = client.post('/api/see', json={"image": "AAAA", "include_audio": True})
+    assert resp.status_code == 500
+    tts.assert_not_called()

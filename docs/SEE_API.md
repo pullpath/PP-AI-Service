@@ -16,11 +16,29 @@ Content-Type: application/json
 short subtags) and mapped to a language name before it is put in the prompt; a missing or malformed value
 falls back to English. Error bodies stay English; the frontend shows its own translated messages.
 
+### Optional: `include_audio`
+
+```json
+{ "image": "...", "lang": "en", "include_audio": true }
+```
+
+With `"include_audio": true` (a JSON boolean; anything else is ignored) the backend also speaks the description
+with OpenAI TTS (same voice and settings as [`/api/speak`](SPEAK_API.md)) and returns it in the same response:
+
+```json
+{ "text": "A bright red mug rests on a sunny wooden desk.", "audio": "<base64 MP3>", "audio_format": "mp3" }
+```
+
+This saves a second round trip and lets a client show the text and start the voice at the same moment. The
+description is the essential part: if speech fails, the request still succeeds with `audio_error` instead of
+`audio`, and the client can fall back to `/api/speak` or its own voice. Without the flag the response is
+unchanged (`{ "text": "..." }`) and no TTS call is made, so other clients aren't affected.
+
 ## Responses
 
 | Status | Body | When |
 | --- | --- | --- |
-| 200 | `{ "text": "A fluffy orange cat sleeps on a sunlit blue sofa." }` | Success |
+| 200 | `{ "text": "A fluffy orange cat sleeps on a sunlit blue sofa." }` (plus `audio` / `audio_format` or `audio_error` with `include_audio`) | Success |
 | 400 | `{ "error": "missing image" }` | `image` absent, empty or not a string |
 | 429 | `{ "error": "too many requests" }` | More than 20 requests/minute from one IP |
 | 500 | `{ "error": "<message>" }` | Model call failed (logged) |

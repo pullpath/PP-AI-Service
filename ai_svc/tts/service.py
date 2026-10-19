@@ -65,3 +65,10 @@ class TtsService:
             **kwargs,
         ) as response:
             yield from response.iter_bytes(CHUNK_SIZE)
+
+    def synthesize(self, text: str) -> bytes:
+        """Return the complete MP3 for text. Raises on provider errors or empty audio."""
+        audio = b"".join(self.stream(text))
+        if not audio:
+            raise RuntimeError("TTS provider returned no audio")
+        return audio

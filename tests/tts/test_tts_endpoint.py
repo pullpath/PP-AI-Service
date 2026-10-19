@@ -152,3 +152,11 @@ def test_client_is_reused_and_rebuilt_on_config_change(monkeypatch):
         monkeypatch.setenv('OPENAI_BASE_URL', 'https://proxy.example.com/v1')
         b''.join(tts_service.stream('c'))
     assert len(created) == 2 and created[1]['base_url'] == 'https://proxy.example.com/v1'
+
+
+def test_synthesize_joins_stream_and_rejects_empty(monkeypatch):
+    with patch.object(tts_service, 'stream', side_effect=_stream(b'ab', b'cd')):
+        assert tts_service.synthesize('hi') == b'abcd'
+    with patch.object(tts_service, 'stream', side_effect=_stream()):
+        with pytest.raises(RuntimeError):
+            tts_service.synthesize('hi')
