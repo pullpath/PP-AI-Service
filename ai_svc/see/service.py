@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from .language import language_name, normalize_language
-from .prompts import get_see_prompt
+from .prompts import UNCHANGED_MARKER, get_see_prompt
 from .provider import get_provider_name, get_vision_provider
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,21 @@ class SeeService:
 
         Raises on provider errors.
         """
-        prompt = get_see_prompt(language_name(normalize_language(lang)))
+        return self._ask(image_b64, lang, None)
+
+    def describe_change(self, image_b64: str, lang: str, previous: str) -> tuple[str, bool]:
+        """Describe only what is new compared to the earlier description `previous`.
+
+        Returns (text, changed). changed is False when the model reports that nothing meaningful changed;
+        the text is then empty. Raises on provider errors.
+        """
+        text = self._ask(image_b64, lang, previous)
+        if text.strip().strip('."\'').upper() == UNCHANGED_MARKER:
+            return "", False
+        return text, True
+
+    def _ask(self, image_b64: str, lang: str, previous: str | None) -> str:
+        prompt = get_see_prompt(language_name(normalize_language(lang)), previous)
         base_url, api_key, model = get_vision_provider()
         # DeepSeek models reason by default, and the hidden reasoning tokens count against max_tokens, so a
         # small cap leaves an empty answer (finish_reason "length"). Turn thinking off, as the translation

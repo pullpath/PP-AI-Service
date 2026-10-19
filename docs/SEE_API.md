@@ -34,6 +34,24 @@ description is the essential part: if speech fails, the request still succeeds w
 `audio`, and the client can fall back to `/api/speak` or its own voice. Without the flag the response is
 unchanged (`{ "text": "..." }`) and no TTS call is made, so other clients aren't affected.
 
+### Optional: `previous` (change-only descriptions)
+
+```json
+{ "image": "...", "lang": "en", "previous": "A red mug rests on a wooden desk." }
+```
+
+`previous` is the description the listener last heard. Only a non-empty string counts (anything else is
+ignored), and it is cut to 300 characters. It is untrusted text: the prompt marks it as data, never
+instructions. With it the model describes only what is new, and the response gains a `changed` flag:
+
+```json
+{ "text": "Now a person stands on your left.", "changed": true }
+{ "text": "", "changed": false }
+```
+
+`changed: false` means nothing meaningful changed: `text` is empty and no speech is generated, even with
+`include_audio`. Without `previous` the response is exactly as before (no `changed` key).
+
 ## Responses
 
 | Status | Body | When |

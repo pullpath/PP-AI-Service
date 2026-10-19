@@ -2,12 +2,15 @@
 Flask Blueprint for the scene description route used by Hear the Color.
 
 POST /api/see
-  { "image": "<base64 JPEG, no data: prefix>", "lang": "<optional BCP-47 tag>", "include_audio": <optional bool> }
+  { "image": "<base64 JPEG, no data: prefix>", "lang": "<optional BCP-47 tag>", "include_audio": <optional bool>,
+    "previous": "<optional: the description the listener last heard>" }
   ->  { "text": "..." }
   with include_audio: true, the spoken description comes in the same response, so the caller can show the text
   and start the audio at the same moment:
   ->  { "text": "...", "audio": "<base64 MP3>", "audio_format": "mp3" }
   If speech fails the description is still returned, with "audio_error" instead of "audio".
+  With "previous" only what is new is described, and the response also has "changed": true|false. When
+  "changed" is false nothing meaningful changed: "text" is empty and no audio is generated.
 """
 import base64
 import logging
@@ -18,6 +21,9 @@ from ai_svc.rate_limit import RateLimiter
 from ai_svc.tts.service import tts_service
 from .language import normalize_language
 from .service import SeeService
+
+# Upper bound on the "previous" description accepted from a client
+MAX_PREVIOUS_CHARS = 300
 
 see_bp = Blueprint('see', __name__)
 
@@ -41,15 +47,25 @@ def see():
     lang = normalize_language(data.get('lang'))
     # Only a real JSON true turns it on, so "false" strings or other values never cost a TTS call
     include_audio = data.get('include_audio') is True
+    # The description the listener last heard; only a string counts, and it is untrusted text, so it is capped
+    previous = data.get('previous')
+    previous = previous[:MAX_PREVIOUS_CHARS] if isinstance(previous, str) and previous.strip() else None
 
+    changed = None
     try:
-        text = see_service.describe(image, lang)
+        if previous:
+            text, changed = see_service.describe_change(image, lang, previous)
+        else:
+            text = see_service.describe(image, lang)
     except Exception as e:
         logging.error(f"[/api/see] vision call failed: {e}")
         return jsonify({"error": str(e)}), 500
 
     body = {"text": text}
-    if include_audio:
+    if changed is not None:
+        body["changed"] = changed
+    # Nothing new to say: no speech is generated either
+    if include_audio and changed is not False:
         try:
             body["audio"] = base64.b64encode(tts_service.synthesize(text)).decode("ascii")
             body["audio_format"] = "mp3"
