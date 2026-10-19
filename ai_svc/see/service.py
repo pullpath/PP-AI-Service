@@ -3,6 +3,7 @@ Scene description service for Hear the Color.
 Sends one camera frame to a multimodal LLM (OpenAI or DeepSeek) and returns a short description.
 """
 import logging
+import re
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -12,6 +13,17 @@ from .prompts import UNCHANGED_MARKER, get_see_prompt
 from .provider import get_provider_name, get_vision_provider
 
 logger = logging.getLogger(__name__)
+
+
+def _is_unchanged(text: str) -> bool:
+    """True when the reply is the UNCHANGED marker, however the model decorated it.
+
+    Markdown, quotes and punctuation (including full-width ones) around it are ignored, and so is anything
+    after it ("UNCHANGED - the mug is still there"). A sentence that merely contains the word elsewhere is
+    a real description.
+    """
+    head = re.sub(r"^[^\w]+", "", text.strip())
+    return re.match(rf"{UNCHANGED_MARKER}\b", head, re.IGNORECASE) is not None
 
 
 class SeeService:
@@ -34,7 +46,7 @@ class SeeService:
         the text is then empty. Raises on provider errors.
         """
         text = self._ask(image_b64, lang, previous)
-        if text.strip().strip('."\'').upper() == UNCHANGED_MARKER:
+        if _is_unchanged(text):
             return "", False
         return text, True
 

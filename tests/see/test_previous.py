@@ -101,3 +101,20 @@ def test_audio_is_generated_for_a_changed_reply(client):
         resp = client.post('/api/see', json={"image": "AAAA", "previous": "A cat.", "include_audio": True})
     tts.assert_called_once()
     assert resp.get_json()["audio_format"] == "mp3"
+
+
+@pytest.mark.parametrize("reply", ["UNCHANGED。", "**UNCHANGED**", "UNCHANGED - the mug is still there", "unchanged!", "`UNCHANGED`"])
+def test_unchanged_marker_is_detected_despite_decoration(monkeypatch, reply):
+    monkeypatch.setenv('AI_PROVIDER', 'openai')
+    with patch('ai_svc.see.service.OpenAI', _fake_client({}, content=reply)):
+        assert see_service.describe_change('AAAA', 'en', 'A red mug.') == ("", False)
+
+
+def test_a_sentence_that_merely_contains_the_word_is_a_change(monkeypatch):
+    monkeypatch.setenv('AI_PROVIDER', 'openai')
+    with patch('ai_svc.see.service.OpenAI', _fake_client({}, content='The sign now reads unchanged.')):
+        assert see_service.describe_change('AAAA', 'en', 'A sign.')[1] is True
+
+
+def test_prompt_says_the_marker_stays_english():
+    assert "even when writing in another language" in get_see_prompt("Japanese", "x")
