@@ -22,36 +22,75 @@ def test_too_long_text_returns_400(client):
     assert client.post('/api/speak', json={"text": "a" * 401}).status_code == 400
 
 
-def test_success_returns_audio(client):
-    with patch.object(tts_service, 'synthesize', return_value=b'ID3audio') as m:
-        resp = client.post('/api/speak', json={"text": " Hello there. "})
-    assert resp.status_code == 200
-    assert resp.mimetype == 'audio/mpeg'
-    assert resp.data == b'ID3audio'
-    m.assert_called_once_with("Hello there.")
+def _stream(*chunks):
+    def gen(_text):
+        yield from chunks
+    return gen
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_success_streams_audio(client, method):
+    calls = []
+    def gen(text):
+        calls.append(text)
+        yield b'ID3'
+        yield b'audio'
+    with patch.object(tts_service, 'stream', side_effect=gen):
+        if method == "get":
+            resp = client.get('/api/speak', query_string={"text": " Hello there. "})
+        else:
+            resp = client.post('/api/speak', json={"text": " Hello there. "})
+        data = resp.get_data()
+    assert resp.status_code == 200 and resp.mimetype == 'audio/mpeg'
+    assert resp.headers['X-Accel-Buffering'] == 'no'
+    assert data == b'ID3audio' and calls == ["Hello there."]
+
+
+def test_get_missing_text_returns_400(client):
+    assert client.get('/api/speak').status_code == 400
 
 
 def test_provider_error_returns_500(client):
-    with patch.object(tts_service, 'synthesize', side_effect=RuntimeError('boom')):
+    def gen(_text):
+        raise RuntimeError('boom')
+        yield b''
+    with patch.object(tts_service, 'stream', side_effect=gen):
         resp = client.post('/api/speak', json={"text": "hi"})
     assert resp.status_code == 500 and resp.get_json() == {"error": "boom"}
 
 
+def test_empty_audio_returns_500(client):
+    with patch.object(tts_service, 'stream', side_effect=_stream()):
+        resp = client.post('/api/speak', json={"text": "hi"})
+    assert resp.status_code == 500 and resp.get_json() == {"error": "empty audio"}
+
+
 def test_rate_limit(client):
-    with patch.object(tts_service, 'synthesize', return_value=b'x'):
+    with patch.object(tts_service, 'stream', side_effect=_stream(b'x')):
         codes = [client.post('/api/speak', json={"text": "hi"}).status_code for _ in range(31)]
     assert codes[:30] == [200] * 30 and codes[30] == 429
 
 
 def _fake_client(captured):
+    class Streamed:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def iter_bytes(self, _size):
+            yield b'mp'
+            yield b'3'
+
     class Fake:
         def __init__(self, **kwargs):
             captured['init'] = kwargs
-            self.audio = type('A', (), {'speech': self})()
+            self.audio = type('A', (), {'speech': type('S', (), {'with_streaming_response': self})()})()
 
         def create(self, **kwargs):
             captured['create'] = kwargs
-            return type('R', (), {'content': b'mp3'})()
+            return Streamed()
     return Fake
 
 
@@ -62,7 +101,7 @@ def test_service_uses_official_endpoint_and_ignores_proxy_settings(monkeypatch):
     monkeypatch.setenv('X-PP-TOKEN', 'legacy')
     captured = {}
     with patch('ai_svc.tts.service.OpenAI', _fake_client(captured)):
-        assert tts_service.synthesize('hi') == b'mp3'
+        assert b''.join(tts_service.stream('hi')) == b'mp3'
     assert captured['init']['base_url'] == 'https://api.openai.com/v1'
     assert 'default_headers' not in captured['init']
     assert captured['create']['model'] == 'gpt-4o-mini-tts'
@@ -74,7 +113,7 @@ def test_tts1_has_no_instructions(monkeypatch):
     monkeypatch.setenv('OPENAI_TTS_MODEL', 'tts-1')
     captured = {}
     with patch('ai_svc.tts.service.OpenAI', _fake_client(captured)):
-        tts_service.synthesize('hi')
+        b''.join(tts_service.stream('hi'))
     assert 'instructions' not in captured['create']
 
 
@@ -88,5 +127,5 @@ def test_tts_base_url_override(monkeypatch, value, expected):
     monkeypatch.setenv('OPENAI_BASE_URL', value)
     captured = {}
     with patch('ai_svc.tts.service.OpenAI', _fake_client(captured)):
-        tts_service.synthesize('hi')
+        b''.join(tts_service.stream('hi'))
     assert captured['init']['base_url'] == expected

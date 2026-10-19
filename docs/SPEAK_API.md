@@ -4,15 +4,19 @@ Natural-sounding speech for the [Hear the Color](../../hear-the-color) frontend,
 The frontend falls back to the browser voice if this route fails.
 
 ```http
-POST /api/speak
-Content-Type: application/json
-
-{ "text": "A bright red mug rests on a sunny wooden desk." }
+GET /api/speak?text=A%20bright%20red%20mug%20rests%20on%20a%20sunny%20wooden%20desk.
 ```
+
+`POST /api/speak` with `{ "text": "..." }` works the same. The frontend uses GET so an `<audio>` element can
+play the URL directly.
+
+The MP3 is **streamed** as OpenAI generates it (chunked, `X-Accel-Buffering: no` so Nginx passes it through
+without buffering and without any config change), so playback can start before generation has finished.
+The first chunk is fetched before the response starts, so a provider failure is still a proper 500.
 
 | Status | Body | When |
 | --- | --- | --- |
-| 200 | MP3 audio (`audio/mpeg`) | Success |
+| 200 | MP3 audio (`audio/mpeg`), streamed | Success |
 | 400 | `{ "error": "missing text" }` / `{ "error": "text too long (max 400 characters)" }` | Bad input |
 | 429 | `{ "error": "too many requests" }` | More than 30 requests/minute from one IP |
 | 500 | `{ "error": "<message>" }` | OpenAI call failed (logged) |
