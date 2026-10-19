@@ -33,6 +33,18 @@ INSTRUCTIONS = "Speak warmly and calmly, like a kind guide describing a scene to
 class TtsService:
     def __init__(self):
         load_dotenv()
+        # One client per (key, base_url), reused across requests: its connection pool keeps the TLS connection
+        # to OpenAI alive, which saves ~1 s per request versus reconnecting every time
+        self._client = None
+        self._client_key = None
+
+    def _get_client(self) -> OpenAI:
+        base_url = (os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/") or DEFAULT_BASE_URL
+        key = (os.getenv("OPENAI_API_KEY"), base_url)
+        if self._client is None or self._client_key != key:
+            self._client = OpenAI(api_key=key[0], base_url=base_url)
+            self._client_key = key
+        return self._client
 
     def stream(self, text: str) -> Iterator[bytes]:
         """Yield MP3 chunks for text as OpenAI generates them.
@@ -41,8 +53,7 @@ class TtsService:
         poorly in Safari). Provider errors are raised when the generator is first advanced.
         """
         model = os.getenv("OPENAI_TTS_MODEL") or DEFAULT_MODEL
-        base_url = (os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/") or DEFAULT_BASE_URL
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url=base_url)
+        client = self._get_client()
         kwargs = {}
         if model.startswith("gpt-4o"):
             kwargs["instructions"] = INSTRUCTIONS

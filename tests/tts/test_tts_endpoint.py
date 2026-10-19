@@ -6,6 +6,12 @@ import app as app_module
 from ai_svc.tts.routes import rate_limiter, tts_service
 
 
+@pytest.fixture(autouse=True)
+def fresh_client():
+    # The service caches its OpenAI client; drop it so each test sees its own fake
+    tts_service._client = None
+
+
 @pytest.fixture
 def client():
     rate_limiter.reset()
@@ -129,3 +135,20 @@ def test_tts_base_url_override(monkeypatch, value, expected):
     with patch('ai_svc.tts.service.OpenAI', _fake_client(captured)):
         b''.join(tts_service.stream('hi'))
     assert captured['init']['base_url'] == expected
+
+
+def test_client_is_reused_and_rebuilt_on_config_change(monkeypatch):
+    monkeypatch.delenv('OPENAI_BASE_URL', raising=False)
+    monkeypatch.setenv('OPENAI_API_KEY', 'k1')
+    created = []
+    real = _fake_client({})
+    def counting(**kwargs):
+        created.append(kwargs)
+        return real(**kwargs)
+    with patch('ai_svc.tts.service.OpenAI', side_effect=counting):
+        b''.join(tts_service.stream('a'))
+        b''.join(tts_service.stream('b'))
+        assert len(created) == 1
+        monkeypatch.setenv('OPENAI_BASE_URL', 'https://proxy.example.com/v1')
+        b''.join(tts_service.stream('c'))
+    assert len(created) == 2 and created[1]['base_url'] == 'https://proxy.example.com/v1'
