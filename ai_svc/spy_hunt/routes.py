@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, ratelimits, store, visibility
+from ai_svc.spy_hunt import auth, game, ratelimits, store, visibility
 
 spy_hunt_bp = Blueprint("spy_hunt", __name__, url_prefix="/api/spy-hunt")
 
@@ -101,4 +101,77 @@ def update_settings(code: str):
     room = _room_or_404(code)
     store.update_settings(room["id"], g.player_id,
                           main_lang=body.get("main_lang"), bot_fill=body.get("bot_fill"))
+    return jsonify(_snapshot(room["id"]))
+
+
+# ---- game flow ----
+
+@spy_hunt_bp.route("/rooms/<code>/start", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def start_game(code: str):
+    room = _room_or_404(code)
+    game.start_game(room["id"], g.player_id)
+    return jsonify(_snapshot(room["id"]))
+
+
+@spy_hunt_bp.route("/rooms/<code>/statement", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def post_statement(code: str):
+    body = _json_body()
+    room = _room_or_404(code)
+    text = body.get("text")
+    if not isinstance(text, str):
+        raise store.StoreError(400, "bad_text", "text must be a string.")
+    game.submit_statement(room["id"], g.player_id, text)
+    return jsonify(_snapshot(room["id"]))
+
+
+@spy_hunt_bp.route("/rooms/<code>/vote", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def post_vote(code: str):
+    body = _json_body()
+    room = _room_or_404(code)
+    if "target_seat" not in body:
+        raise store.StoreError(400, "bad_target", "target_seat is required (null to abstain).")
+    game.submit_vote(room["id"], g.player_id, body["target_seat"])
+    return jsonify(_snapshot(room["id"]))
+
+
+@spy_hunt_bp.route("/rooms/<code>/leave", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def leave_room(code: str):
+    room = _room_or_404(code)
+    game.leave(room["id"], g.player_id)
+    return jsonify({"ok": True})
+
+
+@spy_hunt_bp.route("/rooms/<code>/rematch", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def rematch_room(code: str):
+    room = _room_or_404(code)
+    game.rematch(room["id"], g.player_id)
+    return jsonify(_snapshot(room["id"]))
+
+
+@spy_hunt_bp.route("/rooms/<code>/bots", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def bots(code: str):
+    body = _json_body()
+    action = body.get("action")
+    if action not in ("add", "remove"):
+        raise store.StoreError(400, "bad_request", "action must be add or remove.")
+    room = _room_or_404(code)
+    (game.add_bot if action == "add" else game.remove_bot)(room["id"], g.player_id)
     return jsonify(_snapshot(room["id"]))
