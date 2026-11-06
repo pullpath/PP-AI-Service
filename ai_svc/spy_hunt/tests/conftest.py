@@ -28,3 +28,11 @@ def client(temp_db):
     app.register_blueprint(spy_hunt_bp)
     app.testing = True
     return app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _reset_ratelimits():
+    from ai_svc.spy_hunt import ratelimits
+    ratelimits.reset_all()
+    yield
+    ratelimits.reset_all()
