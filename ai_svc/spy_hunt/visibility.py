@@ -6,6 +6,7 @@ building a client payload. Nothing here writes to the DB.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from typing import Any, Dict, Iterable, Optional
@@ -16,22 +17,29 @@ from ai_svc.spy_hunt.db import get_conn
 SECRET_KEYS = frozenset({"role", "roles", "word", "words", "my_word"})
 DESCRIBE_PHASES = ("describe", "tiebreak_describe")
 STAGE1_PHASES = ("tiebreak_describe", "revote")
+_SEAT_AUDIENCE = re.compile(r"seat:([0-9]+)")  # strict ASCII; used with fullmatch
 
 
 # ---- events ----
 
-def _audience_seat(audience: Any) -> Optional[int]:
-    if isinstance(audience, str) and audience.startswith("seat:") and audience[5:].isdigit():
-        return int(audience[5:])
-    return None
+def audience_seat(audience: Any) -> Optional[int]:
+    """The seat of a `seat:<n>` audience (ASCII digits only), else None. Never raises."""
+    if not isinstance(audience, str):
+        return None
+    m = _SEAT_AUDIENCE.fullmatch(audience)
+    return int(m.group(1)) if m else None
+
+
+def valid_audience(audience: Any) -> bool:
+    return audience == "all" or audience_seat(audience) is not None
 
 
 def visible_to(event: Dict[str, Any], seat: Optional[int]) -> bool:
     """True when the event may be sent to the player in `seat` (None = no seat)."""
-    audience = event.get("audience")
+    audience = event.get("audience") if isinstance(event, dict) else None
     if audience == "all":
         return True
-    target = _audience_seat(audience)
+    target = audience_seat(audience)
     return target is not None and seat is not None and target == seat
 
 
@@ -49,7 +57,8 @@ def check_event_payload(type: str, payload: Dict[str, Any], audience: str) -> No
     """Refuse to store a broadcast event that would leak a secret.
 
     `game_over` may carry everything; `reveal` may carry the eliminated seat's
-    `role` (never words); `state` (a full snapshot) must be personal.
+    `role` as a TOP-LEVEL key only (never nested, never words); `state` (a full
+    snapshot) must be personal.
     """
     if not isinstance(payload, dict):
         raise ValueError("event payload must be a dict")
@@ -59,8 +68,10 @@ def check_event_payload(type: str, payload: Dict[str, Any], audience: str) -> No
         return
     if type == "state":
         raise ValueError("state events carry a personal snapshot; use audience seat:<n>")
-    allowed = {"role"} if type == "reveal" else set()
-    leaked = (set(_keys(payload)) & SECRET_KEYS) - allowed
+    top = dict(payload)
+    if type == "reveal":
+        top.pop("role", None)
+    leaked = set(_keys(top)) & SECRET_KEYS
     if leaked:
         raise ValueError(f"secret keys {sorted(leaked)} in audience=all {type!r} event")
 
@@ -122,8 +133,25 @@ def _current_speaker(conn: sqlite3.Connection, room: sqlite3.Row,
 
 def build_snapshot(room_id: str, player_id: str) -> Dict[str, Any]:
     """The caller's view of the room. Raises LookupError if the room is unknown
-    or the caller is not a member."""
+    or the caller is not a member.
+
+    All reads happen inside one read transaction (a deferred BEGIN; in WAL mode
+    every SELECT then sees the same database snapshot), so a room row and its
+    players/messages can never come from different moments, e.g. a `finished`
+    room combined with players from a rematch. If the caller already holds a
+    transaction (inside store.tx), the reads join it.
+    """
     conn = get_conn()
+    if conn.in_transaction:
+        return _build_snapshot(conn, room_id, player_id)
+    conn.execute("BEGIN")
+    try:
+        return _build_snapshot(conn, room_id, player_id)
+    finally:
+        conn.rollback()  # read-only: end the transaction without writing
+
+
+def _build_snapshot(conn: sqlite3.Connection, room_id: str, player_id: str) -> Dict[str, Any]:
     room = conn.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
     if room is None:
         raise LookupError("room")
@@ -144,8 +172,10 @@ def build_snapshot(room_id: str, player_id: str) -> Dict[str, Any]:
         if r["role"]:
             if finished:
                 p["role"] = r["role"]
-            elif playing and not r["alive"] and r["seat"] != me["seat"]:
-                p["role"] = r["role"]  # revealed on elimination
+            elif playing and not r["alive"]:
+                # revealed on elimination, to everyone including that player
+                # (design §2.3); an alive caller's own role is never included
+                p["role"] = r["role"]
         players.append(p)
 
     words = _pair_words(conn, room) if (playing or finished) else None

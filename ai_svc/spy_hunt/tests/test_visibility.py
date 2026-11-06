@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
+import threading
 
 import pytest
 
@@ -81,6 +83,15 @@ def expected_word(seat, lang, spy_seat=0, civ_is_a=1):
 
 # ---- visible_to ----
 
+def test_visible_to_malformed_audience_never_raises():
+    for aud in ("seat:\u00b2", "seat:\u0663", "seat:", "seat:-1", "all ", " all",
+                "seat:3 ", "seat:+3", "seat: 3", "SEAT:3", "seat:3:4", 3, None, ["all"], {"a": 1}):
+        for seat in (3, 0, None, -1):
+            assert visibility.visible_to({"audience": aud}, seat) is False, (aud, seat)
+    assert visibility.visible_to("not a dict", 3) is False
+    assert visibility.visible_to({"audience": "seat:007"}, 7) is True
+
+
 def test_visible_to():
     assert visibility.visible_to({"audience": "all"}, 3)
     assert visibility.visible_to({"audience": "all"}, None)
@@ -135,24 +146,30 @@ def test_append_event_firewall_rejects_secrets_for_all():
         ("settings", {"words": {}}),
         ("statement", {"msg": [{"my_word": "x"}]}),
         ("reveal", {"seat": 1, "role": "spy", "words": {}}),
+        ("reveal", {"seat": 1, "votes": {"0": {"role": "spy"}}}),
+        ("reveal", {"seat": 1, "role": "spy", "players": [{"seat": 0, "role": "civilian"}]}),
+        ("reveal", {"seat": 1, "roles": {"0": "spy"}}),
+        ("reveal", {"seat": 1, "my_word": "x"}),
     ):
         with pytest.raises(ValueError):
             store.append_event("r", ptype, payload, "all")
 
 
 def test_append_event_allowed_exceptions(temp_db):
-    # reveal may carry the eliminated seat's role; game_over carries everything
-    store.append_event("r", "reveal", {"seat": 1, "role": "spy", "votes": {}}, "all")
-    store.append_event("r", "game_over", {"winner": "spies", "roles": {"0": "spy"},
-                                          "words": WORDS}, "all")
-    # personal events may carry the seat's own word
-    store.append_event("r", "game_started", {"my_word": "apple"}, "seat:2")
+    with store.tx("r") as c:
+        # reveal may carry the eliminated seat's role at top level; game_over carries everything
+        store.append_event("r", "reveal", {"seat": 1, "role": "spy", "votes": {}}, "all", conn=c)
+        store.append_event("r", "game_over", {"winner": "spies", "roles": {"0": "spy"},
+                                              "words": WORDS}, "all", conn=c)
+        # personal events may carry the seat's own word
+        store.append_event("r", "game_started", {"my_word": "apple"}, "seat:2", conn=c)
 
 
 def test_state_event_must_be_personal(temp_db):
     with pytest.raises(ValueError):
         store.append_event("r", "state", {"code": "ABCD"}, "all")
-    store.append_event("r", "state", {"code": "ABCD"}, "seat:0")
+    with store.tx("r") as c:
+        store.append_event("r", "state", {"code": "ABCD"}, "seat:0", conn=c)
 
 
 # ---- snapshots ----
@@ -189,25 +206,31 @@ def test_playing_snapshot_firewall():
         assert not (keys & {"word", "words"})
         assert "winner" not in snap or snap["winner"] is None
         by_seat = {p["seat"]: p for p in snap["players"]}
-        # caller's own role is never included
-        assert "role" not in by_seat[seat]
+        # an alive caller's own role is never included
+        if seat != 3:
+            assert "role" not in by_seat[seat]
         assert "role" not in snap["me"]
         for s, p in by_seat.items():
-            if s == 3 and seat != 3:
-                assert p["role"] == "civilian"  # eliminated and revealed
+            if s == 3:
+                assert p["role"] == "civilian"  # eliminated: revealed to everyone, incl. self
                 assert p["alive"] is False
             else:
                 assert "role" not in p
 
 
-def test_eliminated_spy_role_shown_to_others_only():
+def test_eliminated_role_public_to_all_but_alive_spy_never_sees_own_role():
+    # eliminated spy: role shown to others AND to themselves (design §2.3)
     room, pids = room_with_players(5)
     make_playing(room["id"], spy_seat=2, eliminated=(2,))
-    snap_other = visibility.build_snapshot(room["id"], pids[0])
-    assert {p["seat"]: p for p in snap_other["players"]}[2]["role"] == "spy"
-    snap_self = visibility.build_snapshot(room["id"], pids[2])
-    assert "role" not in {p["seat"]: p for p in snap_self["players"]}[2]
-    assert "spy" not in set(map(str, values_deep(snap_self)))
+    for pid in pids:
+        snap = visibility.build_snapshot(room["id"], pid)
+        assert {p["seat"]: p for p in snap["players"]}[2]["role"] == "spy"
+    # a still-alive spy never sees their own role anywhere
+    room2, pids2 = room_with_players(5)
+    make_playing(room2["id"], spy_seat=1, eliminated=(3,))
+    snap_spy = visibility.build_snapshot(room2["id"], pids2[1])
+    assert "role" not in {p["seat"]: p for p in snap_spy["players"]}[1]
+    assert "spy" not in set(map(str, values_deep(snap_spy)))
 
 
 def test_finished_snapshot_reveals_everything():
@@ -254,7 +277,105 @@ def test_snapshot_non_member_raises():
         visibility.build_snapshot(room["id"], "stranger")
 
 
-def test_routes_do_not_touch_secret_columns():
-    src = (pathlib.Path(visibility.__file__).parent / "routes.py").read_text()
-    for needle in ("role", "words_json", "pair_id", "civ_is_a"):
-        assert needle not in src, needle
+def _sql_strings(src: str):
+    """Python string literals in `src` (comments/docstrings excluded via tokenize),
+    joined per statement so implicit concatenation is kept together."""
+    import io
+    import tokenize
+    out, buf = [], []
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type == tokenize.STRING:
+            try:
+                import ast
+                buf.append(str(ast.literal_eval(tok.string)))
+            except Exception:
+                buf.append(tok.string)
+        elif tok.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT,
+                              tokenize.INDENT, tokenize.DEDENT) and buf:
+            out.append(" ".join(buf))
+            buf = []
+    if buf:
+        out.append(" ".join(buf))
+    return out
+
+
+SQL_RE = re.compile(r"\b(SELECT|UPDATE|INSERT|DELETE|JOIN|WHERE|SET)\b", re.I)
+SECRET_COL_RE = re.compile(r"\b(role|words_json|pair_id|civ_is_a|concept_a|concept_b)\b|\bSELECT\s+\*", re.I)
+
+
+def _secret_sql(path):
+    hits = []
+    for s in _sql_strings(path.read_text()):
+        if SQL_RE.search(s) and SECRET_COL_RE.search(s):
+            hits.append(s)
+    return hits
+
+
+def test_routes_and_store_do_not_touch_secret_columns():
+    here = pathlib.Path(visibility.__file__).parent
+    src = (here / "store.py").read_text()
+    # store.py may only SELECT * from rooms (never players/pairs)
+    hits = [h for h in _secret_sql(here / "store.py")
+            if not re.fullmatch(r"\s*SELECT \* FROM rooms WHERE (id|code)=\?\s*", h)]
+    assert hits == [], hits
+    assert _secret_sql(here / "routes.py") == []
+    # sanity: the scanner does detect secret-column SQL
+    assert _secret_sql(here / "visibility.py")
+    assert "role" in src  # mentioned in prose (docstring/comments) only, which is tolerated
+
+
+def test_snapshot_reads_in_one_transaction(monkeypatch):
+    room, pids = room_with_players(4)
+    conn = get_conn()
+    seen = []
+    orig = visibility._build_snapshot
+
+    def spy(c, *a):
+        seen.append(c.in_transaction)
+        return orig(c, *a)
+
+    monkeypatch.setattr(visibility, "_build_snapshot", spy)
+    visibility.build_snapshot(room["id"], pids[0])
+    assert seen == [True]
+    assert not conn.in_transaction  # ended afterwards
+    with pytest.raises(LookupError):
+        visibility.build_snapshot(room["id"], "stranger")
+    assert not conn.in_transaction
+
+
+def test_snapshot_is_consistent_against_concurrent_writer():
+    """A writer committing between the snapshot's reads must not be visible
+    halfway: the room row and players come from the same moment."""
+    room, pids = room_with_players(4)
+    make_playing(room["id"], spy_seat=0)
+    make_finished(room["id"])
+    orig_hooked = visibility._pair_words  # called after room+players reads, before messages
+    writer_done = threading.Event()
+
+    def rematch_in_other_thread():
+        c = __import__("ai_svc.spy_hunt.db", fromlist=["get_conn"]).get_conn()
+        c.execute("BEGIN IMMEDIATE")
+        c.execute("UPDATE rooms SET status='lobby', winner=NULL, game_no=2 WHERE id=?", (room["id"],))
+        c.execute("UPDATE players SET role=NULL WHERE room_id=?", (room["id"],))
+        c.execute("INSERT INTO messages(room_id, game_no, round, stage, seat, kind, text, lang, created_at)"
+                  " VALUES(?,1,1,0,0,'statement','late','en',1)", (room["id"],))
+        c.commit()
+        writer_done.set()
+
+    def hook(*a, **kw):
+        t = threading.Thread(target=rematch_in_other_thread)
+        t.start()
+        t.join()
+        return orig_hooked(*a, **kw)
+
+    visibility._pair_words = hook
+    try:
+        snap = visibility.build_snapshot(room["id"], pids[1])
+    finally:
+        visibility._pair_words = orig_hooked
+    assert writer_done.is_set()
+    assert snap["status"] == "finished"
+    assert {p["seat"]: p.get("role") for p in snap["players"]}[0] == "spy"
+    assert all(m["text"] != "late" for m in snap["messages"])  # messages read after the write
+    after = visibility.build_snapshot(room["id"], pids[1])
+    assert after["status"] == "lobby" and all("role" not in p for p in after["players"])

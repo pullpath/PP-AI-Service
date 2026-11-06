@@ -351,16 +351,44 @@ def test_room_lock_is_shared_rlock():
 
 
 def test_append_event_returns_increasing_seq(temp_db):
-    s1 = store.append_event("r", "player_joined", {"seat": 0}, "all")
-    s2 = store.append_event("r", "player_joined", {"seat": 1}, "seat:1")
+    with store.tx("r") as c:
+        s1 = store.append_event("r", "player_joined", {"seat": 0}, "all", conn=c)
+        s2 = store.append_event("r", "player_joined", {"seat": 1}, "seat:1", conn=c)
     assert s2 > s1
 
 
 def test_append_event_rejects_bad_audience(temp_db):
     import pytest
-    for aud in ("everyone", "seat:", "seat:x", None):
-        with pytest.raises(ValueError):
-            store.append_event("r", "player_joined", {}, aud)
+    for aud in ("everyone", "seat:", "seat:x", None, "seat:\u00b2", "seat:\u0663",
+                "seat:-1", "all ", " all", "seat:1 ", "seat:+1", "SEAT:1", 3):
+        with store.tx("r") as c:
+            with pytest.raises(ValueError):
+                store.append_event("r", "player_joined", {}, aud, conn=c)
+
+
+def test_append_event_requires_transaction(temp_db, conn):
+    import pytest
+    with pytest.raises(RuntimeError):
+        store.append_event("r", "player_joined", {"seat": 0}, "all")
+    with pytest.raises(RuntimeError):
+        store.append_event("r", "player_joined", {"seat": 0}, "all", conn=conn)
+    assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+
+
+def test_tx_is_reentrant_and_outer_decides(temp_db, conn):
+    import pytest
+    with pytest.raises(KeyError):
+        with store.tx("r"):
+            store.append_event("r", "player_joined", {}, "all")
+            with store.tx("r"):
+                store.append_event("r", "player_joined", {}, "all")
+            raise KeyError("boom")
+    assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+    assert not conn.in_transaction
+    with store.tx("r"):
+        with store.tx("r"):
+            store.append_event("r", "player_joined", {}, "all")
+    assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
 
 
 def test_state_changes_bump_version(client, conn):

@@ -23,6 +23,8 @@ CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 CODE_LEN = 4
 NAME_MAX = 16
 _CODE_ATTEMPTS = 50
+# Columns store may read from players; never `role` (visibility.py owns that).
+PUBLIC_PLAYER_COLS = "seat, player_id, name, lang, is_bot, alive, connected"
 
 
 class StoreError(Exception):
@@ -61,7 +63,23 @@ def check_lang(value: Any) -> str:
 
 @contextmanager
 def tx(room_id: str) -> Iterator[sqlite3.Connection]:
-    """Room lock + BEGIN IMMEDIATE. Re-entrant: a nested call joins the outer transaction."""
+    """Room lock + one `BEGIN IMMEDIATE` transaction; commit on success, rollback on error.
+
+    Contract for callers (Task 5 and later):
+    - Every state change runs inside `with store.tx(room_id) as conn:` and uses
+      that `conn` (the thread's connection) for all reads and writes, including
+      `append_event(..., conn=conn)`. Events are committed atomically with the
+      state change they describe.
+    - Re-entrant: the room lock is an RLock, and if this thread's connection is
+      already in a transaction, a nested `tx` just yields it: no new BEGIN, no
+      commit, no rollback. The OUTERMOST `tx` decides commit/rollback, so an
+      exception raised in a nested block and caught inside the outer block
+      does NOT roll back the nested writes.
+    - Nesting `tx` for a DIFFERENT room joins the outer transaction too, but
+      takes that room's lock as well; always lock rooms in a consistent order.
+    - Call `_bump(conn, room_id)` for every state change (bumps `version`).
+      Never make a model call inside `tx` (impl §8.3).
+    """
     with locks.room_lock(room_id):
         conn = get_conn()
         if conn.in_transaction:
@@ -87,28 +105,23 @@ def _bump(conn: sqlite3.Connection, room_id: str) -> None:
 # ---- events ----
 
 def _check_audience(audience: Any) -> None:
-    if audience == "all":
-        return
-    if isinstance(audience, str) and audience.startswith("seat:"):
-        n = audience[5:]
-        if n.isdigit():
-            return
-    raise ValueError(f"bad audience: {audience!r}")
+    if not visibility.valid_audience(audience):  # "all" or ASCII "seat:<n>"
+        raise ValueError(f"bad audience: {audience!r}")
 
 
 def append_event(room_id: str, type: str, payload: Dict[str, Any], audience: str,
                  conn: Optional[sqlite3.Connection] = None) -> int:
-    """Insert an event and return its seq. Pass `conn` to join a caller's transaction."""
+    """Insert an event and return its seq. Must run inside `tx(room_id)`: the
+    event commits with the state change it describes, under the room lock."""
     _check_audience(audience)
     visibility.check_event_payload(type, payload, audience)
     conn = conn or get_conn()
-    standalone = not conn.in_transaction
+    if not conn.in_transaction:
+        raise RuntimeError("append_event must be called inside store.tx(room_id)")
     cur = conn.execute(
         "INSERT INTO events(room_id, type, payload_json, audience, created_at) VALUES(?,?,?,?,?)",
         (room_id, type, json.dumps(payload, ensure_ascii=False), audience, now_ms()),
     )
-    if standalone:
-        conn.commit()
     return cur.lastrowid
 
 
@@ -143,7 +156,8 @@ def seat_of(room_id: str, player_id: str, conn: Optional[sqlite3.Connection] = N
 
 def _player_row(conn: sqlite3.Connection, room_id: str, seat: int) -> sqlite3.Row:
     return conn.execute(
-        "SELECT * FROM players WHERE room_id=? AND seat=?", (room_id, seat)
+        "SELECT " + PUBLIC_PLAYER_COLS + " FROM players WHERE room_id=? AND seat=?",
+        (room_id, seat),
     ).fetchone()
 
 
@@ -187,8 +201,8 @@ def _insert_player(conn, room, player_id: str, name: str, lang: str) -> int:
         raise StoreError(409, "room_full", "The room is full.")
     seat = next(i for i in range(len(seats) + 1) if i not in seats)
     conn.execute(
-        "INSERT INTO players(room_id, player_id, seat, name, lang, is_bot, bot_persona, role,"
-        " alive, connected, joined_at) VALUES(?,?,?,?,?,0,NULL,NULL,1,0,?)",
+        "INSERT INTO players(room_id, player_id, seat, name, lang, is_bot, bot_persona,"
+        " alive, connected, joined_at) VALUES(?,?,?,?,?,0,NULL,1,0,?)",
         (room["id"], player_id, seat, name, lang, now_ms()),
     )
     _bump(conn, room["id"])
