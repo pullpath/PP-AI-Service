@@ -7,7 +7,7 @@ from ai_svc.spy_hunt import auth, ratelimits
 
 def _make_guest(client, **kw):
     r = client.post("/api/spy-hunt/guests", **kw)
-    assert r.status_code == 200 or r.status_code == 201
+    assert r.status_code == 200
     return r.get_json()
 
 
@@ -27,7 +27,6 @@ def test_token_not_stored_plain(client, conn):
 
 def _protected_client(client):
     app = client.application
-    app.config["_t"] = True
 
     @app.route("/_t/me")
     @auth.require_guest
@@ -64,13 +63,13 @@ def test_token_in_url_rejected(client):
 
 def test_guest_create_rate_limit(client):
     for _ in range(40):
-        assert client.post("/api/spy-hunt/guests").status_code in (200, 201)
+        assert client.post("/api/spy-hunt/guests").status_code == 200
     r = client.post("/api/spy-hunt/guests")
     assert r.status_code == 429
     assert r.get_json()["error"] == "rate_limited"
     # a different IP is unaffected
     r2 = client.post("/api/spy-hunt/guests", headers={"X-Real-IP": "9.9.9.9"})
-    assert r2.status_code in (200, 201)
+    assert r2.status_code == 200
 
 
 def test_per_guest_limit_and_reset(client):
@@ -92,3 +91,32 @@ def test_per_guest_limit_and_reset(client):
     assert c.get("/_t/rc", headers=hb).status_code == 200
     ratelimits.reset_all()
     assert c.get("/_t/rc", headers=ha).status_code == 200
+
+
+def test_per_guest_limit_without_auth_fails_loudly(client):
+    app = client.application
+
+    @app.route("/_t/bad")
+    @ratelimits.limit("action")
+    @auth.require_guest
+    def bad():
+        return jsonify({"ok": True})
+
+    app.testing = False
+    r = app.test_client().get("/_t/bad", headers={"X-Real-IP": "1.1.1.1"})
+    assert r.status_code == 500
+
+
+def test_bucket_keys_are_scoped(client):
+    app = client.application
+    with app.test_request_context("/", headers={"X-Real-IP": "abc"}):
+        assert ratelimits.bucket_key("ip") == "ip:abc"
+        g.player_id = "abc"
+        assert ratelimits.bucket_key("guest") == "guest:abc"
+    with app.test_request_context("/"):
+        try:
+            ratelimits.bucket_key("guest")
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("expected RuntimeError")

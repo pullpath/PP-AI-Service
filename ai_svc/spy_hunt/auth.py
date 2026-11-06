@@ -16,7 +16,7 @@ def hash_token(token: str) -> str:
 
 
 def create_guest() -> tuple[str, str]:
-    player_id = secrets.token_urlsafe(9).replace(".", "-")
+    player_id = secrets.token_urlsafe(9)
     token = secrets.token_urlsafe(32)
     conn = get_conn()
     conn.execute(
@@ -36,9 +36,11 @@ def require_guest(fn):
     def wrapper(*args, **kwargs):
         header = request.headers.get("Authorization", "")
         scheme, _, cred = header.partition(" ")
-        if scheme != "Bearer" or "." not in cred:
+        if scheme != "Bearer":
             return _unauthorized()
         player_id, _, token = cred.partition(".")
+        if not player_id or not token:
+            return _unauthorized()
         row = get_conn().execute(
             "SELECT token_hash FROM guests WHERE player_id=?", (player_id,)
         ).fetchone()

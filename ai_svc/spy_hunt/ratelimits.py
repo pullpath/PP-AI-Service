@@ -22,14 +22,23 @@ def client_ip() -> str:
     return request.headers.get("X-Real-IP") or request.remote_addr or "unknown"
 
 
+def bucket_key(scope: str) -> str:
+    if scope == "guest":
+        player_id = getattr(g, "player_id", None)
+        if not player_id:
+            raise RuntimeError("per-guest limit used without require_guest")
+        return f"guest:{player_id}"
+    return f"ip:{client_ip()}"
+
+
 def reset_all() -> None:
     for lim in _LIMITERS.values():
         lim.reset()
 
 
 def limit(name: str):
-    """Rate-limit decorator. Per-guest limits need g.player_id (use after
-    require_guest); they fall back to the IP if it is absent."""
+    """Rate-limit decorator. Per-guest limits need g.player_id, so place
+    them below @require_guest; otherwise RuntimeError is raised."""
     if name not in _SPECS:
         raise KeyError(name)
     limiter = _LIMITERS[name]
@@ -38,9 +47,7 @@ def limit(name: str):
     def deco(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            key = client_ip()
-            if scope == "guest":
-                key = getattr(g, "player_id", None) or key
+            key = bucket_key(scope)
             if limiter.is_limited(key):
                 return jsonify({
                     "error": "rate_limited",
