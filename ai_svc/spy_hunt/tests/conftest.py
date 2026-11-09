@@ -62,6 +62,12 @@ def _reset_translation(monkeypatch):
     fake_llm.reset()
     game.set_on_message(None)
     game.set_on_bots_due(None)
+    game.set_on_host_moment(None)
+    try:
+        from ai_svc.spy_hunt import host
+        host.reset()
+    except ImportError:
+        pass
     try:
         from ai_svc.spy_hunt import translation
         translation.reset()

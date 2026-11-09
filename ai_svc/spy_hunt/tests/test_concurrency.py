@@ -78,6 +78,6 @@ def test_two_statements_same_turn_at_once(client):
     codes = race(client.application, 2, lambda c: c.post(
         f"{API}/rooms/{code}/statement", json={"text": "same turn"}, headers=h).status_code)
     assert sorted(codes) == [200, 409]
-    rows = get_conn().execute("SELECT seat FROM messages WHERE room_id=?", (rid,)).fetchall()
+    rows = get_conn().execute("SELECT seat FROM messages WHERE room_id=? AND kind='statement'", (rid,)).fetchall()
     assert [r["seat"] for r in rows] == [s]
     assert store.get_room(rid)["phase_seq"] == seq + 1

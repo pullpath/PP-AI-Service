@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, events, game, ratelimits, store, timers, translation, visibility, workers
+from ai_svc.spy_hunt import auth, events, game, host, ratelimits, store, timers, translation, visibility, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ spy_hunt_bp = Blueprint("spy_hunt", __name__, url_prefix="/api/spy-hunt")
 def _start_timers():
     # Lazy (impl spec §3): the debug reloader's parent imports the app but never
     # serves a request, so it never starts a timer thread.
-    for step in (timers.ensure_started, translation.install, bots_module.install):  # independent: one failing
+    for step in (timers.ensure_started, translation.install, bots_module.install, host.install):  # independent: one failing
         try:                                                  # must not skip the other
             step()
         except Exception:

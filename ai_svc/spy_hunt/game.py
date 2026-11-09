@@ -114,6 +114,31 @@ def _notify_message(message_id: int) -> None:
             log.exception("on_message hook failed")
 
 
+_host_hook: Optional[Callable[[str, str], None]] = None
+
+
+def set_on_host_moment(fn: Optional[Callable[[str, str], None]]) -> None:
+    """Post-commit hook for host narration (Task 11), fired at three public
+    moments: round start, after an elimination reveal, and at game over. A
+    SEPARATE hook, never instead of on_phase_change / on_bots_due / on_message.
+    Default no-op; narration is cosmetic and must never affect game state."""
+    global _host_hook
+    _host_hook = fn
+
+
+def _notify_host(moments: List[tuple]) -> None:
+    """Fire the host-moment hook once per queued (room_id, moment), after commit.
+    Fire-and-forget: a failure here must never fail a player's request, the
+    timer thread, or the game flow."""
+    if _host_hook is None:
+        return
+    for room_id, moment in moments:
+        try:
+            _host_hook(room_id, moment)
+        except Exception:  # host narration is cosmetic: never break game flow
+            log.exception("on_host_moment hook failed")
+
+
 def _notify(pend: List[tuple]) -> None:
     if not pend:
         return
@@ -217,7 +242,8 @@ def _after_describe_step(conn, room_id: str, pend: List[tuple]) -> None:
         _enter_describe(conn, room_id, pend, room["phase"], room["round"])
 
 
-def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str]) -> None:
+def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
+            moments: List[tuple]) -> None:
     room = _room(conn, room_id)
     rows = _players(conn, room_id)
     words = visibility._pair_words(conn, room)
@@ -227,6 +253,7 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str]) -> Non
         "winner": winner, "round": room["round"],
         "roles": [{"seat": r["seat"], "role": r["role"]} for r in rows],
         "words": words}, "all", conn=conn)
+    moments.append((room_id, "game_over"))
 
 
 # ---- bots ----
@@ -284,6 +311,7 @@ def _lobby_host_check(conn, room_id: str, by_player: str):
 
 def start_game(room_id: str, by_player: str) -> None:
     pend: List[tuple] = []
+    moments: List[tuple] = []
     with store.tx(room_id) as conn:
         room = _lobby_host_check(conn, room_id, by_player)
         cfg = json.loads(room["config_json"])
@@ -339,7 +367,9 @@ def start_game(room_id: str, by_player: str) -> None:
                 "seat": r["seat"], "game_no": room["game_no"],
                 "my_word": words[r["role"]][r["lang"]]}, f"seat:{r['seat']}", conn=conn)
         _enter_describe(conn, room_id, pend, "describe", 1)
+        moments.append((room_id, "round_start"))
     _notify(pend)
+    _notify_host(moments)
 
 
 # ---- statements ----
@@ -404,6 +434,7 @@ def _check_target_type(t: Any) -> None:
 def submit_vote(room_id: str, player_id: str, target_seat: Any) -> None:
     _check_target_type(target_seat)
     pend: List[tuple] = []
+    moments: List[tuple] = []
     with store.tx(room_id) as conn:
         room = _room(conn, room_id)
         me = conn.execute("SELECT * FROM players WHERE room_id=? AND player_id=?",
@@ -436,11 +467,12 @@ def submit_vote(room_id: str, player_id: str, target_seat: Any) -> None:
                      {"seat": seat, "round": room["round"], "stage": stage}, "all", conn=conn)
         voters = set(engine.eligible_voters(alive, stage, tied))
         if voters <= set(_votes(conn, room, stage)):
-            _resolve_vote(conn, room_id, pend)
+            _resolve_vote(conn, room_id, pend, moments)
     _notify(pend)
+    _notify_host(moments)
 
 
-def _resolve_vote(conn, room_id: str, pend: List[tuple]) -> None:
+def _resolve_vote(conn, room_id: str, pend: List[tuple], moments: List[tuple]) -> None:
     room = _room(conn, room_id)
     stage = _stage(room)
     rows = _players(conn, room_id)
@@ -458,6 +490,8 @@ def _resolve_vote(conn, room_id: str, pend: List[tuple]) -> None:
                      (room_id, res.eliminated))
     store._bump(conn, room_id)
     append_event(room_id, "reveal", payload, "all", conn=conn)
+    if res.eliminated is not None:
+        moments.append((room_id, "elimination"))
     if res.outcome == "tiebreak":
         _enter_describe(conn, room_id, pend, "tiebreak_describe", room["round"])
         return
@@ -466,7 +500,7 @@ def _resolve_vote(conn, room_id: str, pend: List[tuple]) -> None:
     cfg = json.loads(room["config_json"])
     winner = engine.check_win(seats, room["round"], cfg["max_rounds"])
     if winner:
-        _finish(conn, room_id, pend, winner)
+        _finish(conn, room_id, pend, winner, moments)
         return
     deadline = now_ms() + REVEAL_SECONDS * 1000
     seq = _set_phase(conn, room_id, pend, "reveal", deadline)
@@ -480,6 +514,7 @@ def advance_phase(room_id: str, expected_phase_seq: int) -> bool:
     """The single function timers call. Acts only if `phase_seq` still matches;
     otherwise (stale or duplicate fire) returns False with no effect."""
     pend: List[tuple] = []
+    moments: List[tuple] = []
     with store.tx(room_id) as conn:
         row = conn.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
         if row is None or row["status"] != "playing" or row["phase_seq"] != expected_phase_seq:
@@ -500,13 +535,15 @@ def advance_phase(room_id: str, expected_phase_seq: int) -> bool:
             store._bump(conn, room_id)
             _after_describe_step(conn, room_id, pend)
         elif room["phase"] in VOTE_PHASES:
-            _resolve_vote(conn, room_id, pend)
+            _resolve_vote(conn, room_id, pend, moments)
         elif room["phase"] == "reveal":
             store._bump(conn, room_id)
             _enter_describe(conn, room_id, pend, "describe", room["round"] + 1)
+            moments.append((room_id, "round_start"))
         else:
             return False
     _notify(pend)
+    _notify_host(moments)
     return True
 
 
