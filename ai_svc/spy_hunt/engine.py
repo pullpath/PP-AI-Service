@@ -1,6 +1,7 @@
 """Pure game rules for spy-hunt. No I/O, no DB, no Flask."""
 from __future__ import annotations
 
+import unicodedata
 from collections import Counter
 from typing import Any, Dict, List, NamedTuple, Optional
 
@@ -69,10 +70,22 @@ def resolve_vote(
     return VoteResult(None, [], "nobody")
 
 
+def _norm(text: str) -> str:
+    """Comparison form: NFKC, drop ALL format (Cf) chars (ZWJ/ZWNJ/ZWSP, word
+    joiner, soft hyphen, bidi controls, BOM) and variation selectors, casefold.
+    Used only for comparing; never stored or displayed."""
+    t = unicodedata.normalize("NFKC", text or "")
+    t = "".join(c for c in t if unicodedata.category(c) != "Cf"
+                and not (0xFE00 <= ord(c) <= 0xFE0F or 0xE0100 <= ord(c) <= 0xE01EF))
+    return t.casefold()
+
+
 def contains_own_word(text: str, words: Dict[str, str]) -> bool:
-    low = (text or "").casefold()
+    """Case-insensitive substring test on normalised text (see _norm); the
+    secret words are normalised the same way."""
+    low = _norm(text)
     for w in words.values():
-        w = (w or "").strip().casefold()
+        w = _norm((w or "").strip())
         if w and w in low:
             return True
     return False

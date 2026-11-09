@@ -463,7 +463,7 @@ def test_full_flow_event_on_stream_visible(client):
         pl = json.loads(row["payload_json"])
         ev = dict(row)
         assert visibility.visible_to(ev, 0) and visibility.visible_to(ev, 1)
-        assert not visibility.visible_to(ev, None) is False
+        assert visibility.visible_to(ev, None)  # audience all
         assert pl["text"] == "hello"
     finally:
         game.set_pair_source(None)
@@ -716,3 +716,53 @@ def test_clean_keeps_zwj_family_emoji_strips_dangerous():
     out = translation._clean(f"hi {fam} a\u200bb\u202ec\ufeffd\u00ade\u2060f\u200cg\x00", "x" * 50)
     assert fam in out
     assert out.replace(fam, "") == "hi  abcdefg"
+
+
+# ---- fix round 2: normalised own-word comparison ----
+SPLITS = ["bea\u200dcon", "b\u00adeacon", "b\u200beacon", "b\ufe0feacon", "\uff42\uff45\uff41\uff43\uff4f\uff4e",
+          "BeAcOn", "\u202ebeacon\u202c", "be\u200cacon", "be\u2060acon", "\ufeffbeacon"]
+
+
+@pytest.mark.parametrize("t", SPLITS)
+def test_engine_detects_obfuscated_word(t):
+    assert engine.contains_own_word(f"a {t} here", {"en": "beacon"})
+
+
+def test_engine_zh_zwj_and_clean():
+    assert engine.contains_own_word("灯\u200d塔", {"zh-Hans": "灯塔"})
+    assert engine.contains_own_word("beacon", {"en": "bea\u200dcon"})  # words normalised too
+    assert not engine.contains_own_word("a tall thing near the sea", {"en": "beacon"})
+    fam = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
+    assert not engine.contains_own_word(f"I love {fam}", {"en": "beacon", "zh-Hans": "灯塔"})
+
+
+@pytest.mark.parametrize("t", ["bea\u200dcon", "灯\u200d塔"])
+def test_translation_with_split_word_withheld(env, t):
+    rid = playing_room()
+    words = game.speaker_words(rid, 0)
+    other = "zh-Hans"
+    leak = words[other]
+    bad = leak[0] + "\u200d" + leak[1:]
+    reg({"lang": "en", "translations": {other: f"x {bad}"}})
+    mid = add_msg(rid, "tall and white", "en", seat=0)
+    translation.process_message(mid)
+    assert trans(mid) == {} and tevents(rid) == []
+
+
+def test_statement_rejects_split_word_and_keeps_emoji(env):
+    rid = playing_room()
+    cur = visibility.build_snapshot(rid, "pid0")["current_speaker"]
+    p = get_conn().execute("SELECT player_id FROM players WHERE room_id=? AND seat=?",
+                           (rid, cur)).fetchone()[0]
+    w = game.speaker_words(rid, cur)
+    mine = w[get_conn().execute("SELECT lang FROM players WHERE room_id=? AND seat=?",
+                                (rid, cur)).fetchone()[0]]
+    with pytest.raises(store.StoreError) as ei:
+        game.submit_statement(rid, p, f"my {mine[:1]}\u200d{mine[1:]}")
+    assert ei.value.status == 400 and ei.value.code == "own_word"
+    other = [v for v in w.values() if v != mine][0]
+    assert other not in ei.value.message and mine not in ei.value.message
+    fam = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
+    game.submit_statement(rid, p, f"cozy {fam}")
+    stored = get_conn().execute("SELECT text FROM messages WHERE kind='statement'").fetchone()[0]
+    assert fam in stored

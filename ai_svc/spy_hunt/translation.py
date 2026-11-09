@@ -16,6 +16,13 @@ and bots/host replies keep working longest. Failures (`LlmError`,
 `BudgetExceeded`) are logged without message text and never raised: the
 original message stays the real one and no event is emitted.
 
+Own-word rule: a translation is withheld (nothing stored or emitted) when it
+contains the speaker's own secret word. The check is a case-insensitive
+substring comparison on normalised text (engine.contains_own_word: NFKC, format
+characters and variation selectors removed). Very short secret words (e.g. 'tea',
+a single CJK character) can therefore withhold harmless translations; viewers
+then see the original only (accepted trade-off).
+
 Security: message text reaches the model only inside `prompts.data_block`;
 output is schema-validated, stripped of control characters and length-capped.
 """

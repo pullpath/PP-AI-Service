@@ -332,7 +332,8 @@ def _clean_text(text: Any, max_chars: int) -> str:
     if len(text) > max_chars * 4:
         raise StoreError(400, "too_long", f"At most {max_chars} characters.")
     t = "".join(" " if ch in "\n\r\t" else ch for ch in text)
-    t = "".join(ch for ch in t if not unicodedata.category(ch).startswith("C"))
+    # ZWJ is kept so emoji families render; the own-word check normalises it away.
+    t = "".join(ch for ch in t if ch == "\u200d" or not unicodedata.category(ch).startswith("C"))
     t = " ".join(t.split())
     if not t:
         raise StoreError(400, "empty_text", "Say something.")
