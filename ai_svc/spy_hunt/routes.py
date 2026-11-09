@@ -4,9 +4,16 @@ from typing import Any, Dict
 
 from flask import Blueprint, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, game, ratelimits, store, visibility
+from ai_svc.spy_hunt import auth, game, ratelimits, store, timers, visibility
 
 spy_hunt_bp = Blueprint("spy_hunt", __name__, url_prefix="/api/spy-hunt")
+
+
+@spy_hunt_bp.before_request
+def _start_timers():
+    # Lazy (impl spec §3): the debug reloader's parent imports the app but never
+    # serves a request, so it never starts a timer thread.
+    timers.ensure_started()
 
 
 @spy_hunt_bp.errorhandler(store.StoreError)

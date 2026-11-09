@@ -31,6 +31,16 @@ def client(temp_db):
 
 
 @pytest.fixture(autouse=True)
+def _reset_timers(monkeypatch):
+    """No real timer thread in tests (one test opts in); clean scheduler state."""
+    from ai_svc.spy_hunt import timers
+    timers.reset()
+    monkeypatch.setattr(timers, "THREAD_ENABLED", False)
+    yield
+    timers.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_ratelimits():
     from ai_svc.spy_hunt import ratelimits
     ratelimits.reset_all()
