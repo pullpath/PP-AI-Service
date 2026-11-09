@@ -26,6 +26,10 @@ All routes except `/health` and `/guests` need `Authorization: Bearer <player_id
 | POST | `/rooms/<code>/leave` | leave (a bot takes the seat mid-game) |
 | POST | `/rooms/<code>/rematch` | host: new game in the same room |
 | GET | `/rooms/<code>/events` | SSE stream, `?after=<seq>` or `Last-Event-ID` |
+| GET | `/daily` | today's puzzle and your progress (starts your timer); 503 `no_puzzle` if none is ready |
+| POST | `/daily/guess` | `{spy_seat}` (0 to 4), two tries |
+| POST | `/daily/word` | `{option}` (0 to 3, or `null` to skip) |
+| GET | `/daily/result` | score, answer and day stats, once finished |
 
 ## Events (SSE: `id: <seq>`, `event: <type>`, `data: <json>`)
 

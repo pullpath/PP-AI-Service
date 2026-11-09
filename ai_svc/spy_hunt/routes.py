@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, events, game, host, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import auth, events, game, host, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -193,6 +193,43 @@ def bots(code: str):
     room = _room_or_404(code)
     (game.add_bot if action == "add" else game.remove_bot)(room["id"], g.player_id)
     return jsonify(_snapshot(room["id"]))
+
+
+# ---- daily puzzle ----
+
+@spy_hunt_bp.route("/daily", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def get_daily():
+    return jsonify(puzzles.get_today(g.player_id))
+
+
+@spy_hunt_bp.route("/daily/guess", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def daily_guess():
+    return jsonify(puzzles.guess_spy(g.player_id, _json_body().get("spy_seat")))
+
+
+@spy_hunt_bp.route("/daily/word", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def daily_word():
+    body = _json_body()
+    if "option" not in body:
+        raise store.StoreError(400, "bad_option", "option is required (null to skip).")
+    return jsonify(puzzles.guess_word(g.player_id, body["option"]))
+
+
+@spy_hunt_bp.route("/daily/result", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def daily_result():
+    return jsonify(puzzles.result(g.player_id))
 
 
 # ---- SSE stream (impl spec §7.1) ----
