@@ -54,6 +54,16 @@ def set_pair_source(fn: Optional[Callable[[str], Pair]]) -> None:
     _pair_source = fn
 
 
+_pair_prepare: Optional[Callable[[str], None]] = None
+
+
+def set_pair_prepare(fn: Optional[Callable[[str], None]]) -> None:
+    """Hook run by start_game BEFORE its transaction (model calls are not allowed
+    inside one): lets the word pool generate a pair if none is fresh."""
+    global _pair_prepare
+    _pair_prepare = fn
+
+
 def set_on_phase_change(fn: Optional[Callable[[str, int, Optional[int]], None]]) -> None:
     global _phase_hook
     _phase_hook = fn
@@ -253,6 +263,9 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
         "winner": winner, "round": room["round"],
         "roles": [{"seat": r["seat"], "role": r["role"]} for r in rows],
         "words": words}, "all", conn=conn)
+    if room["pair_id"]:
+        from ai_svc.spy_hunt import words as words_mod
+        words_mod.record_outcome(room["pair_id"], winner == "spies", conn)
     moments.append((room_id, "game_over"))
 
 
@@ -312,6 +325,11 @@ def _lobby_host_check(conn, room_id: str, by_player: str):
 def start_game(room_id: str, by_player: str) -> None:
     pend: List[tuple] = []
     moments: List[tuple] = []
+    if _pair_prepare is not None:
+        try:
+            _pair_prepare(room_id)
+        except Exception:
+            log.exception("pair prepare failed")
     with store.tx(room_id) as conn:
         room = _lobby_host_check(conn, room_id, by_player)
         cfg = json.loads(room["config_json"])

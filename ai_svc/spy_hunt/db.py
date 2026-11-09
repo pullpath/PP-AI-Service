@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
@@ -78,4 +79,26 @@ def close_conn() -> None:
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    conn.commit()
+    _load_seed(conn)
+
+
+SEED_PATH = os.path.join(os.path.dirname(__file__), "seed", "pairs_seed.json")
+
+
+def _load_seed(conn) -> None:
+    """Load the vetted seed pool once, only while `pairs` is empty."""
+    if conn.execute("SELECT 1 FROM pairs LIMIT 1").fetchone() is not None:
+        return
+    if not os.path.exists(SEED_PATH):
+        return
+    with open(SEED_PATH, encoding="utf-8") as f:
+        items = json.load(f)
+    for p in items:
+        en = p["words"]["en"]
+        conn.execute(
+            "INSERT OR IGNORE INTO pairs(id, concept_a, concept_b, difficulty, theme,"
+            " words_json, active, plays, spy_wins) VALUES(?,?,?,?,?,?,1,0,0)",
+            (p["id"], en["a"], en["b"], p.get("difficulty", 1), p.get("theme"),
+             json.dumps(p["words"], ensure_ascii=False)))
     conn.commit()

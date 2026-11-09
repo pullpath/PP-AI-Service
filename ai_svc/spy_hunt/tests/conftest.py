@@ -63,6 +63,9 @@ def _reset_translation(monkeypatch):
     game.set_on_message(None)
     game.set_on_bots_due(None)
     game.set_on_host_moment(None)
+    game.set_pair_prepare(None)
+    from ai_svc.spy_hunt import words
+    words.reset()
     try:
         from ai_svc.spy_hunt import host
         host.reset()

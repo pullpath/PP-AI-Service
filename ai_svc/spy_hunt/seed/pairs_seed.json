@@ -1,0 +1,152 @@
+[
+ {
+  "id": "seed-lighthouse-windmill",
+  "difficulty": 2,
+  "theme": "places",
+  "words": {
+   "en": {
+    "a": "lighthouse",
+    "b": "windmill"
+   },
+   "zh-Hans": {
+    "a": "灯塔",
+    "b": "风车"
+   }
+  }
+ },
+ {
+  "id": "seed-coffee-tea",
+  "difficulty": 1,
+  "theme": "drinks",
+  "words": {
+   "en": {
+    "a": "coffee",
+    "b": "tea"
+   },
+   "zh-Hans": {
+    "a": "咖啡",
+    "b": "茶"
+   }
+  }
+ },
+ {
+  "id": "seed-guitar-violin",
+  "difficulty": 2,
+  "theme": "music",
+  "words": {
+   "en": {
+    "a": "guitar",
+    "b": "violin"
+   },
+   "zh-Hans": {
+    "a": "吉他",
+    "b": "小提琴"
+   }
+  }
+ },
+ {
+  "id": "seed-bicycle-scooter",
+  "difficulty": 1,
+  "theme": "transport",
+  "words": {
+   "en": {
+    "a": "bicycle",
+    "b": "scooter"
+   },
+   "zh-Hans": {
+    "a": "自行车",
+    "b": "滑板车"
+   }
+  }
+ },
+ {
+  "id": "seed-apple-pear",
+  "difficulty": 1,
+  "theme": "fruit",
+  "words": {
+   "en": {
+    "a": "apple",
+    "b": "pear"
+   },
+   "zh-Hans": {
+    "a": "苹果",
+    "b": "梨"
+   }
+  }
+ },
+ {
+  "id": "seed-piano-organ",
+  "difficulty": 2,
+  "theme": "music",
+  "words": {
+   "en": {
+    "a": "piano",
+    "b": "organ"
+   },
+   "zh-Hans": {
+    "a": "钢琴",
+    "b": "风琴"
+   }
+  }
+ },
+ {
+  "id": "seed-river-canal",
+  "difficulty": 2,
+  "theme": "nature",
+  "words": {
+   "en": {
+    "a": "river",
+    "b": "canal"
+   },
+   "zh-Hans": {
+    "a": "河流",
+    "b": "运河"
+   }
+  }
+ },
+ {
+  "id": "seed-umbrella-raincoat",
+  "difficulty": 2,
+  "theme": "clothing",
+  "words": {
+   "en": {
+    "a": "umbrella",
+    "b": "raincoat"
+   },
+   "zh-Hans": {
+    "a": "雨伞",
+    "b": "雨衣"
+   }
+  }
+ },
+ {
+  "id": "seed-pizza-pie",
+  "difficulty": 2,
+  "theme": "food",
+  "words": {
+   "en": {
+    "a": "pizza",
+    "b": "pie"
+   },
+   "zh-Hans": {
+    "a": "披萨",
+    "b": "馅饼"
+   }
+  }
+ },
+ {
+  "id": "seed-sofa-armchair",
+  "difficulty": 2,
+  "theme": "home",
+  "words": {
+   "en": {
+    "a": "sofa",
+    "b": "armchair"
+   },
+   "zh-Hans": {
+    "a": "沙发",
+    "b": "扶手椅"
+   }
+  }
+ }
+]
