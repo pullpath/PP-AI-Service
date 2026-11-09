@@ -9,17 +9,27 @@ SPIKE (Task 8, 5 tiny live calls, max_tokens<=30, deepseek-chat):
     text, ~1.7-1.9 s each (slower, extra framework layer, no per-request
     timeout I could verify cheaply).
   DECISION: plain openai client (JSON mode + native timeout, lower latency).
+
+TIMEOUT MECHANISM: call_json enforces ONE total wall-clock deadline (the
+`timeout` argument) across both attempts. Each transport call runs in a daemon
+worker thread and the caller waits with join(remaining); on expiry the call is
+abandoned and LlmError is raised. The httpx timeout stays as an inner per-phase
+guard. The retry only gets the remaining time; if none remains, no second call
+is made and no budget unit is reserved. KNOWN LIMIT: an abandoned worker thread
+keeps running in the background until httpx gives up (bounded by the inner
+timeout); its result is discarded.
 """
 from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from typing import Dict
 
 from pydantic import BaseModel, ValidationError
 
-from . import store
+from . import db, store
 from .config import GameConfig
 
 log = logging.getLogger("spy_hunt.llm")
@@ -58,6 +68,12 @@ def budget_fraction_left(room_id: str) -> float:
     return budget_remaining(room_id) / total if total else 0.0
 
 
+_now = time.monotonic
+_DOTENV_LOADED = False
+_fake_warned = False
+RETRY_SUFFIX = "\n\nReturn ONLY a valid JSON object matching the requested format."
+
+
 def _reserve(room_id: str) -> None:
     budget = GameConfig().room_ai_budget
     with store.tx(room_id) as conn:
@@ -65,20 +81,33 @@ def _reserve(room_id: str) -> None:
             "UPDATE rooms SET ai_calls = COALESCE(ai_calls, 0) + 1 "
             "WHERE id = ? AND COALESCE(ai_calls, 0) < ?", (room_id, budget))
         if cur.rowcount == 0:
+            if conn.execute("SELECT 1 FROM rooms WHERE id = ?", (room_id,)).fetchone() is None:
+                raise LlmError("unknown room")
             raise BudgetExceeded(f"room AI budget of {budget} used up")
 
 
+def _api_key() -> str:
+    global _DOTENV_LOADED
+    if not _DOTENV_LOADED:
+        from dotenv import load_dotenv
+        load_dotenv()
+        _DOTENV_LOADED = True
+    return os.environ.get("DEEPSEEK_API_KEY", "")
+
+
 def _transport(task: str, prompt: str, max_tokens: int, timeout: float) -> str:
+    global _fake_warned
     if os.environ.get("SPY_HUNT_FAKE_LLM") == "1":
+        if not _fake_warned:
+            _fake_warned = True
+            log.warning("SPY_HUNT_FAKE_LLM=1: using the FAKE LLM transport (not for production)")
         from . import fake_llm
         return fake_llm.complete(task, prompt, max_tokens, timeout)
-    from dotenv import load_dotenv
-    load_dotenv()
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
+    key = _api_key()
     if not key:
         raise LlmError("DEEPSEEK_API_KEY not configured")
-    from openai import OpenAI
-    client = OpenAI(api_key=key, base_url=BASE_URL, timeout=timeout, max_retries=0)
+    import openai
+    client = openai.OpenAI(api_key=key, base_url=BASE_URL, timeout=timeout, max_retries=0)
     resp = client.chat.completions.create(
         model=_model(),
         messages=[{"role": "user", "content": prompt}],
@@ -88,16 +117,42 @@ def _transport(task: str, prompt: str, max_tokens: int, timeout: float) -> str:
     return resp.choices[0].message.content or ""
 
 
+def _run_with_deadline(task: str, prompt: str, max_tokens: int, remaining: float) -> str:
+    box: dict = {}
+
+    def work():
+        try:
+            box["v"] = _transport(task, prompt, max_tokens, remaining)
+        except BaseException as e:  # noqa: BLE001 - re-raised in caller
+            box["e"] = e
+
+    th = threading.Thread(target=work, daemon=True, name="spy-hunt-llm")
+    th.start()
+    th.join(remaining)
+    if th.is_alive():
+        raise LlmError("model call timed out")
+    if "e" in box:
+        raise box["e"]
+    return box["v"]
+
+
 def call_json(task: str, prompt: str, schema: type[BaseModel], room_id: str,
               max_tokens: int, timeout: float) -> BaseModel:
+    if db.get_conn().in_transaction:
+        raise RuntimeError("llm.call_json must not be called inside an open store.tx")
+    deadline = _now() + timeout
     last = "unknown"
     for attempt in (1, 2):
+        remaining = deadline - _now()
+        if remaining <= 0:
+            raise LlmError("model call deadline exhausted")
         _reserve(room_id)  # raises BudgetExceeded; counter untouched then
         t0 = time.monotonic()
         outcome = "ok"
         try:
             try:
-                raw = _transport(task, prompt, max_tokens, timeout)
+                p = prompt if attempt == 1 else prompt + RETRY_SUFFIX
+                raw = _run_with_deadline(task, p, max_tokens, remaining)
             except LlmError:
                 outcome = "LlmError"
                 raise

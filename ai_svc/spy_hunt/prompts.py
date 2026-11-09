@@ -23,10 +23,34 @@ _BRACKETS = re.compile(r"[<>‹›«»〈〉⟨⟩〈〉"
                        r"《》＜＞❬❭❰❱⧼⧽]")
 
 
+_SEP = r"[\s_\-]*"
+_MARKER = re.compile(
+    "(?:" + _SEP.join("end") + "|" + _SEP.join("begin") + ")" + _SEP + _SEP.join("data"),
+    re.IGNORECASE)
+TRUNCATED = "\u2026[truncated]"
+
+
+def _fold(text: str) -> str:
+    """Fold lookalikes of ASCII letters/digits/_/-/brackets (fullwidth etc.) to
+    ASCII, drop invisible format (Cf) chars. Other text (CJK punctuation, accents,
+    emoji) is left exactly as written."""
+    out = []
+    for c in text:
+        if unicodedata.category(c) == "Cf":
+            continue
+        n = unicodedata.normalize("NFKC", c)
+        if len(n) == 1 and n.isascii() and (n.isalnum() or n in "_-<>"):
+            c = n
+        out.append(c)
+    return "".join(out)
+
+
 def data_block(text: str) -> str:
-    s = unicodedata.normalize("NFKC", str(text))
-    s = s[:MAX_DATA_CHARS]
+    if not isinstance(text, str):
+        raise TypeError("data_block expects str")
+    s = _fold(text)
     s = _BRACKETS.sub("", s)
-    # Neutralise the delimiter word itself, in any case/spacing.
-    s = re.sub(r"(?i)end[\s_\-]*data", "end-of-data", s)
+    s = _MARKER.sub("[removed]", s)
+    if len(s) > MAX_DATA_CHARS:
+        s = s[:MAX_DATA_CHARS] + TRUNCATED
     return f"{_INTRO}\n{DATA_OPEN}\n{s}\n{DATA_CLOSE}"
