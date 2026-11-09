@@ -453,3 +453,17 @@ def test_bot_act_handler_returns_fast_even_if_the_model_call_is_slow(benv):
     finally:
         workers.reset()
         workers.set_synchronous(True)
+
+
+def test_public_view_reveal_history_only_covers_the_current_game(benv):
+    rid = lobby_with_bots(1, 3)
+    start(rid)
+    with store.tx(rid) as c:
+        old = {"round": 1, "stage": 0, "outcome": "eliminated", "eliminated": 3, "tied": [],
+               "votes": [], "role": "spy"}
+        store.append_event(rid, "reveal", old, "all", conn=c)
+        store.append_event(rid, "game_started", {"seat": 0, "game_no": 2, "my_word": "x"},
+                           "seat:0", conn=c)
+        store.append_event(rid, "reveal", dict(old, eliminated=2), "all", conn=c)
+    view = bots.public_view(rid, 1)
+    assert [r["eliminated"] for r in view["reveal_history"]] == [2]

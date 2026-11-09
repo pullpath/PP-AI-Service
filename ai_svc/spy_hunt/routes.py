@@ -210,7 +210,9 @@ def get_daily():
 @auth.require_guest
 @ratelimits.limit("action")
 def daily_guess():
-    return jsonify(puzzles.guess_spy(g.player_id, _json_body().get("spy_seat")))
+    body = _json_body()
+    return jsonify(puzzles.guess_spy(g.player_id, body.get("spy_seat"),
+                                     puzzles.check_day(body.get("day"))))
 
 
 @spy_hunt_bp.route("/daily/word", methods=["POST"])
@@ -221,7 +223,8 @@ def daily_word():
     body = _json_body()
     if "option" not in body:
         raise store.StoreError(400, "bad_option", "option is required (null to skip).")
-    return jsonify(puzzles.guess_word(g.player_id, body["option"]))
+    return jsonify(puzzles.guess_word(g.player_id, body["option"],
+                                      puzzles.check_day(body.get("day"))))
 
 
 @spy_hunt_bp.route("/daily/result", methods=["GET"])
@@ -229,7 +232,7 @@ def daily_word():
 @auth.require_guest
 @ratelimits.limit("read")
 def daily_result():
-    return jsonify(puzzles.result(g.player_id))
+    return jsonify(puzzles.result(g.player_id, puzzles.check_day(request.args.get("day"))))
 
 
 # ---- SSE stream (impl spec §7.1) ----

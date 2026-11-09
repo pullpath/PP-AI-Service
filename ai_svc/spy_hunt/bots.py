@@ -164,9 +164,12 @@ def _public_view(conn, room_id: str, seat: int) -> Dict[str, Any]:
         })
 
     reveal_history = []
+    since = conn.execute(
+        "SELECT COALESCE(MAX(seq), 0) FROM events WHERE room_id=? AND type='game_started'",
+        (room_id,)).fetchone()[0]  # rematches reuse the room: only this game's reveals count
     for e in conn.execute(
-        "SELECT payload_json FROM events WHERE room_id=? AND type='reveal' ORDER BY seq",
-        (room_id,)):
+        "SELECT payload_json FROM events WHERE room_id=? AND seq>? AND type='reveal' ORDER BY seq",
+        (room_id, since)):
         payload = json.loads(e["payload_json"])
         payload.pop("role", None)  # never forward the eliminated seat's role to a bot
         reveal_history.append(payload)

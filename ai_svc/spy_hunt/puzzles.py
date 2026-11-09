@@ -6,10 +6,11 @@ No model calls here: generation lives in puzzle_gen.py. Mutations run in one
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
 from .db import get_conn
@@ -29,6 +30,19 @@ def _now_ms() -> int:
 def utc_day(now_ms: Optional[int] = None) -> str:
     ms = _now_ms() if now_ms is None else now_ms
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def check_day(value: Any) -> str:
+    """The day a client names for an in-progress puzzle: today or yesterday (UTC), so a
+    player who started before midnight can still finish. None means today."""
+    today = utc_day()
+    if value is None:
+        return today
+    yesterday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) \
+            or value not in (today, yesterday):
+        raise StoreError(400, "bad_day", "day must be today's or yesterday's date (UTC).")
+    return value
 
 
 @contextmanager
@@ -124,7 +138,8 @@ def _is_int(v: Any) -> bool:
 
 def _me(att) -> Dict[str, Any]:
     return {"stage": att["stage"], "tries": att["tries"],
-            "tries_left": max(0, MAX_TRIES - att["tries"]) if att["stage"] == "spy" else 0}
+            "tries_left": max(0, MAX_TRIES - att["tries"]) if att["stage"] == "spy" else 0,
+            "wrong": json.loads(att["wrong_json"] or "[]")}
 
 
 def _attempt(c, day: str, player_id: str):
@@ -160,6 +175,9 @@ def guess_spy(player_id: str, spy_seat: Any, day: Optional[str] = None) -> Dict[
             raise StoreError(404, "no_attempt", "Open today's puzzle first.")
         if att["stage"] != "spy":
             raise StoreError(409, "wrong_stage", "You are not guessing the spy right now.")
+        wrong = json.loads(att["wrong_json"] or "[]")
+        if spy_seat in wrong:
+            raise StoreError(409, "already_tried", "You already ruled that player out.")
         tries = att["tries"] + 1
         if spy_seat == _answer(c, day)["spy_seat"]:
             c.execute("UPDATE puzzle_results SET tries=?, solved=1, stage='word'"
@@ -168,10 +186,11 @@ def guess_spy(player_id: str, spy_seat: Any, day: Optional[str] = None) -> Dict[
                     "tries_left": MAX_TRIES - tries}
         if tries >= MAX_TRIES:
             c.execute("UPDATE puzzle_results SET tries=?, solved=0, stage='done', finished_at=?,"
-                      " score=0 WHERE day=? AND player_id=?", (tries, _now_ms(), day, player_id))
+                      " score=0, wrong_json=? WHERE day=? AND player_id=?",
+                      (tries, _now_ms(), json.dumps(wrong + [spy_seat]), day, player_id))
             return {"correct": False, "stage": "done", "tries": tries, "tries_left": 0}
-        c.execute("UPDATE puzzle_results SET tries=? WHERE day=? AND player_id=?",
-                  (tries, day, player_id))
+        c.execute("UPDATE puzzle_results SET tries=?, wrong_json=? WHERE day=? AND player_id=?",
+                  (tries, json.dumps(wrong + [spy_seat]), day, player_id))
         return {"correct": False, "stage": "spy", "tries": tries,
                 "tries_left": MAX_TRIES - tries}
 

@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS puzzles(
   pair_id TEXT, difficulty INTEGER, public_json TEXT, answer_json TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS puzzle_results(
   day TEXT, player_id TEXT, stage TEXT, tries INTEGER, solved INTEGER, word_correct INTEGER,
-  started_at INTEGER, finished_at INTEGER, score INTEGER, PRIMARY KEY(day, player_id));
+  started_at INTEGER, finished_at INTEGER, score INTEGER, wrong_json TEXT,
+  PRIMARY KEY(day, player_id));
 CREATE INDEX IF NOT EXISTS idx_events_room_seq ON events(room_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id, id);
 CREATE INDEX IF NOT EXISTS idx_rooms_status_active ON rooms(status, last_active);

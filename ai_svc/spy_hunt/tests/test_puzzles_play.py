@@ -40,7 +40,7 @@ def test_score_table(args, expected):
 def test_get_today_creates_attempt_and_hides_answer(temp_db, clock):
     add()
     out = puzzles.get_today("g1", DAY)
-    assert out["me"] == {"stage": "spy", "tries": 0, "tries_left": 2}
+    assert out["me"] == {"stage": "spy", "tries": 0, "tries_left": 2, "wrong": []}
     assert "spy_seat" not in json.dumps(out)
     clock["t"] += 50_000
     puzzles.get_today("g1", DAY)
@@ -205,5 +205,33 @@ def test_yesterdays_attempt_does_not_affect_today(temp_db, clock):
     puzzles.guess_spy("g1", 2, DAY)
     puzzles.guess_word("g1", None, DAY)
     out = puzzles.get_today("g1", "2026-11-11")
-    assert out["me"] == {"stage": "spy", "tries": 0, "tries_left": 2}
+    assert out["me"] == {"stage": "spy", "tries": 0, "tries_left": 2, "wrong": []}
     assert out["puzzle"]["number"] == 2
+
+
+def test_wrong_seats_survive_a_reload(temp_db, clock):
+    add()
+    puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 0, DAY)
+    me = puzzles.get_today("g1", DAY)["me"]
+    assert me == {"stage": "spy", "tries": 1, "tries_left": 1, "wrong": [0]}
+
+
+def test_repeating_a_wrong_seat_is_rejected_and_costs_no_try(temp_db, clock):
+    add()
+    puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 0, DAY)
+    with pytest.raises(StoreError) as e:
+        puzzles.guess_spy("g1", 0, DAY)
+    assert e.value.status == 409 and e.value.code == "already_tried"
+    assert puzzles.get_today("g1", DAY)["me"]["tries"] == 1
+
+
+def test_check_day_accepts_today_and_yesterday_only(temp_db, clock):
+    assert puzzles.check_day(None) == puzzles.utc_day()
+    assert puzzles.check_day("1970-01-01") == "1970-01-01"
+    assert puzzles.check_day("1969-12-31") == "1969-12-31"
+    for bad in ("1970-01-02", "1969-12-30", "garbage", 5, "1970-1-1"):
+        with pytest.raises(StoreError) as e:
+            puzzles.check_day(bad)
+        assert e.value.status == 400 and e.value.code == "bad_day"

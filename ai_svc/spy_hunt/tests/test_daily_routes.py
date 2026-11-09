@@ -83,3 +83,32 @@ def test_result_before_finish_is_409(client):
     client.get("/api/spy-hunt/daily", headers=h)
     r = client.get("/api/spy-hunt/daily/result", headers=h)
     assert r.status_code == 409 and r.get_json()["error"] == "not_finished"
+
+
+def test_a_player_can_finish_after_utc_midnight_by_naming_the_day(client, monkeypatch):
+    import calendar
+    seed()
+    clock = {"t": calendar.timegm((2026, 11, 10, 23, 58, 0)) * 1000}
+    monkeypatch.setattr(puzzles, "_now_ms", lambda: clock["t"])
+    h = guest(client)
+    day = client.get("/api/spy-hunt/daily", headers=h).get_json()["puzzle"]["day"]
+    assert day == "2026-11-10"
+    clock["t"] += 3 * 60 * 1000  # now 2026-11-11 00:01 UTC
+    assert client.post("/api/spy-hunt/daily/guess", json={"spy_seat": 2}, headers=h).status_code == 404
+    g = client.post("/api/spy-hunt/daily/guess", json={"spy_seat": 2, "day": day}, headers=h)
+    assert g.status_code == 200 and g.get_json()["stage"] == "word"
+    w = client.post("/api/spy-hunt/daily/word", json={"option": None, "day": day}, headers=h)
+    assert w.status_code == 200
+    r = client.get(f"/api/spy-hunt/daily/result?day={day}", headers=h)
+    assert r.status_code == 200 and r.get_json()["solved"] is True
+
+
+@pytest.mark.parametrize("bad", ["garbage", "2026-11-01", "2027-01-01"])
+def test_bad_day_is_400(client, monkeypatch, bad):
+    seed()
+    h = guest(client)
+    client.get("/api/spy-hunt/daily", headers=h)
+    r = client.post("/api/spy-hunt/daily/guess", json={"spy_seat": 2, "day": bad}, headers=h)
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_day"
+    r = client.get(f"/api/spy-hunt/daily/result?day={bad}", headers=h)
+    assert r.status_code == 400
