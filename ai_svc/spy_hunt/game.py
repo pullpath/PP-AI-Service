@@ -64,6 +64,23 @@ def on_phase_change(room_id: str, phase_seq: int, deadline: Optional[int]) -> No
         _phase_hook(room_id, phase_seq, deadline)
 
 
+_message_hook: Optional[Callable[[int], None]] = None
+
+
+def set_on_message(fn: Optional[Callable[[int], None]]) -> None:
+    global _message_hook
+    _message_hook = fn
+
+
+def _notify_message(message_id: int) -> None:
+    """Post-commit hook for new chat messages (translation, Task 9). Default no-op."""
+    if _message_hook is not None:
+        try:
+            _message_hook(message_id)
+        except Exception:  # must never fail the player's request
+            log.exception("on_message hook failed")
+
+
 def _notify(pend: List[tuple]) -> None:
     if not pend:
         return
@@ -333,8 +350,10 @@ def submit_statement(room_id: str, player_id: str, text: Any) -> None:
         store._bump(conn, room_id)
         msg = conn.execute("SELECT * FROM messages WHERE id=?", (cur.lastrowid,)).fetchone()
         append_event(room_id, "statement", {"message": _msg_dict(msg)}, "all", conn=conn)
+        message_id = msg["id"]
         _after_describe_step(conn, room_id, pend)
     _notify(pend)
+    _notify_message(message_id)
 
 
 # ---- votes ----

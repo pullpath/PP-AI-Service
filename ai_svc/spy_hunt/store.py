@@ -261,7 +261,8 @@ def add_player(room_id: str, player_id: str, name: str, lang: str) -> tuple[int,
         return _insert_player(conn, dict(room), player_id, name, lang), True
 
 
-def update_me(room_id: str, player_id: str, name: Any = None, lang: Any = None) -> None:
+def update_me(room_id: str, player_id: str, name: Any = None, lang: Any = None) -> bool:
+    """Returns True when the player's language actually changed."""
     if name is None and lang is None:
         raise StoreError(400, "bad_request", "Nothing to change.")
     name = clean_name(name) if name is not None else None
@@ -273,10 +274,15 @@ def update_me(room_id: str, player_id: str, name: Any = None, lang: Any = None) 
             raise StoreError(403, "not_member", "You are not in this room.")
         if name is not None:
             conn.execute("UPDATE players SET name=? WHERE room_id=? AND seat=?", (name, room_id, seat))
+        changed = False
         if lang is not None:
+            old = conn.execute("SELECT lang FROM players WHERE room_id=? AND seat=?",
+                               (room_id, seat)).fetchone()["lang"]
+            changed = old != lang
             conn.execute("UPDATE players SET lang=? WHERE room_id=? AND seat=?", (lang, room_id, seat))
         _bump(conn, room_id)
         _emit_player(conn, dict(room), seat, "player_updated")
+    return changed
 
 
 def update_settings(room_id: str, player_id: str, main_lang: Any = None,

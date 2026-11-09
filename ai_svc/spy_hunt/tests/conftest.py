@@ -46,3 +46,23 @@ def _reset_ratelimits():
     ratelimits.reset_all()
     yield
     ratelimits.reset_all()
+
+
+@pytest.fixture(autouse=True)
+def _reset_translation(monkeypatch):
+    """No real worker threads or network in tests: workers run inline, the fake
+    LLM transport is on (no task registered -> LlmError), translation is unhooked."""
+    from ai_svc.spy_hunt import fake_llm, game, workers
+    monkeypatch.setenv("SPY_HUNT_FAKE_LLM", "1")
+    fake_llm.reset()
+    workers.reset()
+    workers.set_synchronous(True)
+    yield
+    workers.reset()
+    fake_llm.reset()
+    game.set_on_message(None)
+    try:
+        from ai_svc.spy_hunt import translation
+        translation.reset()
+    except ImportError:
+        pass

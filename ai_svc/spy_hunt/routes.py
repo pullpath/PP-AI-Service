@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, events, game, ratelimits, store, timers, visibility
+from ai_svc.spy_hunt import auth, events, game, ratelimits, store, timers, translation, visibility, workers
 
 spy_hunt_bp = Blueprint("spy_hunt", __name__, url_prefix="/api/spy-hunt")
 
@@ -14,6 +14,7 @@ def _start_timers():
     # Lazy (impl spec §3): the debug reloader's parent imports the app but never
     # serves a request, so it never starts a timer thread.
     timers.ensure_started()
+    translation.install()
 
 
 @spy_hunt_bp.errorhandler(store.StoreError)
@@ -95,7 +96,10 @@ def get_room(code: str):
 def update_me(code: str):
     body = _json_body()
     room = _room_or_404(code)
-    store.update_me(room["id"], g.player_id, name=body.get("name"), lang=body.get("lang"))
+    changed = store.update_me(room["id"], g.player_id, name=body.get("name"),
+                              lang=body.get("lang"))
+    if changed:  # backfill runs in a worker: never a model call in the request thread
+        workers.submit(translation.backfill_room, room["id"], body["lang"])
     return jsonify(_snapshot(room["id"]))
 
 
