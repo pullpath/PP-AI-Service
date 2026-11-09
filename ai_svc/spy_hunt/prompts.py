@@ -1,4 +1,8 @@
-"""Prompt helpers. Skeleton: only the untrusted-text wrapper and shared rules."""
+"""Prompt helpers. Callers must pass str (use `str(x or "")` for optional fields).
+Never call llm.call_json inside store.tx (bots/translation/host run in worker
+threads outside tx).
+
+Skeleton: only the untrusted-text wrapper and shared rules."""
 from __future__ import annotations
 
 import re
@@ -24,8 +28,12 @@ _BRACKETS = re.compile(r"[<>‹›«»〈〉⟨⟩〈〉"
 
 
 _SEP = r"[\s_\-]*"
+# Standalone token only: no letter/digit directly before "end"/"begin" or after
+# "data", so "backend data" and "weekend database" are untouched. A standalone
+# "end data" phrase IS neutralised (accepted ambiguity: safe over exact).
 _MARKER = re.compile(
-    "(?:" + _SEP.join("end") + "|" + _SEP.join("begin") + ")" + _SEP + _SEP.join("data"),
+    r"(?<![A-Za-z0-9])(?:" + _SEP.join("end") + "|" + _SEP.join("begin") + ")" + _SEP
+    + _SEP.join("data") + r"(?![A-Za-z0-9])",
     re.IGNORECASE)
 TRUNCATED = "\u2026[truncated]"
 
@@ -49,8 +57,12 @@ def data_block(text: str) -> str:
     if not isinstance(text, str):
         raise TypeError("data_block expects str")
     s = _fold(text)
-    s = _BRACKETS.sub("", s)
-    s = _MARKER.sub("[removed]", s)
+    s = _BRACKETS.sub(" ", s)
+    while True:  # loop so nested forms cannot reassemble a marker
+        t = _MARKER.sub("[removed]", s)
+        if t == s:
+            break
+        s = t
     if len(s) > MAX_DATA_CHARS:
         s = s[:MAX_DATA_CHARS] + TRUNCATED
     return f"{_INTRO}\n{DATA_OPEN}\n{s}\n{DATA_CLOSE}"
