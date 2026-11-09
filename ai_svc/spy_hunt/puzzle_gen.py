@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
-from . import bots, engine, game, llm, prompts, puzzles, store, words
+from . import bots, engine, game, llm, prompts, puzzles, store, translation, words
 from .db import get_conn
 from .config import BOT_NAMES, LANGS, GameConfig
 
@@ -27,6 +27,7 @@ MIN_CONFIDENCE = 40
 TOO_EASY_CONFIDENCE = 95
 QUEUE_TARGET = 14
 TRANSLATE_MAX_TOKENS = 900
+LANG_NAMES = {"en": "English", "zh-Hans": "Simplified Chinese"}
 
 
 class _TranslateOut(BaseModel):
@@ -45,17 +46,18 @@ def _leaks(text: str, pair: game.Pair) -> bool:
 
 
 def _statement(room_id: str, view: Dict[str, Any], persona: bots.BotProfile,
-               pair: game.Pair) -> Optional[str]:
+               pair: game.Pair, lang: str) -> Optional[str]:
+    prompt = (bots._prompt_describe(view, persona)
+              + f"\nThe statement must be written in {LANG_NAMES[lang]}.")
     for _ in range(STATEMENT_ATTEMPTS):
         try:
-            out = llm.call_json("puzzle_statement", bots._prompt_describe(view, persona),
-                                bots._StatementOut, room_id, bots.STATEMENT_MAX_TOKENS,
-                                llm.TASK_TIMEOUTS["puzzle_statement"])
+            out = llm.call_json("puzzle_statement", prompt, bots._StatementOut, room_id,
+                                bots.STATEMENT_MAX_TOKENS, llm.TASK_TIMEOUTS["puzzle_statement"])
         except Exception:  # LlmError, BudgetExceeded: no canned fallback in a puzzle
             log.info("puzzle statement failed room_id=%s", room_id)
             return None
         text = _clean(out.statement)
-        if text and not _leaks(text, pair):
+        if text and translation.detect_local(text) in (lang, None) and not _leaks(text, pair):
             return text
     return None
 
@@ -96,7 +98,7 @@ def build_candidate(room_id: str, pair: game.Pair, origin_lang: str,
             view = {"my_word": pair.words[origin_lang][key], "round": rnd, "players": names,
                     "statements": [{"name": names[m["seat"]], "text": m["text"]}
                                    for m in statements]}
-            text = _statement(room_id, view, personas[seat], pair)
+            text = _statement(room_id, view, personas[seat], pair, origin_lang)
             if text is None:
                 return None
             statements.append({"id": len(statements) + 1, "round": rnd, "stage": 0,

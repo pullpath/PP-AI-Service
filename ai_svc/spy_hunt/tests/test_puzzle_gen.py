@@ -24,6 +24,10 @@ def my_word(prompt):
     return re.search(r"is: (.*)\n", prompt).group(1)
 
 
+def clue(i, prompt):
+    return f"线索{i}" if "Simplified Chinese" in prompt else f"clue {i}"
+
+
 def register_clean(prompts=None, translations=None):
     n = {"i": 0}
 
@@ -31,7 +35,7 @@ def register_clean(prompts=None, translations=None):
         if prompts is not None:
             prompts.append(prompt)
         n["i"] += 1
-        return {"statement": f"clue {n['i'] - 1}"}
+        return {"statement": clue(n["i"] - 1, prompt)}
 
     fake_llm.register("puzzle_statement", statement)
     fake_llm.register("puzzle_translate",
@@ -113,6 +117,31 @@ def test_translation_goes_into_the_other_language(room):
     assert c["public"]["origin_lang"] == "zh-Hans"
 
 
+def test_statement_prompt_names_the_origin_language(room):
+    prompts = []
+    register_clean(prompts)
+    build(room, origin="zh-Hans")
+    assert all("Simplified Chinese" in p for p in prompts)
+    prompts.clear()
+    build(room, origin="en")
+    assert all("English" in p and "Simplified Chinese" not in p for p in prompts)
+
+
+def test_statement_in_the_wrong_language_is_retried_then_rejected(room):
+    calls = {"n": 0}
+
+    def english_first(prompt):
+        calls["n"] += 1
+        return {"statement": "A warm drink for the morning" if calls["n"] == 1 else f"线索{calls['n']}"}
+
+    fake_llm.register("puzzle_statement", english_first)
+    fake_llm.register("puzzle_translate", lambda p: {"translations": [f"line {i}" for i in range(10)]})
+    c = build(room, origin="zh-Hans")
+    assert c is not None and all("warm drink" not in m["text"] for m in c["public"]["statements"])
+    fake_llm.register("puzzle_statement", lambda p: {"statement": "A warm drink for the morning"})
+    assert build(room, origin="zh-Hans") is None
+
+
 def test_candidate_public_has_no_answer_keys(room):
     register_clean()
     c = build(room)
@@ -188,7 +217,7 @@ def register_world(full_conf=80, r1_conf=50, r1_right=False, full_right=lambda c
             st["words"] = []
         if i % 10 < 5:
             st["words"].append(my_word(prompt))
-        return {"statement": f"clue {i}"}
+        return {"statement": clue(i, prompt)}
 
     def solve(prompt):
         if solve_error:
