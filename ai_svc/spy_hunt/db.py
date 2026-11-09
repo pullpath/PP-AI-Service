@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS pairs(
   words_json TEXT, active INTEGER, plays INTEGER, spy_wins INTEGER);
 CREATE TABLE IF NOT EXISTS room_pairs(room_id TEXT, pair_id TEXT);
 CREATE TABLE IF NOT EXISTS guest_recent_pairs(player_id TEXT, pair_id TEXT, played_at INTEGER);
+CREATE TABLE IF NOT EXISTS puzzles(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER, day TEXT UNIQUE, status TEXT,
+  pair_id TEXT, difficulty INTEGER, public_json TEXT, answer_json TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS puzzle_results(
+  day TEXT, player_id TEXT, stage TEXT, tries INTEGER, solved INTEGER, word_correct INTEGER,
+  started_at INTEGER, finished_at INTEGER, score INTEGER, PRIMARY KEY(day, player_id));
 CREATE INDEX IF NOT EXISTS idx_events_room_seq ON events(room_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id, id);
 CREATE INDEX IF NOT EXISTS idx_rooms_status_active ON rooms(status, last_active);
