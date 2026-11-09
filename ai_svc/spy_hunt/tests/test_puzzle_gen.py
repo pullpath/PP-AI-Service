@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import random
 import re
+import types
 
 import pytest
 
-from ai_svc.spy_hunt import fake_llm, game, puzzle_gen, store
+from ai_svc.spy_hunt import fake_llm, game, llm, puzzle_gen, puzzles, store
+from ai_svc.spy_hunt.db import get_conn
 from ai_svc.spy_hunt.llm import LlmError
 
 PAIR = game.Pair("p-t", {"en": {"a": "piano", "b": "organ"}, "zh-Hans": {"a": "钢琴", "b": "风琴"}})
@@ -117,3 +119,164 @@ def test_candidate_public_has_no_answer_keys(room):
     text = json.dumps(c["public"], ensure_ascii=False)
     assert "spy_seat" not in text and "spy_word" not in text
     assert c["public"]["options"] == [] and c["answer"]["option_index"] is None
+
+
+# ---- part 2: options, gate, queue ----
+
+def add_pair(pid, en_a, en_b, theme, zh_a=None, zh_b=None):
+    words = {"en": {"a": en_a, "b": en_b}, "zh-Hans": {"a": zh_a or en_a + "中", "b": zh_b or en_b + "中"}}
+    get_conn().execute(
+        "INSERT INTO pairs(id, concept_a, concept_b, difficulty, theme, words_json, active, plays,"
+        " spy_wins) VALUES(?,?,?,?,?,?,1,0,0)",
+        (pid, en_a, en_b, 1, theme, json.dumps(words, ensure_ascii=False)))
+    get_conn().commit()
+
+
+def only_pool(*pids):
+    get_conn().execute("UPDATE pairs SET active=0")
+    for pid in pids:
+        get_conn().execute("UPDATE pairs SET active=1 WHERE id=?", (pid,))
+    get_conn().commit()
+
+
+def test_pick_options_returns_four_distinct_options_with_spy_word_at_index(temp_db):
+    opts, idx = puzzle_gen.pick_options(PAIR, "b", None, random.Random(3))
+    assert len(opts) == 4 and 0 <= idx < 4
+    assert opts[idx] == {"en": "organ", "zh-Hans": "风琴"}
+    assert len({o["en"] for o in opts}) == 4
+
+
+def test_pick_options_prefers_same_theme(temp_db):
+    for i in range(3):
+        add_pair(f"t{i}", f"alpha{i}", f"beta{i}", "zoo")
+    add_pair("o1", "other1", "other2", "misc")
+    only_pool("t0", "t1", "t2", "o1")
+    opts, idx = puzzle_gen.pick_options(PAIR, "b", "zoo", random.Random(1))
+    others = [o["en"] for i, o in enumerate(opts) if i != idx]
+    assert all(w.startswith(("alpha", "beta")) for w in others)
+
+
+def test_pick_options_never_repeats_pair_words(temp_db):
+    add_pair("dup", "piano", "xylophone", "music", "钢琴", "木琴")
+    add_pair("dup2", "ORGAN", "tuba", "music", "管风琴", "大号")
+    for i in range(3):
+        add_pair(f"f{i}", f"fill{i}", f"gill{i}", "music")
+    only_pool("dup", "dup2", "f0", "f1", "f2")
+    for seed in range(20):
+        opts, idx = puzzle_gen.pick_options(PAIR, "b", "music", random.Random(seed))
+        for i, o in enumerate(opts):
+            if i != idx:
+                assert o["en"].lower() not in ("piano", "organ") and o["zh-Hans"] not in ("钢琴", "风琴")
+
+
+def test_pick_options_raises_on_tiny_pool(temp_db):
+    add_pair("only", "solo1", "solo2", "x")
+    only_pool("only")
+    with pytest.raises(LookupError):
+        puzzle_gen.pick_options(PAIR, "a", None, random.Random(1))
+
+
+def register_world(full_conf=80, r1_conf=50, r1_right=False, full_right=lambda cand: True,
+                   solve_error=False):
+    st = {"words": [], "calls": 0, "cand": 0}
+
+    def statement(prompt):
+        i = st["calls"]
+        st["calls"] += 1
+        if i % 10 == 0:
+            st["cand"] += 1
+            st["words"] = []
+        if i % 10 < 5:
+            st["words"].append(my_word(prompt))
+        return {"statement": f"clue {i}"}
+
+    def solve(prompt):
+        if solve_error:
+            raise LlmError("down")
+        w = st["words"]
+        spy = next(s for s, x in enumerate(w) if w.count(x) == 1)
+        full = "Round 2" in prompt
+        right = full_right(st["cand"]) if full else r1_right
+        return {"spy_seat": spy if right else (spy + 1) % 5,
+                "confidence": full_conf if full else r1_conf}
+
+    fake_llm.register("puzzle_statement", statement)
+    fake_llm.register("puzzle_solve", solve)
+    fake_llm.register("puzzle_translate", lambda p: {"translations": [f"线索{i}" for i in range(10)]})
+    return st
+
+
+def gen(room, seed=1):
+    return puzzle_gen.generate_puzzle(room, PAIR, "en", random.Random(seed))
+
+
+def test_gate_accepts_solvable_puzzle(room):
+    register_world()
+    out = gen(room)
+    assert out["difficulty"] == 2 and out["pair_id"] == "p-t"
+    assert len(out["public"]["options"]) == 4
+    assert out["public"]["options"][out["answer"]["option_index"]] == out["answer"]["spy_word"]
+
+
+def test_gate_rejects_wrong_solver_answer(room):
+    register_world(full_right=lambda cand: False)
+    assert gen(room) is None
+
+
+def test_gate_rejects_low_confidence(room):
+    register_world(full_conf=30)
+    assert gen(room) is None
+
+
+def test_gate_rejects_too_easy_round_one(room):
+    register_world(r1_right=True, r1_conf=98)
+    assert gen(room) is None
+
+
+def test_gate_allows_round_one_right_but_unsure(room):
+    register_world(r1_right=True, r1_conf=70)
+    assert gen(room) is not None
+
+
+def test_gate_rejects_when_solver_errors(room):
+    register_world(solve_error=True)
+    assert gen(room) is None
+
+
+@pytest.mark.parametrize("conf,expected", [(85, 1), (84, 2), (60, 2), (59, 3)])
+def test_difficulty_boundaries(conf, expected):
+    assert puzzle_gen.difficulty_of(conf) == expected
+
+
+def test_generate_retries_with_a_new_candidate(room):
+    st = register_world(full_right=lambda cand: cand > 1)
+    out = gen(room)
+    assert out is not None and st["cand"] == 2
+
+
+def test_fill_queue_inserts_until_target_and_alternates_language(temp_db):
+    register_world()
+    n = puzzle_gen.fill_queue(2, random.Random(1), log=lambda *a: None)
+    assert n == 2 and puzzles.ready_count() == 2
+    origins = [json.loads(r["public_json"])["origin_lang"]
+               for r in get_conn().execute("SELECT public_json FROM puzzles ORDER BY id")]
+    assert set(origins) == {"en", "zh-Hans"}
+
+
+def test_fill_queue_never_publishes_a_rejected_puzzle(temp_db):
+    register_world(full_right=lambda cand: False)
+    assert puzzle_gen.fill_queue(1, random.Random(1), log=lambda *a: None) == 0
+    assert puzzles.ready_count() == 0
+
+
+def test_fill_queue_resets_budget_per_pair(temp_db, monkeypatch):
+    monkeypatch.setattr(llm, "GameConfig", lambda: types.SimpleNamespace(room_ai_budget=14))
+    register_world()
+    assert puzzle_gen.fill_queue(3, random.Random(1), log=lambda *a: None) == 3
+
+
+def test_fill_queue_does_not_reuse_pairs(temp_db):
+    register_world()
+    puzzle_gen.fill_queue(4, random.Random(2), log=lambda *a: None)
+    ids = [r["pair_id"] for r in get_conn().execute("SELECT pair_id FROM puzzles")]
+    assert len(set(ids)) == 4

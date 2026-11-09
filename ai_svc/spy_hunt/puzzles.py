@@ -63,6 +63,14 @@ def ready_count() -> int:
         "SELECT COUNT(*) c FROM puzzles WHERE status='ready'").fetchone()["c"]
 
 
+def total_count() -> int:
+    return get_conn().execute("SELECT COUNT(*) c FROM puzzles").fetchone()["c"]
+
+
+def used_pair_ids() -> set:
+    return {r["pair_id"] for r in get_conn().execute("SELECT pair_id FROM puzzles")}
+
+
 def list_ready() -> List[Dict[str, Any]]:
     return [dict(r) for r in get_conn().execute(
         "SELECT id, pair_id, difficulty, created_at FROM puzzles WHERE status='ready'"
