@@ -45,6 +45,7 @@ _FIXTURE_PAIR = Pair("fixture-lighthouse-windmill", {
 
 _pair_source: Optional[Callable[[str], Pair]] = None
 _phase_hook: Optional[Callable[[str, int, Optional[int]], None]] = None
+_bots_hook: Optional[Callable[[str], None]] = None
 
 
 def set_pair_source(fn: Optional[Callable[[str], Pair]]) -> None:
@@ -62,6 +63,19 @@ def on_phase_change(room_id: str, phase_seq: int, deadline: Optional[int]) -> No
     """Hook for Task 6 timers. Called after commit; default no-op."""
     if _phase_hook is not None:
         _phase_hook(room_id, phase_seq, deadline)
+
+
+def set_on_bots_due(fn: Optional[Callable[[str], None]]) -> None:
+    """Second post-commit hook, alongside (never instead of) on_phase_change:
+    Task 10 (bots) uses this to learn "a phase or speaker just changed" and
+    decide whose turn is now a bot's. Default no-op."""
+    global _bots_hook
+    _bots_hook = fn
+
+
+def on_bots_due(room_id: str) -> None:
+    if _bots_hook is not None:
+        _bots_hook(room_id)
 
 
 def speaker_words(room_id: str, seat: Optional[int]) -> Dict[str, str]:
@@ -108,6 +122,10 @@ def _notify(pend: List[tuple]) -> None:
         on_phase_change(room_id, seq, deadline)
     except Exception:  # a scheduler bug must not fail the player's request
         log.exception("on_phase_change failed")
+    try:
+        on_bots_due(room_id)
+    except Exception:  # same: bots must never block or fail the player's request
+        log.exception("on_bots_due failed")
 
 
 # ---- small helpers ----

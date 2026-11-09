@@ -61,8 +61,14 @@ def _reset_translation(monkeypatch):
     workers.reset()
     fake_llm.reset()
     game.set_on_message(None)
+    game.set_on_bots_due(None)
     try:
         from ai_svc.spy_hunt import translation
         translation.reset()
+    except ImportError:
+        pass
+    try:
+        from ai_svc.spy_hunt import bots
+        bots.reset()
     except ImportError:
         pass
