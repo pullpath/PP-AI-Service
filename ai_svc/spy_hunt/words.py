@@ -94,6 +94,19 @@ def draw_pair(room_id: str) -> game.Pair:
     return _row_to_pair(row)
 
 
+def _already_in_pool(words: Dict[str, Dict[str, str]]) -> bool:
+    """Same pair in either order, in English or in Chinese (catches a synonym such as
+    TV/television, and the hand-written seed pairs whose ids are not hashes)."""
+    en = frozenset(w.strip().casefold() for w in words["en"].values())
+    zh = frozenset(w.strip() for w in words["zh-Hans"].values())
+    for r in get_conn().execute("SELECT words_json FROM pairs"):
+        known = json.loads(r["words_json"])
+        if (frozenset(w.strip().casefold() for w in known["en"].values()) == en
+                or frozenset(w.strip() for w in known["zh-Hans"].values()) == zh):
+            return True
+    return False
+
+
 def generate_pair(room_id: str, theme: Optional[str] = None) -> Optional[game.Pair]:
     """Generate and validate one pair (both languages); insert only if both pass.
     Returns None on any failure. Must be called outside a transaction."""
@@ -110,9 +123,8 @@ def generate_pair(room_id: str, theme: Optional[str] = None) -> Optional[game.Pa
             a, b = words[lang]["a"], words[lang]["b"]
             if not a or not b or a.lower() == b.lower():
                 return None
-        if get_conn().execute("SELECT 1 FROM pairs WHERE id=?",
-                              (_pair_id(words["en"]["a"], words["en"]["b"]),)).fetchone():
-            return None  # already in the pool (also catches a reversed pair)
+        if _already_in_pool(words):
+            return None
         v = llm.call_json("pair_validate", _validate_prompt(words), _ValidateOut, room_id, 120,
                           llm.TASK_TIMEOUTS["pair_validate"])
         if not (v.en.ok and v.zh_hans.ok):

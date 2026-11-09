@@ -885,21 +885,6 @@
   }
  },
  {
-  "id": "p-ba7bbc739b",
-  "difficulty": 2,
-  "theme": "jobs",
-  "words": {
-   "en": {
-    "a": "policeman",
-    "b": "fireman"
-   },
-   "zh-Hans": {
-    "a": "警察",
-    "b": "消防员"
-   }
-  }
- },
- {
   "id": "p-bf76fd6d00",
   "difficulty": 1,
   "theme": "nature",
@@ -1076,21 +1061,6 @@
    "zh-Hans": {
     "a": "医院",
     "b": "诊所"
-   }
-  }
- },
- {
-  "id": "p-f108757478",
-  "difficulty": 2,
-  "theme": "electronics",
-  "words": {
-   "en": {
-    "a": "TV",
-    "b": "computer monitor"
-   },
-   "zh-Hans": {
-    "a": "电视",
-    "b": "电脑显示器"
    }
   }
  },

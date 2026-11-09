@@ -206,3 +206,43 @@ def test_reversed_duplicate_is_rejected(wenv):
     fake_llm.register("pair_generate", lambda p: flipped)
     assert words.generate_pair(mkroom()) is None
     assert count() == before
+
+
+# ---- duplicates (final review) ----
+
+def _norm_sets(pair):
+    en = frozenset(w.strip().casefold() for w in pair["words"]["en"].values())
+    zh = frozenset(w.strip() for w in pair["words"]["zh-Hans"].values())
+    return en, zh
+
+
+def test_seed_has_no_duplicate_pairs():
+    seed = json.load(open(db.SEED_PATH, encoding="utf-8"))
+    en_seen, zh_seen = {}, {}
+    for p in seed:
+        en, zh = _norm_sets(p)
+        assert en not in en_seen, f"{p['id']} repeats the English pair of {en_seen[en]}"
+        assert zh not in zh_seen, f"{p['id']} repeats the Chinese pair of {zh_seen[zh]}"
+        en_seen[en], zh_seen[zh] = p["id"], p["id"]
+
+
+def test_generated_copy_of_a_hand_written_seed_pair_is_rejected(wenv):
+    row = get_conn().execute("SELECT words_json FROM pairs WHERE id LIKE 'seed-%' LIMIT 1").fetchone()
+    w = json.loads(row["words_json"])
+    gen = {"en": {"a": w["en"]["b"], "b": w["en"]["a"]}, "zh_hans": {"a": w["zh-Hans"]["b"], "b": w["zh-Hans"]["a"]},
+           "difficulty": 1, "theme": "x"}
+    _capture_gen_prompt(gen)
+    before = count()
+    assert words.generate_pair(mkroom()) is None
+    assert count() == before
+
+
+def test_a_synonym_pair_with_the_same_chinese_words_is_rejected(wenv):
+    _capture_gen_prompt()
+    assert words.generate_pair(mkroom()) is not None
+    before = count()
+    synonyms = {"en": {"a": "stocking", "b": "mitten"}, "zh_hans": {"a": "袜子", "b": "手套"},
+                "difficulty": 2, "theme": "clothes"}
+    fake_llm.register("pair_generate", lambda p: synonyms)
+    assert words.generate_pair(mkroom()) is None
+    assert count() == before
