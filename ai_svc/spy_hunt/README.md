@@ -58,6 +58,11 @@ Build the real pool offline (about 300 to 400 model calls, once):
 This writes `seed/pairs_candidate.json` and never touches the shipped seed.
 Review it, then copy it over `pairs_seed.json` to load it.
 
+To grow an existing pool instead, add `--extend`: the run starts from the shipped
+seed, `--target` is the total size, and the candidate file holds only the new pairs
+to review and append. The generator tells the model which pairs already exist and
+rejects a pair that is already in the pool (a reversed pair counts as a duplicate).
+
 ## Operating notes
 
 - **Single process only.** Room locks, the timer queue, SSE wake-ups and

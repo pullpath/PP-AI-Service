@@ -156,3 +156,53 @@ def test_start_game_uses_pool_and_records_outcome(wenv):
     pid = store.get_room(rid)["pair_id"]
     assert get_conn().execute("SELECT 1 FROM room_pairs WHERE room_id=? AND pair_id=?",
                               (rid, pid)).fetchone()
+
+
+# ---- generation avoids known pairs ----
+
+def _capture_gen_prompt(gen=GOOD_GEN):
+    seen = []
+    fake_llm.register("pair_generate", lambda p: (seen.append(p), gen)[1])
+    fake_llm.register("pair_validate", lambda p: {"en": {"ok": True}, "zh_hans": {"ok": True}})
+    return seen
+
+
+def test_generation_prompt_lists_existing_pairs_to_avoid(wenv):
+    row = get_conn().execute("SELECT concept_a, concept_b FROM pairs ORDER BY rowid DESC LIMIT 1").fetchone()
+    seen = _capture_gen_prompt()
+    words.generate_pair(mkroom())
+    assert f"{row['concept_a']}/{row['concept_b']}" in seen[0]
+    assert "Do not use any of these pairs" in seen[0]
+
+
+def test_avoid_list_is_capped_at_avoid_max(wenv):
+    c = get_conn()
+    for i in range(200):
+        c.execute("INSERT INTO pairs(id, concept_a, concept_b, difficulty, theme, words_json, active, plays,"
+                  " spy_wins) VALUES(?,?,?,?,?,?,1,0,0)",
+                  (f"x{i}", f"zzx{i}", f"zzy{i}", 1, "t", json.dumps({"en": {"a": f"zzx{i}", "b": f"zzy{i}"}})))
+    c.commit()
+    seen = _capture_gen_prompt()
+    words.generate_pair(mkroom())
+    assert words.AVOID_MAX == 150
+    assert seen[0].count("zzx") == 150
+    assert "zzx199/zzy199" in seen[0]  # newest first
+
+
+def test_duplicate_generated_pair_is_rejected_and_not_inserted(wenv):
+    _capture_gen_prompt()
+    assert words.generate_pair(mkroom()) is not None
+    before = count()
+    assert words.generate_pair(mkroom()) is None
+    assert count() == before
+
+
+def test_reversed_duplicate_is_rejected(wenv):
+    _capture_gen_prompt()
+    assert words.generate_pair(mkroom()) is not None
+    before = count()
+    flipped = {"en": {"a": "glove", "b": "sock"}, "zh_hans": {"a": "手套", "b": "袜子"},
+               "difficulty": 2, "theme": "clothes"}
+    fake_llm.register("pair_generate", lambda p: flipped)
+    assert words.generate_pair(mkroom()) is None
+    assert count() == before

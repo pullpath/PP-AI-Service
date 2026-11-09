@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -19,6 +19,7 @@ log = logging.getLogger("spy_hunt.words")
 RECENT_DAYS = 30
 DIFFICULTY_WEIGHT = {2: 3}
 GEN_ATTEMPTS = 2
+AVOID_MAX = 150
 LANGS = ("en", "zh-Hans")
 
 _rng = random.SystemRandom()
@@ -96,8 +97,10 @@ def draw_pair(room_id: str) -> game.Pair:
 def generate_pair(room_id: str, theme: Optional[str] = None) -> Optional[game.Pair]:
     """Generate and validate one pair (both languages); insert only if both pass.
     Returns None on any failure. Must be called outside a transaction."""
+    avoid = [f"{r['concept_a']}/{r['concept_b']}" for r in get_conn().execute(
+        "SELECT concept_a, concept_b FROM pairs ORDER BY rowid DESC LIMIT ?", (AVOID_MAX,))]
     try:
-        gen = llm.call_json("pair_generate", _gen_prompt(theme), _GenRaw, room_id, 300,
+        gen = llm.call_json("pair_generate", _gen_prompt(theme, avoid), _GenRaw, room_id, 300,
                             llm.TASK_TIMEOUTS["pair_generate"])
         if gen.zh_hans is None:
             return None
@@ -107,6 +110,9 @@ def generate_pair(room_id: str, theme: Optional[str] = None) -> Optional[game.Pa
             a, b = words[lang]["a"], words[lang]["b"]
             if not a or not b or a.lower() == b.lower():
                 return None
+        if get_conn().execute("SELECT 1 FROM pairs WHERE id=?",
+                              (_pair_id(words["en"]["a"], words["en"]["b"]),)).fetchone():
+            return None  # already in the pool (also catches a reversed pair)
         v = llm.call_json("pair_validate", _validate_prompt(words), _ValidateOut, room_id, 120,
                           llm.TASK_TIMEOUTS["pair_validate"])
         if not (v.en.ok and v.zh_hans.ok):
@@ -125,13 +131,15 @@ def generate_pair(room_id: str, theme: Optional[str] = None) -> Optional[game.Pa
     return game.Pair(pid, words)
 
 
-def _gen_prompt(theme: Optional[str] = None) -> str:
+def _gen_prompt(theme: Optional[str] = None, avoid: Optional[List[str]] = None) -> str:
     hint = f" Theme: {theme}." if theme else ""
+    skip = (" Do not use any of these pairs or reuse their words: " + "; ".join(avoid[:AVOID_MAX]) + "."
+            if avoid else "")
     return (
         "Invent a pair of similar but distinct everyday concepts for a 'who is the spy' word "
         "game (e.g. coffee/tea). Give both in English and Simplified Chinese. Words must be "
         "common, concrete, family-friendly and not sensitive."
-        + hint + " Return ONLY JSON: "
+        + hint + skip + " Return ONLY JSON: "
         '{"en":{"a":"..","b":".."},"zh_hans":{"a":"..","b":".."},"difficulty":1-3,"theme":".."}')
 
 
