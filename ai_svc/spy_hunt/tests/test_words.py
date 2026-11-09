@@ -48,10 +48,11 @@ def test_seed_loads_once(wenv):
 def test_draw_never_repeats_within_room(wenv):
     rid = mkroom()
     seen = []
-    for _ in range(10):
+    total = count()
+    for _ in range(total):
         seen.append(words.draw_pair(rid).id)
         get_conn().commit()
-    assert len(set(seen)) == n
+    assert len(set(seen)) == total
 
 
 def test_recently_seen_skipped_when_alternatives(wenv):
