@@ -1243,5 +1243,455 @@
     "b": "馅饼"
    }
   }
+ },
+ {
+  "id": "p-096665a36d",
+  "difficulty": 2,
+  "theme": "food",
+  "words": {
+   "en": {
+    "a": "steamed bun",
+    "b": "dumpling"
+   },
+   "zh-Hans": {
+    "a": "包子",
+    "b": "饺子"
+   }
+  }
+ },
+ {
+  "id": "p-0a71fb6a99",
+  "difficulty": 2,
+  "theme": "pets",
+  "words": {
+   "en": {
+    "a": "goldfish",
+    "b": "koi fish"
+   },
+   "zh-Hans": {
+    "a": "金鱼",
+    "b": "锦鲤"
+   }
+  }
+ },
+ {
+  "id": "p-0b537f5f31",
+  "difficulty": 2,
+  "theme": "fruit",
+  "words": {
+   "en": {
+    "a": "grape",
+    "b": "blueberry"
+   },
+   "zh-Hans": {
+    "a": "葡萄",
+    "b": "蓝莓"
+   }
+  }
+ },
+ {
+  "id": "p-12b7062f2c",
+  "difficulty": 2,
+  "theme": "tools",
+  "words": {
+   "en": {
+    "a": "pliers",
+    "b": "tweezers"
+   },
+   "zh-Hans": {
+    "a": "钳子",
+    "b": "镊子"
+   }
+  }
+ },
+ {
+  "id": "p-1af1af6f1a",
+  "difficulty": 1,
+  "theme": "transport",
+  "words": {
+   "en": {
+    "a": "car",
+    "b": "taxi"
+   },
+   "zh-Hans": {
+    "a": "汽车",
+    "b": "出租车"
+   }
+  }
+ },
+ {
+  "id": "p-1f16753bb5",
+  "difficulty": 1,
+  "theme": "furniture",
+  "words": {
+   "en": {
+    "a": "wardrobe",
+    "b": "bookshelf"
+   },
+   "zh-Hans": {
+    "a": "衣柜",
+    "b": "书架"
+   }
+  }
+ },
+ {
+  "id": "p-1f222aa41d",
+  "difficulty": 2,
+  "theme": "school",
+  "words": {
+   "en": {
+    "a": "ruler",
+    "b": "tape measure"
+   },
+   "zh-Hans": {
+    "a": "直尺",
+    "b": "卷尺"
+   }
+  }
+ },
+ {
+  "id": "p-237fc2cad9",
+  "difficulty": 2,
+  "theme": "music instruments",
+  "words": {
+   "en": {
+    "a": "flute",
+    "b": "recorder"
+   },
+   "zh-Hans": {
+    "a": "长笛",
+    "b": "竖笛"
+   }
+  }
+ },
+ {
+  "id": "p-31ee34e7d4",
+  "difficulty": 1,
+  "theme": "food",
+  "words": {
+   "en": {
+    "a": "bagel",
+    "b": "donut"
+   },
+   "zh-Hans": {
+    "a": "百吉饼",
+    "b": "甜甜圈"
+   }
+  }
+ },
+ {
+  "id": "p-31f36c4a55",
+  "difficulty": 2,
+  "theme": "weather",
+  "words": {
+   "en": {
+    "a": "fog",
+    "b": "haze"
+   },
+   "zh-Hans": {
+    "a": "雾",
+    "b": "霾"
+   }
+  }
+ },
+ {
+  "id": "p-3202fedb6f",
+  "difficulty": 1,
+  "theme": "vegetables",
+  "words": {
+   "en": {
+    "a": "carrot",
+    "b": "radish"
+   },
+   "zh-Hans": {
+    "a": "胡萝卜",
+    "b": "萝卜"
+   }
+  }
+ },
+ {
+  "id": "p-37f0fce906",
+  "difficulty": 1,
+  "theme": "snacks",
+  "words": {
+   "en": {
+    "a": "popcorn",
+    "b": "corn chips"
+   },
+   "zh-Hans": {
+    "a": "爆米花",
+    "b": "玉米片"
+   }
+  }
+ },
+ {
+  "id": "p-3ee9dd2de8",
+  "difficulty": 2,
+  "theme": "drinks",
+  "words": {
+   "en": {
+    "a": "milkshake",
+    "b": "smoothie"
+   },
+   "zh-Hans": {
+    "a": "奶昔",
+    "b": "冰沙"
+   }
+  }
+ },
+ {
+  "id": "p-4a0fc88166",
+  "difficulty": 2,
+  "theme": "places in a city",
+  "words": {
+   "en": {
+    "a": "park",
+    "b": "garden"
+   },
+   "zh-Hans": {
+    "a": "公园",
+    "b": "花园"
+   }
+  }
+ },
+ {
+  "id": "p-4ad76d64e5",
+  "difficulty": 2,
+  "theme": "kitchen tools",
+  "words": {
+   "en": {
+    "a": "peeler",
+    "b": "grater"
+   },
+   "zh-Hans": {
+    "a": "削皮器",
+    "b": "擦丝器"
+   }
+  }
+ },
+ {
+  "id": "p-4e4fec5cb4",
+  "difficulty": 2,
+  "theme": "sports",
+  "words": {
+   "en": {
+    "a": "baseball",
+    "b": "softball"
+   },
+   "zh-Hans": {
+    "a": "棒球",
+    "b": "垒球"
+   }
+  }
+ },
+ {
+  "id": "p-51c674fc75",
+  "difficulty": 2,
+  "theme": "stationery",
+  "words": {
+   "en": {
+    "a": "stapler",
+    "b": "hole punch"
+   },
+   "zh-Hans": {
+    "a": "订书机",
+    "b": "打孔机"
+   }
+  }
+ },
+ {
+  "id": "p-6326017a8e",
+  "difficulty": 1,
+  "theme": "festivals",
+  "words": {
+   "en": {
+    "a": "lantern",
+    "b": "candle"
+   },
+   "zh-Hans": {
+    "a": "灯笼",
+    "b": "蜡烛"
+   }
+  }
+ },
+ {
+  "id": "p-656fa299b5",
+  "difficulty": 2,
+  "theme": "birds",
+  "words": {
+   "en": {
+    "a": "swan",
+    "b": "goose"
+   },
+   "zh-Hans": {
+    "a": "天鹅",
+    "b": "鹅"
+   }
+  }
+ },
+ {
+  "id": "p-7980d24b43",
+  "difficulty": 1,
+  "theme": "vehicles",
+  "words": {
+   "en": {
+    "a": "motorcycle",
+    "b": "bicycle"
+   },
+   "zh-Hans": {
+    "a": "摩托车",
+    "b": "自行车"
+   }
+  }
+ },
+ {
+  "id": "p-7aae027b5b",
+  "difficulty": 1,
+  "theme": "body care",
+  "words": {
+   "en": {
+    "a": "toothbrush",
+    "b": "hairbrush"
+   },
+   "zh-Hans": {
+    "a": "牙刷",
+    "b": "发梳"
+   }
+  }
+ },
+ {
+  "id": "p-7d12393d9a",
+  "difficulty": 1,
+  "theme": "jobs",
+  "words": {
+   "en": {
+    "a": "waiter",
+    "b": "bartender"
+   },
+   "zh-Hans": {
+    "a": "服务员",
+    "b": "调酒师"
+   }
+  }
+ },
+ {
+  "id": "p-87adcc16a9",
+  "difficulty": 2,
+  "theme": "toys",
+  "words": {
+   "en": {
+    "a": "yo-yo",
+    "b": "spinning top"
+   },
+   "zh-Hans": {
+    "a": "悠悠球",
+    "b": "陀螺"
+   }
+  }
+ },
+ {
+  "id": "p-951d478c2d",
+  "difficulty": 2,
+  "theme": "outdoor games",
+  "words": {
+   "en": {
+    "a": "kite",
+    "b": "balloon"
+   },
+   "zh-Hans": {
+    "a": "风筝",
+    "b": "气球"
+   }
+  }
+ },
+ {
+  "id": "p-97b70ed4a8",
+  "difficulty": 1,
+  "theme": "shoes",
+  "words": {
+   "en": {
+    "a": "high heels",
+    "b": "flip-flops"
+   },
+   "zh-Hans": {
+    "a": "高跟鞋",
+    "b": "人字拖"
+   }
+  }
+ },
+ {
+  "id": "p-9a72299ce4",
+  "difficulty": 2,
+  "theme": "fruit",
+  "words": {
+   "en": {
+    "a": "strawberry",
+    "b": "raspberry"
+   },
+   "zh-Hans": {
+    "a": "草莓",
+    "b": "树莓"
+   }
+  }
+ },
+ {
+  "id": "p-ce2f3915f8",
+  "difficulty": 2,
+  "theme": "sea creatures",
+  "words": {
+   "en": {
+    "a": "crab",
+    "b": "lobster"
+   },
+   "zh-Hans": {
+    "a": "螃蟹",
+    "b": "龙虾"
+   }
+  }
+ },
+ {
+  "id": "p-e463e2738c",
+  "difficulty": 1,
+  "theme": "household items",
+  "words": {
+   "en": {
+    "a": "broom",
+    "b": "mop"
+   },
+   "zh-Hans": {
+    "a": "扫帚",
+    "b": "拖把"
+   }
+  }
+ },
+ {
+  "id": "p-f0712face8",
+  "difficulty": 2,
+  "theme": "animals",
+  "words": {
+   "en": {
+    "a": "goat",
+    "b": "sheep"
+   },
+   "zh-Hans": {
+    "a": "山羊",
+    "b": "绵羊"
+   }
+  }
+ },
+ {
+  "id": "p-f1d4b457d2",
+  "difficulty": 2,
+  "theme": "buildings",
+  "words": {
+   "en": {
+    "a": "cottage",
+    "b": "cabin"
+   },
+   "zh-Hans": {
+    "a": "小屋",
+    "b": "木屋"
+   }
+  }
  }
 ]
