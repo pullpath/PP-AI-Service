@@ -128,10 +128,22 @@ def build_candidate(room_id: str, pair: game.Pair, origin_lang: str,
 
 # ---- options ----
 
+def _spy_option(pair: game.Pair, spy_key: str) -> Dict[str, str]:
+    return {lang: pair.words[lang][spy_key] for lang in LANGS}
+
+
+def _shuffled(pair: game.Pair, spy_key: str, distractors: List[Dict[str, str]],
+              rng: random.Random) -> Tuple[List[Dict[str, str]], int]:
+    spy = _spy_option(pair, spy_key)
+    options = list(distractors) + [spy]
+    rng.shuffle(options)
+    return options, options.index(spy)
+
+
 def pick_options(pair: game.Pair, spy_key: str, theme: Optional[str],
                  rng: random.Random) -> Tuple[List[Dict[str, str]], int]:
-    own = [pair.words[lang][k] for lang in LANGS for k in ("a", "b")]
-    banned = {w.strip().casefold() for w in own}
+    """Fallback: distractors drawn from the word pool, same theme first."""
+    banned = {pair.words[lang][k].strip().casefold() for lang in LANGS for k in ("a", "b")}
     same: List[Dict[str, str]] = []
     rest: List[Dict[str, str]] = []
     seen = set()
@@ -151,9 +163,44 @@ def pick_options(pair: game.Pair, spy_key: str, theme: Optional[str],
     distractors = (same + rest)[:3]
     if len(distractors) < 3:
         raise LookupError("word pool too small for options")
-    options = distractors + [{lang: pair.words[lang][spy_key] for lang in LANGS}]
-    rng.shuffle(options)
-    return options, options.index({lang: pair.words[lang][spy_key] for lang in LANGS})
+    return _shuffled(pair, spy_key, distractors, rng)
+
+
+class _OptionOut(BaseModel):
+    en: str = ""
+    zh_hans: str = ""
+
+
+class _OptionsOut(BaseModel):
+    options: List[_OptionOut] = []
+
+
+def model_distractors(room_id: str, pair: game.Pair, spy_key: str) -> Optional[List[Dict[str, str]]]:
+    civ_key = "b" if spy_key == "a" else "a"
+    prompt = (
+        "In a word game, players got one of two similar words: "
+        f"{json.dumps({lang: pair.words[lang][civ_key] for lang in LANGS}, ensure_ascii=False)} "
+        f"or {json.dumps(_spy_option(pair, spy_key), ensure_ascii=False)}. "
+        "Give 3 other everyday words of the same kind that a player could plausibly mistake "
+        "for the second word, but that are clearly different words from both of these. "
+        "Give each in English and Simplified Chinese. "
+        'Return ONLY JSON: {"options":[{"en":"..","zh_hans":".."}, x3]}')
+    try:
+        out = llm.call_json("puzzle_options", prompt, _OptionsOut, room_id, 200,
+                            llm.TASK_TIMEOUTS["puzzle_options"])
+    except Exception:
+        log.info("puzzle options failed room_id=%s", room_id)
+        return None
+    banned = {pair.words[lang][k].strip().casefold() for lang in LANGS for k in ("a", "b")}
+    chosen: List[Dict[str, str]] = []
+    seen = set()
+    for o in out.options:
+        en, zh = _clean(o.en), _clean(o.zh_hans)
+        if not en or not zh or {en.casefold(), zh.casefold()} & banned or en.casefold() in seen:
+            continue
+        seen.add(en.casefold())
+        chosen.append({"en": en, "zh-Hans": zh})
+    return chosen[:3] if len(chosen) >= 3 and len(out.options) == len(chosen) else None
 
 
 # ---- quality gate ----
@@ -212,8 +259,12 @@ def generate_puzzle(room_id: str, pair: game.Pair, origin_lang: str,
             continue
         public, answer = cand["public"], cand["answer"]
         spy_key = "a" if answer["spy_word"]["en"] == pair.words["en"]["a"] else "b"
+        extra = model_distractors(room_id, pair, spy_key)
         try:
-            public["options"], answer["option_index"] = pick_options(pair, spy_key, theme, rng)
+            if extra is not None:
+                public["options"], answer["option_index"] = _shuffled(pair, spy_key, extra, rng)
+            else:
+                public["options"], answer["option_index"] = pick_options(pair, spy_key, theme, rng)
         except LookupError:
             return None
         difficulty = _passes_gate(room_id, public, answer["spy_seat"])

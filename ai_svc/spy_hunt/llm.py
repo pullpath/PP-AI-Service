@@ -42,6 +42,7 @@ TASK_TIMEOUTS: Dict[str, float] = {
     "host": 8.0,
     "puzzle_statement": 8.0,
     "puzzle_solve": 15.0,
+    "puzzle_options": 15.0,
     "puzzle_translate": 20.0,
 }
 BASE_URL = "https://api.deepseek.com"

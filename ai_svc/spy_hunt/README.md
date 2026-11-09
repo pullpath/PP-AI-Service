@@ -99,7 +99,7 @@ python -m ai_svc.spy_hunt.scripts.build_puzzles --review     # list ready puzzle
 python -m ai_svc.spy_hunt.scripts.build_puzzles --veto 7     # remove one from the queue
 ```
 
-Keep the queue topped up with cron (about 13 model calls per puzzle):
+Keep the queue topped up with cron (about 14 model calls per puzzle):
 
 ```
 0 3 * * * cd <repo> && venv/bin/python -m ai_svc.spy_hunt.scripts.build_puzzles --count 14

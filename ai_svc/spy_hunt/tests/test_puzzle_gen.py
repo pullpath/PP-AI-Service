@@ -315,7 +315,7 @@ def test_fill_queue_never_publishes_a_rejected_puzzle(temp_db):
 
 
 def test_fill_queue_resets_budget_per_pair(temp_db, monkeypatch):
-    monkeypatch.setattr(llm, "GameConfig", lambda: types.SimpleNamespace(room_ai_budget=14))
+    monkeypatch.setattr(llm, "GameConfig", lambda: types.SimpleNamespace(room_ai_budget=15))
     register_world()
     assert puzzle_gen.fill_queue(3, random.Random(1), log=lambda *a: None) == 3
 
@@ -325,3 +325,56 @@ def test_fill_queue_does_not_reuse_pairs(temp_db):
     puzzle_gen.fill_queue(4, random.Random(2), log=lambda *a: None)
     ids = [r["pair_id"] for r in get_conn().execute("SELECT pair_id FROM puzzles")]
     assert len(set(ids)) == 4
+
+
+# ---- model-written distractors ----
+
+def distractors(*pairs):
+    return {"options": [{"en": en, "zh_hans": zh} for en, zh in pairs]}
+
+
+GOOD = (("harpsichord", "拨弦键琴"), ("accordion", "手风琴"), ("synthesizer", "合成器"))
+
+
+def test_model_distractors_are_used_when_valid(room):
+    register_world()
+    fake_llm.register("puzzle_options", lambda p: distractors(*GOOD))
+    out = gen(room)
+    got = {o["en"] for o in out["public"]["options"]}
+    assert got == {"harpsichord", "accordion", "synthesizer", out["answer"]["spy_word"]["en"]}
+    assert {"zh-Hans": "手风琴", "en": "accordion"} in out["public"]["options"]
+
+
+@pytest.mark.parametrize("bad", [
+    GOOD[:2],                                                    # too few
+    GOOD[:2] + (("piano", "钢琴"),),                             # names the civilian word
+    GOOD[:2] + (("ORGAN", "别的"),),                             # names the spy word
+    GOOD[:2] + (("harpsichord", "又一个"),),                     # duplicate
+    GOOD[:2] + (("", "空"),),                                    # empty
+])
+def test_bad_model_distractors_fall_back_to_the_pool(room, bad):
+    register_world()
+    fake_llm.register("puzzle_options", lambda p: distractors(*bad))
+    out = gen(room)
+    assert out is not None and len(out["public"]["options"]) == 4
+    got = {o["en"] for o in out["public"]["options"]}
+    assert "harpsichord" not in got and "ORGAN" not in got and "piano" not in got
+
+
+def test_distractor_call_failure_falls_back_to_the_pool(room):
+    register_world()
+
+    def boom(prompt):
+        raise LlmError("down")
+
+    fake_llm.register("puzzle_options", boom)
+    assert len(gen(room)["public"]["options"]) == 4
+
+
+def test_distractor_prompt_shows_both_words_in_both_languages(room):
+    register_world()
+    seen = []
+    fake_llm.register("puzzle_options", lambda p: (seen.append(p), distractors(*GOOD))[1])
+    gen(room)
+    for w in ("piano", "organ", "钢琴", "风琴"):
+        assert w in seen[0]

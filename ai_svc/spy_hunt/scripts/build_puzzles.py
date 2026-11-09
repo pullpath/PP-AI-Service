@@ -1,5 +1,5 @@
 """Daily puzzle queue tool. Uses the real database (db.DB_PATH) and, for --count,
-the real model, so it spends model calls (about 13 per puzzle).
+the real model, so it spends model calls (about 14 per puzzle).
 
     python -m ai_svc.spy_hunt.scripts.build_puzzles --count 14   # fill the queue
     python -m ai_svc.spy_hunt.scripts.build_puzzles --review     # read ready puzzles
