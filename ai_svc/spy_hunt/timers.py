@@ -21,8 +21,11 @@ never gets a thread.
 
 Duplicates are harmless: an identical entry `(at_ms, kind, room_id, phase_seq,
 payload)` is accepted once, and every handler re-checks state under the room
-lock. A handler that raises is logged and retried a bounded number of times
-with backoff, then dropped; it never kills the thread.
+lock. A handler that raises is logged and retried with backoff (5/10/20 s); it
+never kills the thread. After that a `phase_timeout` keeps retrying every 60 s
+for as long as its room is still `playing` at that `phase_seq` (a game must
+never stall); other kinds are dropped. As a second net, the sweep re-arms any
+playing room overdue by more than 60 s that has no queued timeout.
 
 Tests: `set_clock(fn)`, `run_due()`, `pending()`, `reset()`, `THREAD_ENABLED`.
 """
@@ -52,6 +55,8 @@ EVENTS_KEEP = 500
 FINISHED_EVENTS_TTL_MS = 24 * 3600 * 1000
 MAX_RETRIES = 3
 RETRY_BASE_MS = 5 * 1000  # 5 s, 10 s, 20 s
+PHASE_RETRY_MS = 60 * 1000  # phase_timeout retry interval after the backoff
+REARM_GRACE_MS = 60 * 1000  # sweep re-arms rooms overdue by more than this
 MAX_WAIT_S = 30.0  # re-check at least this often (wall-clock jumps)
 _SEEN_CAP = 50_000
 _RUN_CAP = 10_000
@@ -62,15 +67,18 @@ Handler = Callable[[str, int, Optional[Dict[str, Any]]], Any]
 Key = Tuple[int, str, str, int, str]
 
 _cond = threading.Condition()
-_heap: List[tuple] = []  # (at_ms, counter, kind, room_id, phase_seq, payload, attempt)
+_heap: List[tuple] = []  # (at_ms, counter, kind, room_id, phase_seq, payload, attempt, key)
 _counter = itertools.count()
-_seen: "OrderedDict[Key, None]" = OrderedDict()  # dedupe: scheduled or fired
+# Dedupe: keys of entries queued (incl. retrying) or fired successfully. A key is
+# removed when its entry is dropped, so a legitimately needed re-arm is accepted.
+_seen: "OrderedDict[Key, None]" = OrderedDict()
 _handlers: Dict[str, Handler] = {}
 
 _start_lock = threading.Lock()
 _installed = False
 _thread: Optional[threading.Thread] = None
-_stop = threading.Event()
+_stop = threading.Event()  # replaced by a fresh Event on every thread start
+_sweep_armed = False  # the permanent sweep chain has been scheduled
 
 _conn_lock = threading.Lock()
 _conn_gen: Dict[Tuple[str, str], int] = {}  # bumps on every connect
@@ -121,14 +129,15 @@ def schedule(at_ms: int, kind: str, room_id: str, phase_seq: int,
         _seen[key] = None
         while len(_seen) > _SEEN_CAP:
             _seen.popitem(last=False)
-        _push(at_ms, kind, room_id, phase_seq, payload, 0)
+        _push(at_ms, kind, room_id, phase_seq, payload, 0, key)
     return True
 
 
-def _push(at_ms, kind, room_id, phase_seq, payload, attempt) -> None:
+def _push(at_ms, kind, room_id, phase_seq, payload, attempt, key) -> None:
     # caller holds _cond
     earliest = _heap[0][0] if _heap else None
-    heapq.heappush(_heap, (at_ms, next(_counter), kind, room_id, phase_seq, payload, attempt))
+    heapq.heappush(_heap, (at_ms, next(_counter), kind, room_id, phase_seq, payload,
+                           attempt, key))
     if earliest is None or at_ms < earliest:
         _cond.notify_all()
 
@@ -139,6 +148,36 @@ def pending() -> List[tuple]:
         return [(e[0], e[2], e[3], e[4], e[5]) for e in sorted(_heap)]
 
 
+def _has_pending(kind: str, room_id: str, phase_seq: Optional[int] = None) -> bool:
+    with _cond:
+        return any(e[2] == kind and e[3] == room_id and (phase_seq is None or e[4] == phase_seq)
+                   for e in _heap)
+
+
+def _retire(key: Key) -> None:
+    with _cond:
+        _seen.pop(key, None)
+
+
+def _phase_still_due(room_id: str, phase_seq: int) -> bool:
+    """True if the room is still playing at this phase_seq, or if we cannot tell."""
+    try:
+        row = db.get_conn().execute("SELECT status, phase_seq FROM rooms WHERE id=?",
+                                    (room_id,)).fetchone()
+    except Exception:
+        return True
+    return row is not None and row["status"] == "playing" and row["phase_seq"] == phase_seq
+
+
+def _retry_delay(kind: str, room_id: str, phase_seq: int, attempt: int) -> Optional[int]:
+    """Delay before the next attempt, or None to drop the entry."""
+    if attempt < MAX_RETRIES:
+        return RETRY_BASE_MS * (2 ** attempt)
+    if kind == "phase_timeout" and _phase_still_due(room_id, phase_seq):
+        return PHASE_RETRY_MS
+    return None
+
+
 def run_due() -> int:
     """Run every entry due now, in order, on the calling thread. Returns how many
     entries were handed to a handler (unknown kinds are dropped, not counted)."""
@@ -147,24 +186,26 @@ def run_due() -> int:
         with _cond:
             if not _heap or _heap[0][0] > now():
                 break
-            at_ms, _c, kind, room_id, phase_seq, payload, attempt = heapq.heappop(_heap)
+            at_ms, _c, kind, room_id, phase_seq, payload, attempt, key = heapq.heappop(_heap)
         fn = _handlers.get(kind)
         if fn is None:
             log.warning("timers: no handler for %r (room %s), entry dropped", kind, room_id)
+            _retire(key)
             continue
         executed += 1
         try:
             fn(room_id, phase_seq, payload)
         except Exception:
-            if attempt < MAX_RETRIES:
-                log.exception("timers: %s for room %s failed (attempt %d), retrying",
-                              kind, room_id, attempt + 1)
+            delay = _retry_delay(kind, room_id, phase_seq, attempt)
+            if delay is not None:
+                log.exception("timers: %s for room %s failed (attempt %d), retry in %d ms",
+                              kind, room_id, attempt + 1, delay)
                 with _cond:
-                    _push(now() + RETRY_BASE_MS * (2 ** attempt), kind, room_id,
-                          phase_seq, payload, attempt + 1)
+                    _push(now() + delay, kind, room_id, phase_seq, payload, attempt + 1, key)
             else:
                 log.exception("timers: %s for room %s failed %d times, dropped",
                               kind, room_id, attempt + 1)
+                _retire(key)
     return executed
 
 
@@ -199,17 +240,26 @@ def note_disconnected(room_id: str, player_id: str) -> None:
              {"player_id": player_id, "gen": gen})
 
 
+def _still_disconnected(k: Tuple[str, str], payload: Dict[str, Any]) -> bool:
+    with _conn_lock:
+        if _conn_open.get(k, 0) > 0:
+            return False  # a stream is open right now
+        if "gen" in payload and _conn_gen.get(k, 0) != payload["gen"]:
+            return False  # reconnected (and maybe left again) since this was scheduled
+    return True
+
+
 def _mark_disconnected(room_id: str, phase_seq: int, payload) -> None:
     player_id = (payload or {}).get("player_id")
     if not player_id:
         return
     k = (room_id, player_id)
-    with _conn_lock:
-        if _conn_open.get(k, 0) > 0:
-            return  # a stream is open right now
-        if "gen" in payload and _conn_gen.get(k, 0) != payload["gen"]:
-            return  # reconnected (and maybe left again) since this entry was scheduled
+    if not _still_disconnected(k, payload):
+        return
     with store.tx(room_id) as conn:
+        # again under the room lock: a reconnect may have landed since the check
+        if not _still_disconnected(k, payload):
+            return
         room = conn.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
         if room is None:
             return
@@ -245,12 +295,18 @@ def _finish_idle(room_id: str, now_ms: int) -> None:
     game._notify(pend)
 
 
-def _drop_events(room_id: str, keep: Optional[int]) -> None:
-    """Delete a room's events (all, or all but the newest `keep`) under its lock.
+def _drop_events(room_id: str, keep: Optional[int],
+                 finished_before: Optional[int] = None) -> None:
+    """Delete a room's events under its lock: all but the newest `keep`, or (keep
+    None) all of them if the room is still finished with last_active before
+    `finished_before` (re-checked here: a rematch may have landed since the scan).
     No version bump: retention is not a state change."""
     with store.tx(room_id) as conn:
         if keep is None:
-            conn.execute("DELETE FROM events WHERE room_id=?", (room_id,))
+            conn.execute(
+                "DELETE FROM events WHERE room_id=? AND EXISTS(SELECT 1 FROM rooms"
+                " WHERE id=? AND status='finished' AND last_active<?)",
+                (room_id, room_id, finished_before))
             return
         row = conn.execute(
             "SELECT seq FROM events WHERE room_id=? ORDER BY seq DESC LIMIT 1 OFFSET ?",
@@ -280,20 +336,38 @@ def sweep() -> None:
         "SELECT r.id FROM rooms r WHERE r.status='finished' AND r.last_active<?"
         " AND EXISTS(SELECT 1 FROM events e WHERE e.room_id=r.id)",
         (t - FINISHED_EVENTS_TTL_MS,))]
-    _each("drop", _drop_events, old, None)
+    _each("drop", _drop_events, old, None, t - FINISHED_EVENTS_TTL_MS)
     big = [r[0] for r in conn.execute(
         "SELECT room_id FROM events GROUP BY room_id HAVING COUNT(*)>?", (EVENTS_KEEP,))]
     _each("prune", _drop_events, big, EVENTS_KEEP)
+    _rearm_overdue(t)
+
+
+def _rearm_overdue(t: int) -> None:
+    """Safety net: a playing room overdue by more than REARM_GRACE_MS with no
+    queued timeout for its current phase_seq gets one now (fresh key)."""
+    rows = db.get_conn().execute(
+        "SELECT id, phase_seq FROM rooms WHERE status='playing'"
+        " AND phase_deadline IS NOT NULL AND phase_deadline<?",
+        (t - REARM_GRACE_MS,)).fetchall()
+    for r in rows:
+        if not _has_pending("phase_timeout", r["id"], r["phase_seq"]):
+            log.warning("timers: re-arming overdue room %s (phase_seq %d)", r["id"],
+                        r["phase_seq"])
+            schedule(t, "phase_timeout", r["id"], r["phase_seq"])
 
 
 def _sweep_handler(room_id: str, phase_seq: int, payload) -> None:
     # Errors are logged, not raised: a raise would add a retry on top of the
     # self-reschedule below and fork the sweep chain.
+    global _sweep_armed
     try:
         sweep()
     except Exception:
         log.exception("timers: sweep failed")
-    schedule(now() + SWEEP_INTERVAL_MS, "sweep", "", 0)
+    if not _has_pending("sweep", ""):  # never fork a second chain
+        schedule(now() + SWEEP_INTERVAL_MS, "sweep", "", 0)
+    _sweep_armed = True
 
 
 # ---- lifecycle ----
@@ -308,9 +382,32 @@ def install() -> None:
         _installed = True
 
 
+def _reset_connected(room_id: str) -> None:
+    with store.tx(room_id) as conn:
+        room = conn.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
+        seats = [r["seat"] for r in conn.execute(
+            "SELECT seat FROM players WHERE room_id=? AND is_bot=0 AND connected=1",
+            (room_id,))]
+        if room is None or room["status"] == "finished" or not seats:
+            return
+        conn.execute("UPDATE players SET connected=0 WHERE room_id=? AND is_bot=0",
+                     (room_id,))
+        store._bump(conn, room_id)
+        for seat in seats:
+            store._emit_player(conn, dict(room), seat, "player_updated")
+
+
 def rebuild_from_db() -> int:
     """Reschedule every playing room's current deadline (after a restart).
-    Returns the number of rooms scheduled. Overdue deadlines fire at once."""
+    Returns the number of rooms scheduled. Overdue deadlines fire at once.
+
+    Also marks every human of a non-finished room disconnected: no stream
+    survives a restart, and the stream route sets connected=1 again on connect."""
+    stale = db.get_conn().execute(
+        "SELECT DISTINCT p.room_id FROM players p JOIN rooms r ON r.id=p.room_id"
+        " WHERE r.status!='finished' AND p.is_bot=0 AND p.connected=1").fetchall()
+    for (rid,) in stale:
+        _reset_connected(rid)
     rows = db.get_conn().execute(
         "SELECT id, phase_seq, phase_deadline FROM rooms"
         " WHERE status='playing' AND phase_deadline IS NOT NULL").fetchall()
@@ -326,7 +423,7 @@ def is_running() -> bool:
 def ensure_started() -> None:
     """Lazy start, once per process: hooks, rebuild, first sweep, thread.
     Safe to call on every request and from many threads."""
-    global _thread
+    global _thread, _stop, _sweep_armed
     if is_running() or (_installed and not THREAD_ENABLED):
         return
     with _start_lock:
@@ -341,8 +438,10 @@ def ensure_started() -> None:
             log.info("timers: rebuilt %d room deadline(s)", n)
         except Exception:  # e.g. schema missing; the thread still serves new entries
             log.exception("timers: rebuild_from_db failed")
-        schedule(now() + FIRST_SWEEP_DELAY_MS, "sweep", "", 0)
-        _stop.clear()
+        if not _sweep_armed and not _has_pending("sweep", ""):
+            schedule(now() + FIRST_SWEEP_DELAY_MS, "sweep", "", 0)
+        _sweep_armed = True
+        _stop = threading.Event()  # fresh per thread: an old thread can never revive
         _thread = threading.Thread(target=_loop, args=(_stop,), name=THREAD_NAME, daemon=True)
         _thread.start()
 
@@ -372,9 +471,9 @@ def _loop(stop: threading.Event) -> None:
 def reset() -> None:
     """Tests: stop the thread, clear the heap, dedupe and connection state, restore
     the default handlers and clock, and unhook game.py if the hook is ours."""
-    global _thread, _installed, _counter
+    global _thread, _installed, _counter, _sweep_armed
     t = _thread
-    _stop.set()
+    _stop.set()  # not cleared again; ensure_started makes a new Event
     with _cond:
         _cond.notify_all()
     if t is not None and t is not threading.current_thread():
@@ -393,7 +492,7 @@ def reset() -> None:
         game.set_on_phase_change(None)
     _installed = False
     set_clock(None)
-    _stop.clear()
+    _sweep_armed = False
 
 
 _DEFAULT_HANDLERS: Dict[str, Handler] = {
