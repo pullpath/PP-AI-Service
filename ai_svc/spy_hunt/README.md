@@ -78,3 +78,29 @@ Review it, then copy it over `pairs_seed.json` to load it.
     }
 
 The server also sends `X-Accel-Buffering: no`. Other routes need no special handling.
+
+## Daily puzzle
+
+One bot-vs-bot transcript per UTC day. Everyone who opens `GET /daily` that day gets
+the same puzzle: read 5 players over 2 rounds, tap the spy (two tries), optionally
+pick the spy's word from 4 options. Scores are computed on the server (spy found on
+try 1 = 100, try 2 = 60, plus up to 20 for speed and 20 for the word) and the answer
+is never sent before a player finishes. One scored attempt per guest per day.
+
+Puzzles are generated ahead of time, never on a request. The generator
+(`puzzle_gen.py`) writes the statements with the bot prompt, translates them in one
+call, and rejects any puzzle where a clue names a secret word or a solver model
+cannot find the spy (or finds it from round 1 alone). A day takes the oldest ready
+puzzle on its first request; with none ready, `/daily` answers `503 no_puzzle`.
+
+```
+python -m ai_svc.spy_hunt.scripts.build_puzzles --count 14   # fill the queue (spends model calls)
+python -m ai_svc.spy_hunt.scripts.build_puzzles --review     # list ready puzzles with the answer
+python -m ai_svc.spy_hunt.scripts.build_puzzles --veto 7     # remove one from the queue
+```
+
+Keep the queue topped up with cron (about 13 model calls per puzzle):
+
+```
+0 3 * * * cd <repo> && venv/bin/python -m ai_svc.spy_hunt.scripts.build_puzzles --count 14
+```
