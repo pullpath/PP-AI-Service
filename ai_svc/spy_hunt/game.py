@@ -508,8 +508,6 @@ def _resolve_vote(conn, room_id: str, pend: List[tuple], moments: List[tuple]) -
                      (room_id, res.eliminated))
     store._bump(conn, room_id)
     append_event(room_id, "reveal", payload, "all", conn=conn)
-    if res.eliminated is not None:
-        moments.append((room_id, "elimination"))
     if res.outcome == "tiebreak":
         _enter_describe(conn, room_id, pend, "tiebreak_describe", room["round"])
         return
@@ -518,8 +516,10 @@ def _resolve_vote(conn, room_id: str, pend: List[tuple], moments: List[tuple]) -
     cfg = json.loads(room["config_json"])
     winner = engine.check_win(seats, room["round"], cfg["max_rounds"])
     if winner:
-        _finish(conn, room_id, pend, winner, moments)
+        _finish(conn, room_id, pend, winner, moments)  # game_over narrates the final elimination
         return
+    if res.eliminated is not None:
+        moments.append((room_id, "elimination"))
     deadline = now_ms() + REVEAL_SECONDS * 1000
     seq = _set_phase(conn, room_id, pend, "reveal", deadline)
     append_event(room_id, "phase", {"phase": "reveal", "stage": stage, "round": room["round"],

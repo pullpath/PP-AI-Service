@@ -68,9 +68,13 @@ def public_state(room_id: str, moment: str) -> Dict[str, Any]:
                     for r in rows],
     }
     reveals = []
+    # events from earlier games (rematches) stay in the table: only this game counts
+    since = conn.execute(
+        "SELECT COALESCE(MAX(seq), 0) FROM events WHERE room_id=? AND type='game_started'",
+        (room_id,)).fetchone()[0]
     for e in conn.execute(
-            "SELECT type, payload_json FROM events WHERE room_id=? "
-            "AND type IN ('reveal','game_over') ORDER BY seq", (room_id,)):
+            "SELECT type, payload_json FROM events WHERE room_id=? AND seq>? "
+            "AND type IN ('reveal','game_over') ORDER BY seq", (room_id, since)):
         p = json.loads(e["payload_json"])
         if e["type"] == "reveal":
             seat = p.get("eliminated")

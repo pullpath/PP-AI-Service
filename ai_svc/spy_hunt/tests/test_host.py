@@ -74,3 +74,39 @@ def test_hook_fires_moments(henv):
     game.set_on_host_moment(lambda r, m: seen.append(m))
     started_room()
     assert seen == ["round_start"]
+
+
+def test_public_state_only_includes_the_current_games_reveals(henv):
+    rid = started_room()
+    with store.tx(rid) as c:
+        old = {"round": 1, "stage": 0, "outcome": "eliminated", "eliminated": 3, "tied": [],
+               "votes": [], "role": "spy"}
+        store.append_event(rid, "reveal", old, "all", conn=c)
+        store.append_event(rid, "game_started", {"seat": 0, "game_no": 2, "my_word": "x"},
+                           "seat:0", conn=c)
+        new = dict(old, eliminated=2, role="civilian")
+        store.append_event(rid, "reveal", new, "all", conn=c)
+    state = host.public_state(rid, "elimination")
+    assert [r["eliminated_seat"] for r in state["reveals"]] == [2]
+
+
+def test_final_vote_does_not_also_narrate_an_elimination(henv):
+    seen = []
+    game.set_on_host_moment(lambda r, m: seen.append(m))
+    rid = started_room()
+    seen.clear()
+    from ai_svc.spy_hunt import engine
+    # drive a vote where everyone votes the spy out: game over, so only game_over is narrated
+    rows = {r["seat"]: dict(r) for r in get_conn().execute(
+        "SELECT * FROM players WHERE room_id=?", (rid,))}
+    spy = next(s for s, p in rows.items() if p["role"] == "spy")
+    room = store.get_room(rid)
+    with store.tx(rid) as c:
+        c.execute("UPDATE rooms SET phase='vote' WHERE id=?", (rid,))
+        for s, p in rows.items():
+            if s != spy:
+                c.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                          " VALUES(?,?,?,?,?,?)", (rid, room["game_no"], room["round"], 0, s, spy))
+        moments = []
+        game._resolve_vote(c, rid, [], moments)
+    assert [m for _, m in moments] == ["game_over"]
