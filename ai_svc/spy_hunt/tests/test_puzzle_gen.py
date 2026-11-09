@@ -333,7 +333,7 @@ def distractors(*pairs):
     return {"options": [{"en": en, "zh_hans": zh} for en, zh in pairs]}
 
 
-GOOD = (("harpsichord", "拨弦键琴"), ("accordion", "手风琴"), ("synthesizer", "合成器"))
+GOOD = (("harpsichord", "拨弦键琴"), ("xylophone", "木琴"), ("synthesizer", "合成器"))
 
 
 def test_model_distractors_are_used_when_valid(room):
@@ -341,8 +341,8 @@ def test_model_distractors_are_used_when_valid(room):
     fake_llm.register("puzzle_options", lambda p: distractors(*GOOD))
     out = gen(room)
     got = {o["en"] for o in out["public"]["options"]}
-    assert got == {"harpsichord", "accordion", "synthesizer", out["answer"]["spy_word"]["en"]}
-    assert {"zh-Hans": "手风琴", "en": "accordion"} in out["public"]["options"]
+    assert got == {"harpsichord", "xylophone", "synthesizer", out["answer"]["spy_word"]["en"]}
+    assert {"zh-Hans": "木琴", "en": "xylophone"} in out["public"]["options"]
 
 
 @pytest.mark.parametrize("bad", [
@@ -351,6 +351,8 @@ def test_model_distractors_are_used_when_valid(room):
     GOOD[:2] + (("ORGAN", "别的"),),                             # names the spy word
     GOOD[:2] + (("harpsichord", "又一个"),),                     # duplicate
     GOOD[:2] + (("", "空"),),                                    # empty
+    GOOD[:2] + (("pipe organ", "管风琴"),),                      # contains the spy word
+    GOOD[:2] + (("grand piano", "三角钢琴"),),                   # contains the civilian word
 ])
 def test_bad_model_distractors_fall_back_to_the_pool(room, bad):
     register_world()
@@ -378,3 +380,20 @@ def test_distractor_prompt_shows_both_words_in_both_languages(room):
     gen(room)
     for w in ("piano", "organ", "钢琴", "风琴"):
         assert w in seen[0]
+
+
+def test_one_bad_option_among_five_is_dropped_not_fatal(room):
+    register_world()
+    fake_llm.register("puzzle_options", lambda p: distractors(
+        ("pipe organ", "管风琴"), *GOOD, ("celesta", "钢片琴")))
+    out = gen(room)
+    got = {o["en"] for o in out["public"]["options"]}
+    assert got == {"harpsichord", "xylophone", "synthesizer", out["answer"]["spy_word"]["en"]}
+
+
+def test_distractor_prompt_asks_for_five(room):
+    register_world()
+    seen = []
+    fake_llm.register("puzzle_options", lambda p: (seen.append(p), distractors(*GOOD))[1])
+    gen(room)
+    assert "5 other" in seen[0]

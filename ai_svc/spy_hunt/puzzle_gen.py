@@ -181,12 +181,13 @@ def model_distractors(room_id: str, pair: game.Pair, spy_key: str) -> Optional[L
         "In a word game, players got one of two similar words: "
         f"{json.dumps({lang: pair.words[lang][civ_key] for lang in LANGS}, ensure_ascii=False)} "
         f"or {json.dumps(_spy_option(pair, spy_key), ensure_ascii=False)}. "
-        "Give 3 other everyday words of the same kind that a player could plausibly mistake "
-        "for the second word, but that are clearly different words from both of these. "
+        "Give 5 other everyday words of the same kind that a player could plausibly mistake "
+        "for the second word, but that are clearly different words from both of these and "
+        "do not contain either of them. "
         "Give each in English and Simplified Chinese. "
-        'Return ONLY JSON: {"options":[{"en":"..","zh_hans":".."}, x3]}')
+        'Return ONLY JSON: {"options":[{"en":"..","zh_hans":".."}, x5]}')
     try:
-        out = llm.call_json("puzzle_options", prompt, _OptionsOut, room_id, 200,
+        out = llm.call_json("puzzle_options", prompt, _OptionsOut, room_id, 300,
                             llm.TASK_TIMEOUTS["puzzle_options"])
     except Exception:
         log.info("puzzle options failed room_id=%s", room_id)
@@ -196,11 +197,13 @@ def model_distractors(room_id: str, pair: game.Pair, spy_key: str) -> Optional[L
     seen = set()
     for o in out.options:
         en, zh = _clean(o.en), _clean(o.zh_hans)
-        if not en or not zh or {en.casefold(), zh.casefold()} & banned or en.casefold() in seen:
+        keys = (en.casefold(), zh.casefold())
+        if (not en or not zh or set(keys) & banned or en.casefold() in seen
+                or any(w in k or k in w for w in banned for k in keys)):
             continue
         seen.add(en.casefold())
         chosen.append({"en": en, "zh-Hans": zh})
-    return chosen[:3] if len(chosen) >= 3 and len(out.options) == len(chosen) else None
+    return chosen[:3] if len(chosen) >= 3 else None
 
 
 # ---- quality gate ----
