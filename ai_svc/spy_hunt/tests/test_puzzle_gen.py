@@ -91,6 +91,22 @@ def test_statement_naming_a_secret_word_is_retried_then_rejected(room):
     assert build(room) is None
 
 
+def test_overlong_statement_is_retried_never_cut_off(room):
+    calls = {"n": 0}
+
+    def long_once(prompt):
+        calls["n"] += 1
+        return {"statement": "word " * 60 if calls["n"] == 1 else f"short clue {calls['n']}"}
+
+    fake_llm.register("puzzle_statement", long_once)
+    fake_llm.register("puzzle_translate", lambda p: {"translations": [f"线索{i}" for i in range(10)]})
+    c = build(room)
+    assert c is not None
+    assert all(m["text"].startswith("short clue") for m in c["public"]["statements"])
+    fake_llm.register("puzzle_statement", lambda p: {"statement": "word " * 60})
+    assert build(room) is None
+
+
 def test_llm_error_rejects_candidate(room):
     def boom(prompt):
         raise LlmError("down")

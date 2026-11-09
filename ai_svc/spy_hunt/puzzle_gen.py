@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from . import bots, engine, game, llm, prompts, puzzles, store, translation, words
 from .db import get_conn
-from .config import BOT_NAMES, LANGS, GameConfig
+from .config import BOT_NAMES, LANGS
 
 log = logging.getLogger("spy_hunt.puzzle_gen")
 
@@ -27,6 +27,8 @@ MIN_CONFIDENCE = 40
 TOO_EASY_CONFIDENCE = 95
 QUEUE_TARGET = 14
 TRANSLATE_MAX_TOKENS = 900
+STATEMENT_MAX_CHARS = 200  # reading, not typing: longer than a room message, never cut off
+TRANSLATION_MAX_CHARS = 400
 LANG_NAMES = {"en": "English", "zh-Hans": "Simplified Chinese"}
 
 
@@ -37,7 +39,7 @@ class _TranslateOut(BaseModel):
 def _clean(text: Any) -> str:
     if not isinstance(text, str):
         return ""
-    return " ".join(text.split())[: GameConfig().statement_max_chars]
+    return " ".join(text.split())
 
 
 def _leaks(text: str, pair: game.Pair) -> bool:
@@ -48,7 +50,7 @@ def _leaks(text: str, pair: game.Pair) -> bool:
 def _statement(room_id: str, view: Dict[str, Any], persona: bots.BotProfile,
                pair: game.Pair, lang: str) -> Optional[str]:
     prompt = (bots._prompt_describe(view, persona)
-              + f"\nThe statement must be written in {LANG_NAMES[lang]}.")
+              + f"\nThe statement must be written in {LANG_NAMES[lang]} and stay under 150 characters.")
     for _ in range(STATEMENT_ATTEMPTS):
         try:
             out = llm.call_json("puzzle_statement", prompt, bots._StatementOut, room_id,
@@ -57,7 +59,8 @@ def _statement(room_id: str, view: Dict[str, Any], persona: bots.BotProfile,
             log.info("puzzle statement failed room_id=%s", room_id)
             return None
         text = _clean(out.statement)
-        if text and translation.detect_local(text) in (lang, None) and not _leaks(text, pair):
+        if (text and len(text) <= STATEMENT_MAX_CHARS
+                and translation.detect_local(text) in (lang, None) and not _leaks(text, pair)):
             return text
     return None
 
@@ -75,7 +78,8 @@ def _translate(room_id: str, texts: List[str], source: str, target: str,
         log.info("puzzle translation failed room_id=%s", room_id)
         return None
     cleaned = [_clean(t) for t in out.translations]
-    if len(cleaned) != len(texts) or not all(cleaned) or any(_leaks(t, pair) for t in cleaned):
+    if (len(cleaned) != len(texts) or not all(cleaned)
+            or any(len(t) > TRANSLATION_MAX_CHARS or _leaks(t, pair) for t in cleaned)):
         return None
     return cleaned
 
