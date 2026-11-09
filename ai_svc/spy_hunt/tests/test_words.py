@@ -37,11 +37,11 @@ def all_ids():
 
 def test_seed_loads_once(wenv):
     n = get_conn().execute("SELECT COUNT(*) c FROM pairs").fetchone()["c"]
-    assert n == 10
+    assert n == len(json.load(open(db.SEED_PATH, encoding="utf-8")))
     get_conn().execute("UPDATE pairs SET plays=5")
     get_conn().commit()
     db.init_db()
-    assert get_conn().execute("SELECT COUNT(*) c FROM pairs").fetchone()["c"] == 10
+    assert get_conn().execute("SELECT COUNT(*) c FROM pairs").fetchone()["c"] == n
     assert get_conn().execute("SELECT MAX(plays) m FROM pairs").fetchone()["m"] == 5
 
 
@@ -51,7 +51,7 @@ def test_draw_never_repeats_within_room(wenv):
     for _ in range(10):
         seen.append(words.draw_pair(rid).id)
         get_conn().commit()
-    assert len(set(seen)) == 10
+    assert len(set(seen)) == n
 
 
 def test_recently_seen_skipped_when_alternatives(wenv):
@@ -90,30 +90,37 @@ GOOD_GEN = {"en": {"a": "sock", "b": "glove"}, "zh_hans": {"a": "袜子", "b": "
             "difficulty": 2, "theme": "clothes"}
 
 
+def count():
+    return get_conn().execute("SELECT COUNT(*) c FROM pairs").fetchone()["c"]
+
+
 def test_generation_inserts_when_both_pass(wenv):
     rid = mkroom()
+    before = count()
     fake_llm.register("pair_generate", lambda p: GOOD_GEN)
     fake_llm.register("pair_validate", lambda p: {"en": {"ok": True}, "zh_hans": {"ok": True}})
     pair = words.generate_pair(rid)
     assert pair is not None and pair.words["zh-Hans"]["a"] == "袜子"
-    assert get_conn().execute("SELECT COUNT(*) c FROM pairs").fetchone()["c"] == 11
+    assert count() == before + 1
 
 
 @pytest.mark.parametrize("bad", ["en", "zh_hans"])
 def test_generation_rejected_when_either_language_fails(wenv, bad):
     rid = mkroom()
+    before = count()
     verdict = {"en": {"ok": True}, "zh_hans": {"ok": True}}
     verdict[bad] = {"ok": False}
     fake_llm.register("pair_generate", lambda p: GOOD_GEN)
     fake_llm.register("pair_validate", lambda p: verdict)
     assert words.generate_pair(rid) is None
-    assert get_conn().execute("SELECT COUNT(*) c FROM pairs").fetchone()["c"] == 10
+    assert count() == before
 
 
 def test_ensure_available_generates_when_pool_exhausted(wenv):
     ids = all_ids()
     only_pairs(ids[0])
     rid = mkroom()
+    before = count()
     words.draw_pair(rid)
     get_conn().commit()
     fake_llm.register("pair_generate", lambda p: GOOD_GEN)
@@ -121,7 +128,7 @@ def test_ensure_available_generates_when_pool_exhausted(wenv):
     words.ensure_available(rid)
     fresh = words.draw_pair(rid)
     assert fresh.words["en"]["a"] == "sock"
-    assert get_conn().execute("SELECT COUNT(*) c FROM pairs").fetchone()["c"] == 11
+    assert count() == before + 1
 
 
 def test_ensure_available_never_raises_on_llm_failure(wenv):

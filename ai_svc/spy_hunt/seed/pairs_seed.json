@@ -1,5 +1,1145 @@
 [
  {
+  "id": "p-01003788c9",
+  "difficulty": 2,
+  "theme": "hobbies",
+  "words": {
+   "en": {
+    "a": "drawing",
+    "b": "painting"
+   },
+   "zh-Hans": {
+    "a": "画画",
+    "b": "绘画"
+   }
+  }
+ },
+ {
+  "id": "p-05aa9a1b5d",
+  "difficulty": 2,
+  "theme": "snacks",
+  "words": {
+   "en": {
+    "a": "potato chips",
+    "b": "tortilla chips"
+   },
+   "zh-Hans": {
+    "a": "薯片",
+    "b": "玉米片"
+   }
+  }
+ },
+ {
+  "id": "p-06fe6edc06",
+  "difficulty": 2,
+  "theme": "sea creatures",
+  "words": {
+   "en": {
+    "a": "squid",
+    "b": "octopus"
+   },
+   "zh-Hans": {
+    "a": "鱿鱼",
+    "b": "章鱼"
+   }
+  }
+ },
+ {
+  "id": "p-09f33faafa",
+  "difficulty": 1,
+  "theme": "plants",
+  "words": {
+   "en": {
+    "a": "sunflower",
+    "b": "daisy"
+   },
+   "zh-Hans": {
+    "a": "向日葵",
+    "b": "雏菊"
+   }
+  }
+ },
+ {
+  "id": "p-0cc8d7439e",
+  "difficulty": 2,
+  "theme": "body care",
+  "words": {
+   "en": {
+    "a": "shampoo",
+    "b": "conditioner"
+   },
+   "zh-Hans": {
+    "a": "洗发水",
+    "b": "护发素"
+   }
+  }
+ },
+ {
+  "id": "p-0f2ce3a348",
+  "difficulty": 1,
+  "theme": "weather",
+  "words": {
+   "en": {
+    "a": "raincoat",
+    "b": "umbrella"
+   },
+   "zh-Hans": {
+    "a": "雨衣",
+    "b": "雨伞"
+   }
+  }
+ },
+ {
+  "id": "p-114ad400ea",
+  "difficulty": 1,
+  "theme": "pets",
+  "words": {
+   "en": {
+    "a": "cat",
+    "b": "dog"
+   },
+   "zh-Hans": {
+    "a": "猫",
+    "b": "狗"
+   }
+  }
+ },
+ {
+  "id": "p-11f5f57996",
+  "difficulty": 1,
+  "theme": "school",
+  "words": {
+   "en": {
+    "a": "notebook",
+    "b": "textbook"
+   },
+   "zh-Hans": {
+    "a": "笔记本",
+    "b": "课本"
+   }
+  }
+ },
+ {
+  "id": "p-13e8dfbd4b",
+  "difficulty": 2,
+  "theme": "transport",
+  "words": {
+   "en": {
+    "a": "bus",
+    "b": "coach"
+   },
+   "zh-Hans": {
+    "a": "公交车",
+    "b": "长途客车"
+   }
+  }
+ },
+ {
+  "id": "p-1403d45015",
+  "difficulty": 2,
+  "theme": "furniture",
+  "words": {
+   "en": {
+    "a": "sofa",
+    "b": "armchair"
+   },
+   "zh-Hans": {
+    "a": "沙发",
+    "b": "扶手椅"
+   }
+  }
+ },
+ {
+  "id": "p-1a6d238d94",
+  "difficulty": 2,
+  "theme": "sports",
+  "words": {
+   "en": {
+    "a": "basketball",
+    "b": "volleyball"
+   },
+   "zh-Hans": {
+    "a": "篮球",
+    "b": "排球"
+   }
+  }
+ },
+ {
+  "id": "p-1c80233d33",
+  "difficulty": 2,
+  "theme": "plants",
+  "words": {
+   "en": {
+    "a": "bamboo",
+    "b": "reed"
+   },
+   "zh-Hans": {
+    "a": "竹子",
+    "b": "芦苇"
+   }
+  }
+ },
+ {
+  "id": "p-1ea280719f",
+  "difficulty": 2,
+  "theme": "nature",
+  "words": {
+   "en": {
+    "a": "river",
+    "b": "stream"
+   },
+   "zh-Hans": {
+    "a": "河流",
+    "b": "小溪"
+   }
+  }
+ },
+ {
+  "id": "p-2444810dc3",
+  "difficulty": 2,
+  "theme": "outdoor games",
+  "words": {
+   "en": {
+    "a": "frisbee",
+    "b": "boomerang"
+   },
+   "zh-Hans": {
+    "a": "飞盘",
+    "b": "回旋镖"
+   }
+  }
+ },
+ {
+  "id": "p-246540bea4",
+  "difficulty": 2,
+  "theme": "music instruments",
+  "words": {
+   "en": {
+    "a": "guitar",
+    "b": "violin"
+   },
+   "zh-Hans": {
+    "a": "吉他",
+    "b": "小提琴"
+   }
+  }
+ },
+ {
+  "id": "p-2642589eb1",
+  "difficulty": 2,
+  "theme": "sports",
+  "words": {
+   "en": {
+    "a": "tennis racket",
+    "b": "badminton racket"
+   },
+   "zh-Hans": {
+    "a": "网球拍",
+    "b": "羽毛球拍"
+   }
+  }
+ },
+ {
+  "id": "p-2d178afb40",
+  "difficulty": 2,
+  "theme": "hobbies",
+  "words": {
+   "en": {
+    "a": "chess",
+    "b": "checkers"
+   },
+   "zh-Hans": {
+    "a": "国际象棋",
+    "b": "跳棋"
+   }
+  }
+ },
+ {
+  "id": "p-2f75ea4240",
+  "difficulty": 2,
+  "theme": "outdoor games",
+  "words": {
+   "en": {
+    "a": "hopscotch",
+    "b": "jump rope"
+   },
+   "zh-Hans": {
+    "a": "跳房子",
+    "b": "跳绳"
+   }
+  }
+ },
+ {
+  "id": "p-34fed35e78",
+  "difficulty": 2,
+  "theme": "plants",
+  "words": {
+   "en": {
+    "a": "fern",
+    "b": "palm"
+   },
+   "zh-Hans": {
+    "a": "蕨类植物",
+    "b": "棕榈树"
+   }
+  }
+ },
+ {
+  "id": "p-35cca89004",
+  "difficulty": 2,
+  "theme": "hobbies",
+  "words": {
+   "en": {
+    "a": "photography",
+    "b": "videography"
+   },
+   "zh-Hans": {
+    "a": "摄影",
+    "b": "摄像"
+   }
+  }
+ },
+ {
+  "id": "p-389968bd03",
+  "difficulty": 2,
+  "theme": "birds",
+  "words": {
+   "en": {
+    "a": "dove",
+    "b": "pigeon"
+   },
+   "zh-Hans": {
+    "a": "鸽子",
+    "b": "斑鸠"
+   }
+  }
+ },
+ {
+  "id": "p-3b935accc4",
+  "difficulty": 3,
+  "theme": "music instruments",
+  "words": {
+   "en": {
+    "a": "violin",
+    "b": "viola"
+   },
+   "zh-Hans": {
+    "a": "小提琴",
+    "b": "中提琴"
+   }
+  }
+ },
+ {
+  "id": "p-3c46f0c39d",
+  "difficulty": 2,
+  "theme": "stationery",
+  "words": {
+   "en": {
+    "a": "Pencil",
+    "b": "Pen"
+   },
+   "zh-Hans": {
+    "a": "铅笔",
+    "b": "钢笔"
+   }
+  }
+ },
+ {
+  "id": "p-3fcd12e3c7",
+  "difficulty": 2,
+  "theme": "places in a city",
+  "words": {
+   "en": {
+    "a": "library",
+    "b": "bookstore"
+   },
+   "zh-Hans": {
+    "a": "图书馆",
+    "b": "书店"
+   }
+  }
+ },
+ {
+  "id": "p-478a3ca33d",
+  "difficulty": 2,
+  "theme": "jobs",
+  "words": {
+   "en": {
+    "a": "teacher",
+    "b": "professor"
+   },
+   "zh-Hans": {
+    "a": "老师",
+    "b": "教授"
+   }
+  }
+ },
+ {
+  "id": "p-481356e602",
+  "difficulty": 1,
+  "theme": "toys",
+  "words": {
+   "en": {
+    "a": "teddy bear",
+    "b": "stuffed bunny"
+   },
+   "zh-Hans": {
+    "a": "泰迪熊",
+    "b": "毛绒兔"
+   }
+  }
+ },
+ {
+  "id": "p-4a05f6d3af",
+  "difficulty": 1,
+  "theme": "plants",
+  "words": {
+   "en": {
+    "a": "rose",
+    "b": "tulip"
+   },
+   "zh-Hans": {
+    "a": "玫瑰",
+    "b": "郁金香"
+   }
+  }
+ },
+ {
+  "id": "p-5932d05b13",
+  "difficulty": 2,
+  "theme": "plants",
+  "words": {
+   "en": {
+    "a": "bamboo",
+    "b": "sugarcane"
+   },
+   "zh-Hans": {
+    "a": "竹子",
+    "b": "甘蔗"
+   }
+  }
+ },
+ {
+  "id": "p-5bf763c34e",
+  "difficulty": 2,
+  "theme": "clothing",
+  "words": {
+   "en": {
+    "a": "sweater",
+    "b": "cardigan"
+   },
+   "zh-Hans": {
+    "a": "毛衣",
+    "b": "开衫"
+   }
+  }
+ },
+ {
+  "id": "p-5d86993121",
+  "difficulty": 2,
+  "theme": "desserts",
+  "words": {
+   "en": {
+    "a": "ice cream",
+    "b": "gelato"
+   },
+   "zh-Hans": {
+    "a": "冰淇淋",
+    "b": "意式冰淇淋"
+   }
+  }
+ },
+ {
+  "id": "p-6016a16a9b",
+  "difficulty": 2,
+  "theme": "snacks",
+  "words": {
+   "en": {
+    "a": "potato chips",
+    "b": "French fries"
+   },
+   "zh-Hans": {
+    "a": "薯片",
+    "b": "薯条"
+   }
+  }
+ },
+ {
+  "id": "p-638a8c65e6",
+  "difficulty": 2,
+  "theme": "sports",
+  "words": {
+   "en": {
+    "a": "badminton",
+    "b": "tennis"
+   },
+   "zh-Hans": {
+    "a": "羽毛球",
+    "b": "网球"
+   }
+  }
+ },
+ {
+  "id": "p-7197b90da1",
+  "difficulty": 3,
+  "theme": "sea creatures",
+  "words": {
+   "en": {
+    "a": "dolphin",
+    "b": "porpoise"
+   },
+   "zh-Hans": {
+    "a": "海豚",
+    "b": "鼠海豚"
+   }
+  }
+ },
+ {
+  "id": "p-7505baaece",
+  "difficulty": 2,
+  "theme": "music instruments",
+  "words": {
+   "en": {
+    "a": "guitar",
+    "b": "ukulele"
+   },
+   "zh-Hans": {
+    "a": "吉他",
+    "b": "尤克里里"
+   }
+  }
+ },
+ {
+  "id": "p-79ed3d5692",
+  "difficulty": 2,
+  "theme": "electronics",
+  "words": {
+   "en": {
+    "a": "TV remote",
+    "b": "game controller"
+   },
+   "zh-Hans": {
+    "a": "电视遥控器",
+    "b": "游戏手柄"
+   }
+  }
+ },
+ {
+  "id": "p-7a7fef56ca",
+  "difficulty": 1,
+  "theme": "kitchen tools",
+  "words": {
+   "en": {
+    "a": "fork",
+    "b": "spoon"
+   },
+   "zh-Hans": {
+    "a": "叉子",
+    "b": "勺子"
+   }
+  }
+ },
+ {
+  "id": "p-8152ece033",
+  "difficulty": 2,
+  "theme": "kitchen tools",
+  "words": {
+   "en": {
+    "a": "spatula",
+    "b": "whisk"
+   },
+   "zh-Hans": {
+    "a": "锅铲",
+    "b": "打蛋器"
+   }
+  }
+ },
+ {
+  "id": "p-83a9827da0",
+  "difficulty": 2,
+  "theme": "household items",
+  "words": {
+   "en": {
+    "a": "mug",
+    "b": "cup"
+   },
+   "zh-Hans": {
+    "a": "马克杯",
+    "b": "杯子"
+   }
+  }
+ },
+ {
+  "id": "p-848fd4e145",
+  "difficulty": 2,
+  "theme": "body care",
+  "words": {
+   "en": {
+    "a": "toothpaste",
+    "b": "mouthwash"
+   },
+   "zh-Hans": {
+    "a": "牙膏",
+    "b": "漱口水"
+   }
+  }
+ },
+ {
+  "id": "p-86cba85905",
+  "difficulty": 1,
+  "theme": "festivals",
+  "words": {
+   "en": {
+    "a": "birthday cake",
+    "b": "wedding cake"
+   },
+   "zh-Hans": {
+    "a": "生日蛋糕",
+    "b": "婚礼蛋糕"
+   }
+  }
+ },
+ {
+  "id": "p-87c6d5403a",
+  "difficulty": 1,
+  "theme": "drinks",
+  "words": {
+   "en": {
+    "a": "hot chocolate",
+    "b": "milk tea"
+   },
+   "zh-Hans": {
+    "a": "热巧克力",
+    "b": "奶茶"
+   }
+  }
+ },
+ {
+  "id": "p-8ef8512183",
+  "difficulty": 2,
+  "theme": "shoes",
+  "words": {
+   "en": {
+    "a": "sneakers",
+    "b": "running shoes"
+   },
+   "zh-Hans": {
+    "a": "运动鞋",
+    "b": "跑鞋"
+   }
+  }
+ },
+ {
+  "id": "p-923b9ba6aa",
+  "difficulty": 2,
+  "theme": "birds",
+  "words": {
+   "en": {
+    "a": "Duck",
+    "b": "Goose"
+   },
+   "zh-Hans": {
+    "a": "鸭子",
+    "b": "鹅"
+   }
+  }
+ },
+ {
+  "id": "p-93b6a7bf2d",
+  "difficulty": 2,
+  "theme": "jobs",
+  "words": {
+   "en": {
+    "a": "police officer",
+    "b": "security guard"
+   },
+   "zh-Hans": {
+    "a": "警察",
+    "b": "保安"
+   }
+  }
+ },
+ {
+  "id": "p-9613c5dc26",
+  "difficulty": 2,
+  "theme": "vehicles",
+  "words": {
+   "en": {
+    "a": "bus",
+    "b": "tram"
+   },
+   "zh-Hans": {
+    "a": "公交车",
+    "b": "有轨电车"
+   }
+  }
+ },
+ {
+  "id": "p-9b3b13662d",
+  "difficulty": 2,
+  "theme": "sea creatures",
+  "words": {
+   "en": {
+    "a": "jellyfish",
+    "b": "octopus"
+   },
+   "zh-Hans": {
+    "a": "水母",
+    "b": "章鱼"
+   }
+  }
+ },
+ {
+  "id": "p-9c3171969a",
+  "difficulty": 2,
+  "theme": "birds",
+  "words": {
+   "en": {
+    "a": "sparrow",
+    "b": "finch"
+   },
+   "zh-Hans": {
+    "a": "麻雀",
+    "b": "雀"
+   }
+  }
+ },
+ {
+  "id": "p-9ced58d4ec",
+  "difficulty": 1,
+  "theme": "weather",
+  "words": {
+   "en": {
+    "a": "rain",
+    "b": "snow"
+   },
+   "zh-Hans": {
+    "a": "雨",
+    "b": "雪"
+   }
+  }
+ },
+ {
+  "id": "p-9d33133adb",
+  "difficulty": 2,
+  "theme": "pets",
+  "words": {
+   "en": {
+    "a": "hamster",
+    "b": "guinea pig"
+   },
+   "zh-Hans": {
+    "a": "仓鼠",
+    "b": "豚鼠"
+   }
+  }
+ },
+ {
+  "id": "p-9dfb5cedef",
+  "difficulty": 2,
+  "theme": "animals",
+  "words": {
+   "en": {
+    "a": "turtle",
+    "b": "tortoise"
+   },
+   "zh-Hans": {
+    "a": "乌龟",
+    "b": "陆龟"
+   }
+  }
+ },
+ {
+  "id": "p-a1d1fa3303",
+  "difficulty": 2,
+  "theme": "festivals",
+  "words": {
+   "en": {
+    "a": "Christmas",
+    "b": "New Year"
+   },
+   "zh-Hans": {
+    "a": "圣诞节",
+    "b": "新年"
+   }
+  }
+ },
+ {
+  "id": "p-a604d7aec2",
+  "difficulty": 1,
+  "theme": "kitchen tools",
+  "words": {
+   "en": {
+    "a": "ladle",
+    "b": "spoon"
+   },
+   "zh-Hans": {
+    "a": "汤勺",
+    "b": "勺子"
+   }
+  }
+ },
+ {
+  "id": "p-a725945258",
+  "difficulty": 2,
+  "theme": "birds",
+  "words": {
+   "en": {
+    "a": "eagle",
+    "b": "hawk"
+   },
+   "zh-Hans": {
+    "a": "老鹰",
+    "b": "鹰"
+   }
+  }
+ },
+ {
+  "id": "p-a783381538",
+  "difficulty": 2,
+  "theme": "vegetables",
+  "words": {
+   "en": {
+    "a": "cucumber",
+    "b": "zucchini"
+   },
+   "zh-Hans": {
+    "a": "黄瓜",
+    "b": "西葫芦"
+   }
+  }
+ },
+ {
+  "id": "p-a8bb994ab5",
+  "difficulty": 2,
+  "theme": "jobs",
+  "words": {
+   "en": {
+    "a": "firefighter",
+    "b": "police officer"
+   },
+   "zh-Hans": {
+    "a": "消防员",
+    "b": "警察"
+   }
+  }
+ },
+ {
+  "id": "p-aaab628767",
+  "difficulty": 1,
+  "theme": "tools",
+  "words": {
+   "en": {
+    "a": "screwdriver",
+    "b": "wrench"
+   },
+   "zh-Hans": {
+    "a": "螺丝刀",
+    "b": "扳手"
+   }
+  }
+ },
+ {
+  "id": "p-ac66161cce",
+  "difficulty": 2,
+  "theme": "electronics",
+  "words": {
+   "en": {
+    "a": "television",
+    "b": "computer monitor"
+   },
+   "zh-Hans": {
+    "a": "电视",
+    "b": "电脑显示器"
+   }
+  }
+ },
+ {
+  "id": "p-ad0faf4af7",
+  "difficulty": 1,
+  "theme": "drinks",
+  "words": {
+   "en": {
+    "a": "orange juice",
+    "b": "lemonade"
+   },
+   "zh-Hans": {
+    "a": "橙汁",
+    "b": "柠檬水"
+   }
+  }
+ },
+ {
+  "id": "p-b4b49962a8",
+  "difficulty": 2,
+  "theme": "festivals",
+  "words": {
+   "en": {
+    "a": "Christmas tree",
+    "b": "Christmas wreath"
+   },
+   "zh-Hans": {
+    "a": "圣诞树",
+    "b": "圣诞花环"
+   }
+  }
+ },
+ {
+  "id": "p-ba7bbc739b",
+  "difficulty": 2,
+  "theme": "jobs",
+  "words": {
+   "en": {
+    "a": "policeman",
+    "b": "fireman"
+   },
+   "zh-Hans": {
+    "a": "警察",
+    "b": "消防员"
+   }
+  }
+ },
+ {
+  "id": "p-bf76fd6d00",
+  "difficulty": 1,
+  "theme": "nature",
+  "words": {
+   "en": {
+    "a": "moon",
+    "b": "sun"
+   },
+   "zh-Hans": {
+    "a": "月亮",
+    "b": "太阳"
+   }
+  }
+ },
+ {
+  "id": "p-c09cbcee9b",
+  "difficulty": 2,
+  "theme": "food",
+  "words": {
+   "en": {
+    "a": "pancake",
+    "b": "crepe"
+   },
+   "zh-Hans": {
+    "a": "煎饼",
+    "b": "可丽饼"
+   }
+  }
+ },
+ {
+  "id": "p-c49361e30d",
+  "difficulty": 2,
+  "theme": "weather",
+  "words": {
+   "en": {
+    "a": "rain",
+    "b": "drizzle"
+   },
+   "zh-Hans": {
+    "a": "雨",
+    "b": "毛毛雨"
+   }
+  }
+ },
+ {
+  "id": "p-c69ebdb4d9",
+  "difficulty": 2,
+  "theme": "electronics",
+  "words": {
+   "en": {
+    "a": "remote control",
+    "b": "game controller"
+   },
+   "zh-Hans": {
+    "a": "遥控器",
+    "b": "游戏手柄"
+   }
+  }
+ },
+ {
+  "id": "p-cc37e76324",
+  "difficulty": 2,
+  "theme": "food",
+  "words": {
+   "en": {
+    "a": "pancake",
+    "b": "waffle"
+   },
+   "zh-Hans": {
+    "a": "煎饼",
+    "b": "华夫饼"
+   }
+  }
+ },
+ {
+  "id": "p-d4d5effc3c",
+  "difficulty": 1,
+  "theme": "fruit",
+  "words": {
+   "en": {
+    "a": "watermelon",
+    "b": "cantaloupe"
+   },
+   "zh-Hans": {
+    "a": "西瓜",
+    "b": "哈密瓜"
+   }
+  }
+ },
+ {
+  "id": "p-d539e3a2b1",
+  "difficulty": 1,
+  "theme": "toys",
+  "words": {
+   "en": {
+    "a": "building blocks",
+    "b": "Lego bricks"
+   },
+   "zh-Hans": {
+    "a": "积木",
+    "b": "乐高积木"
+   }
+  }
+ },
+ {
+  "id": "p-d6567e182d",
+  "difficulty": 1,
+  "theme": "shoes",
+  "words": {
+   "en": {
+    "a": "sneakers",
+    "b": "sandals"
+   },
+   "zh-Hans": {
+    "a": "运动鞋",
+    "b": "凉鞋"
+   }
+  }
+ },
+ {
+  "id": "p-db26b33029",
+  "difficulty": 1,
+  "theme": "outdoor games",
+  "words": {
+   "en": {
+    "a": "hide-and-seek",
+    "b": "tag"
+   },
+   "zh-Hans": {
+    "a": "捉迷藏",
+    "b": "捉人游戏"
+   }
+  }
+ },
+ {
+  "id": "p-de39c17419",
+  "difficulty": 2,
+  "theme": "electronics",
+  "words": {
+   "en": {
+    "a": "laptop",
+    "b": "desktop computer"
+   },
+   "zh-Hans": {
+    "a": "笔记本电脑",
+    "b": "台式电脑"
+   }
+  }
+ },
+ {
+  "id": "p-e5f818945c",
+  "difficulty": 2,
+  "theme": "fruit",
+  "words": {
+   "en": {
+    "a": "tangerine",
+    "b": "orange"
+   },
+   "zh-Hans": {
+    "a": "橘子",
+    "b": "橙子"
+   }
+  }
+ },
+ {
+  "id": "p-ee96ff55a0",
+  "difficulty": 2,
+  "theme": "buildings",
+  "words": {
+   "en": {
+    "a": "hospital",
+    "b": "clinic"
+   },
+   "zh-Hans": {
+    "a": "医院",
+    "b": "诊所"
+   }
+  }
+ },
+ {
+  "id": "p-f108757478",
+  "difficulty": 2,
+  "theme": "electronics",
+  "words": {
+   "en": {
+    "a": "TV",
+    "b": "computer monitor"
+   },
+   "zh-Hans": {
+    "a": "电视",
+    "b": "电脑显示器"
+   }
+  }
+ },
+ {
+  "id": "p-f5a5ec4d6e",
+  "difficulty": 2,
+  "theme": "body care",
+  "words": {
+   "en": {
+    "a": "shampoo",
+    "b": "body wash"
+   },
+   "zh-Hans": {
+    "a": "洗发水",
+    "b": "沐浴露"
+   }
+  }
+ },
+ {
+  "id": "p-f8dfff503d",
+  "difficulty": 2,
+  "theme": "tools",
+  "words": {
+   "en": {
+    "a": "hammer",
+    "b": "mallet"
+   },
+   "zh-Hans": {
+    "a": "锤子",
+    "b": "木槌"
+   }
+  }
+ },
+ {
+  "id": "p-f959d35306",
+  "difficulty": 3,
+  "theme": "animals",
+  "words": {
+   "en": {
+    "a": "Rabbit",
+    "b": "Hare"
+   },
+   "zh-Hans": {
+    "a": "兔子",
+    "b": "野兔"
+   }
+  }
+ },
+ {
   "id": "seed-lighthouse-windmill",
   "difficulty": 2,
   "theme": "places",
@@ -26,21 +1166,6 @@
    "zh-Hans": {
     "a": "咖啡",
     "b": "茶"
-   }
-  }
- },
- {
-  "id": "seed-guitar-violin",
-  "difficulty": 2,
-  "theme": "music",
-  "words": {
-   "en": {
-    "a": "guitar",
-    "b": "violin"
-   },
-   "zh-Hans": {
-    "a": "吉他",
-    "b": "小提琴"
    }
   }
  },
@@ -105,21 +1230,6 @@
   }
  },
  {
-  "id": "seed-umbrella-raincoat",
-  "difficulty": 2,
-  "theme": "clothing",
-  "words": {
-   "en": {
-    "a": "umbrella",
-    "b": "raincoat"
-   },
-   "zh-Hans": {
-    "a": "雨伞",
-    "b": "雨衣"
-   }
-  }
- },
- {
   "id": "seed-pizza-pie",
   "difficulty": 2,
   "theme": "food",
@@ -131,21 +1241,6 @@
    "zh-Hans": {
     "a": "披萨",
     "b": "馅饼"
-   }
-  }
- },
- {
-  "id": "seed-sofa-armchair",
-  "difficulty": 2,
-  "theme": "home",
-  "words": {
-   "en": {
-    "a": "sofa",
-    "b": "armchair"
-   },
-   "zh-Hans": {
-    "a": "沙发",
-    "b": "扶手椅"
    }
   }
  }
