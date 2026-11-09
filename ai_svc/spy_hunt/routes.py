@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, game, ratelimits, store, timers, visibility
+from ai_svc.spy_hunt import auth, events, game, ratelimits, store, timers, visibility
 
 spy_hunt_bp = Blueprint("spy_hunt", __name__, url_prefix="/api/spy-hunt")
 
@@ -182,3 +182,32 @@ def bots(code: str):
     room = _room_or_404(code)
     (game.add_bot if action == "add" else game.remove_bot)(room["id"], g.player_id)
     return jsonify(_snapshot(room["id"]))
+
+
+# ---- SSE stream (impl spec §7.1) ----
+# No rate-limit decorator on purpose: reconnect storms must never 429. The
+# stream caps (events.acquire_slot) bound the cost instead. Auth is the
+# Authorization header only; a token in the URL is never accepted.
+
+@spy_hunt_bp.route("/rooms/<code>/events", methods=["GET"])
+@auth.require_guest
+def room_events(code: str):
+    room = _room_or_404(code)
+    if store.seat_of(room["id"], g.player_id) is None:
+        raise store.StoreError(403, "not_member", "You are not in this room.")
+    after = events.parse_cursor(request.args.get("after"), request.headers.get("Last-Event-ID"))
+    release = events.acquire_slot(g.player_id)
+    if release is None:
+        return jsonify({"error": "too_many_streams",
+                        "message": "Too many open streams, close one and retry."}), 429
+    try:
+        body = events.Body(events.stream(room["id"], g.player_id, after, release), release)
+    except BaseException:
+        release()
+        raise
+    # Connection: keep-alive is a hop-by-hop header; WSGI apps must not set it.
+    return Response(body, status=200, headers={
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })

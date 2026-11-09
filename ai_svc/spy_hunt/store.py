@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import secrets
 import sqlite3
+import threading
 import time
 import unicodedata
 from contextlib import contextmanager
@@ -18,6 +20,8 @@ from typing import Any, Dict, Iterator, Optional
 from ai_svc.spy_hunt import locks, visibility
 from ai_svc.spy_hunt.config import LANGS, GameConfig
 from ai_svc.spy_hunt.db import get_conn
+
+log = logging.getLogger(__name__)
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 CODE_LEN = 4
@@ -85,14 +89,44 @@ def tx(room_id: str) -> Iterator[sqlite3.Connection]:
         if conn.in_transaction:
             yield conn
             return
+        _pending_notify().clear()
         conn.execute("BEGIN IMMEDIATE")
         try:
             yield conn
         except BaseException:
             conn.rollback()
+            _pending_notify().clear()
             raise
         else:
             conn.commit()
+            _flush_notify()
+
+
+# Rooms that got an event in this thread's open transaction. Stream waiters are
+# woken only after the OUTERMOST tx commits (events.notify), never before, and
+# never for a rolled-back transaction.
+_notify_local = threading.local()
+
+
+def _pending_notify() -> set:
+    rooms = getattr(_notify_local, "rooms", None)
+    if rooms is None:
+        rooms = _notify_local.rooms = set()
+    return rooms
+
+
+def _flush_notify() -> None:
+    rooms = _pending_notify()
+    if not rooms:
+        return
+    todo = sorted(rooms)
+    rooms.clear()
+    from ai_svc.spy_hunt import events  # lazy: events imports store
+    for rid in todo:
+        try:
+            events.notify(rid)
+        except Exception:  # a wake-up failure must not fail the committed change
+            log.exception("events.notify failed for room %s", rid)
 
 
 def _bump(conn: sqlite3.Connection, room_id: str) -> None:
@@ -122,6 +156,7 @@ def append_event(room_id: str, type: str, payload: Dict[str, Any], audience: str
         "INSERT INTO events(room_id, type, payload_json, audience, created_at) VALUES(?,?,?,?,?)",
         (room_id, type, json.dumps(payload, ensure_ascii=False), audience, now_ms()),
     )
+    _pending_notify().add(room_id)
     return cur.lastrowid
 
 
