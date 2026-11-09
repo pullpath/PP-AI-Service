@@ -64,6 +64,25 @@ def on_phase_change(room_id: str, phase_seq: int, deadline: Optional[int]) -> No
         _phase_hook(room_id, phase_seq, deadline)
 
 
+def speaker_words(room_id: str, seat: Optional[int]) -> Dict[str, str]:
+    """The seat's own role word in every supported language, {lang: word}.
+
+    SERVER-SIDE COMPARISON ONLY (translation must withhold a translation that
+    contains the speaker's own word). Never put the result in a client payload.
+    Same source as submit_statement: visibility._pair_words."""
+    if seat is None:
+        return {}
+    from ai_svc.spy_hunt.db import get_conn
+    conn = get_conn()
+    room = conn.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
+    me = conn.execute("SELECT role FROM players WHERE room_id=? AND seat=?",
+                      (room_id, seat)).fetchone()
+    if room is None or me is None:
+        return {}
+    words = visibility._pair_words(conn, room) or {}
+    return {k: v for k, v in (words.get(me["role"]) or {}).items() if v}
+
+
 _message_hook: Optional[Callable[[int], None]] = None
 
 

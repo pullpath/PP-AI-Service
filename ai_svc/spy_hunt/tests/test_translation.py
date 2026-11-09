@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from ai_svc.spy_hunt import fake_llm, game, llm, prompts, store, translation, workers
+from ai_svc.spy_hunt import fake_llm, game, llm, prompts, store, translation, visibility, workers
 from ai_svc.spy_hunt.db import get_conn
 
 API = "/api/spy-hunt"
@@ -168,7 +168,7 @@ def test_bot_message_no_detection_but_translates(env):
                   " alive, connected, joined_at) VALUES(?,?,?,?,?,1,'dry',1,1,0)",
                   (rid, "bot1", 5, "Milo", "en"))
     f = reg({"lang": "en", "translations": {"zh-Hans": "好"}})
-    mid = add_msg(rid, "123 !!!", "en", seat=5)  # undetectable locally, but bot lang known
+    mid = add_msg(rid, "123 hmm", "en", seat=5)  # bot lang known: no detection
     translation.process_message(mid)
     assert lang_of(mid) == "en" and trans(mid) == {"zh-Hans": "好"}
     assert len(f.prompts) == 1
@@ -432,8 +432,7 @@ def test_full_flow_api_statement_to_snapshot(client):
         r = client.post(f"{API}/rooms/{code}/statement", json={"text": "又高又白"}, headers=h)
         assert r.status_code == 200
         evs = tevents(rid)
-        if f.prompts:  # speaker was the zh player or an en player writing zh: both translate
-            assert evs[0]["target_lang"] == "en" and evs[0]["text"] == "tall and white"
+        assert evs[0]["target_lang"] == "en" and evs[0]["text"] == "tall and white"
         mid = get_conn().execute("SELECT id FROM messages WHERE room_id=? AND kind='statement'",
                                  (rid,)).fetchone()[0]
         assert len(f.prompts) == 1 and len(evs) == 1 and evs[0]["message_id"] == mid
@@ -448,7 +447,6 @@ def test_full_flow_api_statement_to_snapshot(client):
 
 
 def test_full_flow_event_on_stream_visible(client):
-    from ai_svc.spy_hunt import events
     game.set_pair_source(lambda room_id: game.Pair("t-pair", WORDS))
     try:
         hs = [guest(client) for _ in range(2)]
@@ -463,7 +461,9 @@ def test_full_flow_event_on_stream_visible(client):
         game._notify_message(mid)
         row = get_conn().execute("SELECT * FROM events WHERE type='translation'").fetchone()
         pl = json.loads(row["payload_json"])
-        assert events.visible_to(row["audience"], 0) if hasattr(events, "visible_to") else True
+        ev = dict(row)
+        assert visibility.visible_to(ev, 0) and visibility.visible_to(ev, 1)
+        assert not visibility.visible_to(ev, None) is False
         assert pl["text"] == "hello"
     finally:
         game.set_pair_source(None)
@@ -509,3 +509,210 @@ def test_patch_me_backfill_not_in_request_when_async(client):
     assert called.wait(5)
     gate.set()
     workers.reset()
+
+
+# ---- fix round 1 ----
+from ai_svc.spy_hunt import engine, routes  # noqa: E402
+
+
+def playing_room():
+    """4 humans (seat0 en, seat1 zh, 2 en, 3 zh), started; returns rid."""
+    room = store.create_room("pid0", "P0", "en")
+    for i, lg in enumerate(["zh-Hans", "en", "zh-Hans"], 1):
+        store.add_player(room["id"], f"pid{i}", f"P{i}", lg)
+    game.start_game(room["id"], "pid0")
+    return room["id"]
+
+
+def role_word(rid, seat, lang):
+    role = get_conn().execute("SELECT role FROM players WHERE room_id=? AND seat=?",
+                              (rid, seat)).fetchone()[0]
+    return game.speaker_words(rid, seat)[lang], role
+
+
+@pytest.mark.parametrize("seat", [0, 1, 2, 3])
+def test_translation_with_own_word_withheld(env, seat, caplog):
+    rid = playing_room()
+    src = get_conn().execute("SELECT lang FROM players WHERE room_id=? AND seat=?",
+                             (rid, seat)).fetchone()[0]
+    other = "zh-Hans" if src == "en" else "en"
+    leak = game.speaker_words(rid, seat)[other]
+    text = "又高又白" if src == "zh-Hans" else "tall and white"
+    reg({"lang": src, "translations": {other: f"a thing: {leak}"}})
+    mid = add_msg(rid, text, src, seat=seat)
+    with caplog.at_level(logging.INFO):
+        translation.process_message(mid)
+    assert trans(mid) == {} and tevents(rid) == []
+    assert "withheld" in caplog.text and leak not in caplog.text
+
+
+def test_clean_translation_stored_for_speaker_with_words(env):
+    rid = playing_room()
+    reg({"lang": "en", "translations": {"zh-Hans": "又高又白"}})
+    mid = add_msg(rid, "tall and white", "en", seat=0)
+    translation.process_message(mid)
+    assert trans(mid) == {"zh-Hans": "又高又白"}
+
+
+def test_own_word_substring_in_longer_word_withheld(env):
+    rid = playing_room()
+    leak = game.speaker_words(rid, 0)["zh-Hans"]
+    reg({"lang": "en", "translations": {"zh-Hans": f"超级{leak}们"}})
+    mid = add_msg(rid, "tall and white", "en", seat=0)
+    translation.process_message(mid)
+    assert trans(mid) == {}
+
+
+def test_own_word_withheld_in_ensure_for(env):
+    rid = playing_room()
+    leak = game.speaker_words(rid, 0)["zh-Hans"]
+    mid = add_msg(rid, "tall and white", "en", seat=0)
+    reg({"items": [{"id": mid, "text": leak}]})
+    translation.ensure_for([mid], "zh-Hans")
+    assert trans(mid) == {} and tevents(rid) == []
+
+
+def test_host_message_unaffected_by_word_check(env):
+    rid = playing_room()
+    leak = game.speaker_words(rid, 0)["zh-Hans"]
+    reg({"lang": "en", "translations": {"zh-Hans": leak}})
+    mid = add_msg(rid, "Welcome", "en", seat=None, kind="host")
+    translation.process_message(mid)
+    assert trans(mid) == {"zh-Hans": leak}
+
+
+def test_inflight_dedupe_one_call_one_row_one_event(env):
+    rid = mk_room()
+    in_call, gate = threading.Event(), threading.Event()
+
+    def slow(p):
+        in_call.set()
+        assert gate.wait(5)
+        return {"lang": "zh-Hans", "translations": {"en": "tall"}}
+    f = reg(slow)
+    mid = add_msg(rid, "很高", "zh-Hans", seat=1)
+    from ai_svc.spy_hunt import db
+
+    def run():
+        try:
+            translation.process_message(mid)
+        finally:
+            db.close_conn()
+    a = threading.Thread(target=run)
+    a.start()
+    assert in_call.wait(5)
+    b = threading.Thread(target=run)  # overlaps with A's in-flight model call
+    b.start()
+    b.join(5)
+    assert not b.is_alive()
+    gate.set()
+    a.join(5)
+    assert len(f.prompts) == 1 and trans(mid) == {"en": "tall"} and len(tevents(rid)) == 1
+
+
+def test_inflight_released_after_failure(env):
+    rid = mk_room()
+    f = reg(llm.LlmError("x"))
+    mid = add_msg(rid, "很高", "zh-Hans", seat=1)
+    translation.process_message(mid)
+    fake_llm.register("translate", Fake({"lang": "zh-Hans", "translations": {"en": "tall"}}))
+    translation.process_message(mid)
+    assert trans(mid) == {"en": "tall"}
+
+
+def test_backfill_inflight_dedupe(env):
+    rid = mk_room(("en", "en"))
+    in_call, gate = threading.Event(), threading.Event()
+
+    def slow(p):
+        in_call.set()
+        assert gate.wait(5)
+        return batch_reply(p)
+    f = reg(slow)
+    m1 = add_msg(rid, "很高", "zh-Hans", seat=1)
+    from ai_svc.spy_hunt import db
+
+    def run():
+        try:
+            translation.ensure_for([m1], "en")
+        finally:
+            db.close_conn()
+    a = threading.Thread(target=run)
+    a.start()
+    assert in_call.wait(5)
+    b = threading.Thread(target=run)
+    b.start()
+    b.join(5)
+    assert not b.is_alive()
+    gate.set()
+    a.join(5)
+    assert len(f.prompts) == 1 and len(tevents(rid)) == 1
+
+
+def test_process_skips_targets_already_translated(env):
+    rid = mk_room()
+    f = reg({"lang": "zh-Hans", "translations": {"en": "tall"}})
+    mid = add_msg(rid, "很高", "zh-Hans", seat=1)
+    translation.process_message(mid)
+    translation.process_message(mid)
+    assert len(f.prompts) == 1 and len(tevents(rid)) == 1
+
+
+def test_stale_message_after_rematch_skipped(env):
+    rid = mk_room()
+    f = reg({"lang": "zh-Hans", "translations": {"en": "tall"}})
+    mid = add_msg(rid, "很高", "zh-Hans", seat=1)
+    with store.tx(rid) as c:
+        c.execute("UPDATE rooms SET game_no=2, status='lobby' WHERE id=?", (rid,))
+    translation.process_message(mid)
+    translation.ensure_for([mid], "en")
+    assert f.prompts == [] and tevents(rid) == []
+
+
+def test_finished_room_skipped(env):
+    rid = mk_room()
+    f = reg({"lang": "zh-Hans", "translations": {"en": "tall"}})
+    mid = add_msg(rid, "很高", "zh-Hans", seat=1)
+    with store.tx(rid) as c:
+        c.execute("UPDATE rooms SET status='finished' WHERE id=?", (rid,))
+    translation.process_message(mid)
+    assert f.prompts == []
+
+
+@pytest.mark.parametrize("text", ["7", "🙂", "!!!", "12 : 30"])
+def test_no_letters_no_model_call(env, text):
+    rid = mk_room()
+    f = reg({"lang": "en", "translations": {"zh-Hans": "x"}})
+    mid = add_msg(rid, text, "en", seat=0)
+    translation.process_message(mid)
+    assert f.prompts == [] and lang_of(mid) == "en" and tevents(rid) == []
+
+
+def test_budget_boundary(env):
+    rid = mk_room()
+    f = reg({"lang": "zh-Hans", "translations": {"en": "x"}})
+    mid = add_msg(rid, "很高", "zh-Hans", seat=1)
+    with store.tx(rid) as c:
+        c.execute("UPDATE rooms SET ai_calls=241 WHERE id=?", (rid,))  # 59/300 < 0.20
+    translation.process_message(mid)
+    assert f.prompts == []
+    with store.tx(rid) as c:
+        c.execute("UPDATE rooms SET ai_calls=240 WHERE id=?", (rid,))  # 60/300 == 0.20
+    translation.process_message(mid)
+    assert len(f.prompts) == 1
+
+
+def test_before_request_install_runs_even_if_timers_fail(client, monkeypatch):
+    def boom():
+        raise RuntimeError("timer down")
+    monkeypatch.setattr(routes.timers, "ensure_started", boom)
+    translation.reset()
+    assert client.get(f"{API}/health").status_code == 200
+    assert translation._installed is True
+
+
+def test_clean_keeps_zwj_family_emoji_strips_dangerous():
+    fam = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
+    out = translation._clean(f"hi {fam} a\u200bb\u202ec\ufeffd\u00ade\u2060f\u200cg\x00", "x" * 50)
+    assert fam in out
+    assert out.replace(fam, "") == "hi  abcdefg"

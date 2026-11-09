@@ -23,12 +23,13 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import unicodedata
 from typing import Dict, Iterable, List, Optional
 
 from pydantic import BaseModel
 
-from . import game, llm, prompts, store, workers
+from . import engine, game, llm, prompts, store, workers
 from .config import LANGS
 from .db import get_conn
 
@@ -39,6 +40,21 @@ BATCH_SIZE = 10
 MAX_OUT_CHARS = 500
 TRANSLATABLE_KINDS = ("statement", "host")
 _installed = False
+_inflight: set = set()
+_inflight_lock = threading.Lock()
+
+
+def _claim(key) -> bool:
+    with _inflight_lock:
+        if key in _inflight:
+            return False
+        _inflight.add(key)
+        return True
+
+
+def _release(key) -> None:
+    with _inflight_lock:
+        _inflight.discard(key)
 
 
 # ---- local detection ----
@@ -86,14 +102,34 @@ class _Batch(BaseModel):
 
 
 def _clean(out: object, original: str) -> Optional[str]:
+    """Strip control/format chars (bidi, zero-width, BOM, soft hyphen...) but keep
+    ZWJ (U+200D) so multi-person emoji survive; collapse whitespace; cap length."""
     if not isinstance(out, str):
         return None
     kept = "".join(" " if c in "\n\r\t" else c for c in out
-                   if c in "\n\r\t" or not unicodedata.category(c).startswith("C"))
+                   if c in "\n\r\t" or c == "\u200d"
+                   or not unicodedata.category(c).startswith("C"))
     kept = " ".join(kept.split())
     cap = min(MAX_OUT_CHARS, max(40, 4 * len(original)))
     kept = kept[:cap].strip()
     return kept or None
+
+
+def _leaks(room_id: str, msg, translated: str) -> bool:
+    """True when the translation contains the speaker's own secret word."""
+    if msg["kind"] != "statement" or msg["seat"] is None:
+        return False
+    words = game.speaker_words(room_id, msg["seat"])
+    if words and engine.contains_own_word(translated, words):
+        log.info("translation withheld (own word) message_id=%s", msg["id"])
+        return True
+    return False
+
+
+def _stale(conn, msg) -> bool:
+    room = conn.execute("SELECT game_no, status FROM rooms WHERE id=?",
+                        (msg["room_id"],)).fetchone()
+    return room is None or room["game_no"] != msg["game_no"] or room["status"] == "finished"
 
 
 def _human_langs(conn, room_id: str) -> List[str]:
@@ -128,16 +164,23 @@ def _store(room_id: str, message_id: int, rows: Dict[str, str]) -> None:
 # ---- single message ----
 
 def process_message(message_id: int) -> None:
+    key = ("msg", message_id)
+    if not _claim(key):
+        return  # already being translated by another worker
     try:
         _process(message_id)
     except (llm.LlmError, llm.BudgetExceeded) as e:
         log.info("translation failed message_id=%s: %s", message_id, type(e).__name__)
+    finally:
+        _release(key)
 
 
 def _process(message_id: int) -> None:
     conn = get_conn()
     msg = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
     if msg is None or msg["kind"] not in TRANSLATABLE_KINDS or msg["text"] is None:
+        return
+    if _stale(conn, msg):
         return
     room_id, text = msg["room_id"], msg["text"]
     speaker = None
@@ -146,19 +189,19 @@ def _process(message_id: int) -> None:
                                (room_id, msg["seat"])).fetchone()
     known = msg["kind"] == "host" or (speaker is not None and speaker["is_bot"])
     lang = msg["lang"] if known and msg["lang"] in LANGS else None
+    if lang is None and not any(c.isalpha() for c in text):
+        return  # digits/emoji/punctuation only: nothing to translate or detect
     if lang is None:
         lang = detect_local(text)
         if lang is not None and lang != msg["lang"]:
             _set_lang(room_id, message_id, lang)
-    humans = _human_langs(conn, room_id)
-    if lang is not None:
-        targets = [t for t in humans if t != lang]
-        if not targets:
-            return
-    else:  # the model decides; ask for every reader language, drop the source later
-        targets = humans
-        if not targets:
-            return
+    done = {r["target_lang"] for r in conn.execute(
+        "SELECT target_lang FROM translations WHERE message_id=?", (message_id,))}
+    humans = [h for h in _human_langs(conn, room_id) if h not in done]
+    # known source: skip it; otherwise the model decides and the source is dropped later
+    targets = [t for t in humans if t != lang]
+    if not targets:
+        return
     if not _budget_ok(room_id):
         return
     prompt = (
@@ -179,7 +222,7 @@ def _process(message_id: int) -> None:
     for t, out in res.translations.items():
         if t in targets and t != detected:
             c = _clean(out, text)
-            if c:
+            if c and not _leaks(room_id, msg, c):
                 rows[t] = c
     _store(room_id, message_id, rows)
 
@@ -207,35 +250,48 @@ def _ensure(message_ids: List[int], lang: str) -> None:
         m = conn.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
         if m is None or m["kind"] not in TRANSLATABLE_KINDS or m["text"] is None:
             continue
+        if _stale(conn, m):
+            continue
         src = m["lang"] if m["lang"] in LANGS else detect_local(m["text"])
         if src is None or src == lang:
             continue
         if conn.execute("SELECT 1 FROM translations WHERE message_id=? AND target_lang=?",
                         (mid, lang)).fetchone():
             continue
-        todo.setdefault(m["room_id"], []).append({"id": mid, "text": m["text"], "lang": src})
+        todo.setdefault(m["room_id"], []).append(
+            {"id": mid, "text": m["text"], "lang": src, "row": m})
     for room_id, items in todo.items():
         if lang not in _human_langs(conn, room_id):
             continue  # nobody in the room reads it
-        for i in range(0, len(items), BATCH_SIZE):
-            if not _budget_ok(room_id):
-                break
-            chunk = items[i:i + BATCH_SIZE]
-            payload = json.dumps([{"id": c["id"], "text": c["text"]} for c in chunk],
-                                 ensure_ascii=False)
-            prompt = (
-                f"{prompts.TRANSLATE_RULE}\n"
-                f"Translate every item's text into {lang}.\n"
-                'Return JSON: {"items": [{"id": <same id>, "text": "<translation>"}]} '
-                "with one entry per item.\n" + prompts.data_block(payload))
-            res = llm.call_json("translate", prompt, _Batch, room_id, 1500,
-                                llm.TASK_TIMEOUTS["translate"])
-            by_id = {c["id"]: c for c in chunk}
-            for it in res.items:
-                c = by_id.get(it.id)
-                out = _clean(it.text, c["text"]) if c else None
-                if out:
-                    _store(room_id, it.id, {lang: out})
+        key = ("backfill", room_id, lang)
+        if not _claim(key):
+            continue  # a backfill for this room+language is already running
+        try:
+            _backfill_items(room_id, lang, items)
+        finally:
+            _release(key)
+
+
+def _backfill_items(room_id: str, lang: str, items: List[dict]) -> None:
+    for i in range(0, len(items), BATCH_SIZE):
+        if not _budget_ok(room_id):
+            break
+        chunk = items[i:i + BATCH_SIZE]
+        payload = json.dumps([{"id": c["id"], "text": c["text"]} for c in chunk],
+                             ensure_ascii=False)
+        prompt = (
+            f"{prompts.TRANSLATE_RULE}\n"
+            f"Translate every item's text into {lang}.\n"
+            'Return JSON: {"items": [{"id": <same id>, "text": "<translation>"}]} '
+            "with one entry per item.\n" + prompts.data_block(payload))
+        res = llm.call_json("translate", prompt, _Batch, room_id, 1500,
+                            llm.TASK_TIMEOUTS["translate"])
+        by_id = {c["id"]: c for c in chunk}
+        for it in res.items:
+            c = by_id.get(it.id)
+            out = _clean(it.text, c["text"]) if c else None
+            if out and not _leaks(room_id, c["row"], out):
+                _store(room_id, it.id, {lang: out})
 
 
 def backfill_room(room_id: str, lang: str) -> None:
