@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS rooms(
 CREATE TABLE IF NOT EXISTS players(
   room_id TEXT, player_id TEXT, seat INTEGER, name TEXT, lang TEXT, is_bot INTEGER,
   bot_persona TEXT, role TEXT,
-  alive INTEGER, connected INTEGER, joined_at INTEGER, PRIMARY KEY(room_id, seat));
+  alive INTEGER, connected INTEGER, joined_at INTEGER,
+  avatar_emoji TEXT, avatar_color TEXT, bot_id TEXT, bot_owner_id TEXT, outfit_json TEXT,
+  PRIMARY KEY(room_id, seat));
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT, game_no INTEGER, round INTEGER,
   stage INTEGER, seat INTEGER NULL,
@@ -91,6 +93,10 @@ def close_conn() -> None:
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(players)")}
+    for col in ("avatar_emoji", "avatar_color", "bot_id", "bot_owner_id", "outfit_json"):
+        if col not in have:
+            conn.execute(f"ALTER TABLE players ADD COLUMN {col} TEXT")
     conn.commit()
     _load_seed(conn)
 

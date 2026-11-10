@@ -20,7 +20,7 @@ import secrets
 import unicodedata
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
-from ai_svc.spy_hunt import engine, store, visibility
+from ai_svc.spy_hunt import custombots, engine, store, visibility
 from ai_svc.spy_hunt.config import BOT_NAMES, BOT_PERSONA_KEYS, GameConfig
 from ai_svc.spy_hunt.store import StoreError, append_event, now_ms
 
@@ -271,7 +271,7 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
 
 # ---- bots ----
 
-def _insert_bot(conn, room, lang: Optional[str] = None) -> int:
+def _insert_bot(conn, room, lang: Optional[str] = None, custom=None, owner: Optional[str] = None) -> int:
     rid = room["id"]
     cfg = json.loads(room["config_json"])
     rows = _players(conn, rid)
@@ -280,31 +280,68 @@ def _insert_bot(conn, room, lang: Optional[str] = None) -> int:
     used_seats = {r["seat"] for r in rows}
     used_names = {r["name"] for r in rows}
     seat = next(i for i in range(len(rows) + 1) if i not in used_seats)
-    free = [n for n in BOT_NAMES if n not in used_names]
-    name = _rng.choice(free) if free else f"Bot{seat}"
+    if custom is not None:
+        name, persona = custom["name"], "custom"
+        extra = (custom["avatar_emoji"], custom["avatar_color"], custom["id"], owner,
+                 json.dumps({"voice": custom["voice"], "style": custom["style"],
+                             "quirk": custom["quirk"]}))
+    else:
+        free = [n for n in BOT_NAMES if n not in used_names]
+        name = _rng.choice(free) if free else f"Bot{seat}"
+        persona, extra = _rng.choice(BOT_PERSONA_KEYS), (None,) * 5
     conn.execute(
         "INSERT INTO players(room_id, player_id, seat, name, lang, is_bot, bot_persona,"
-        " alive, connected, joined_at) VALUES(?,?,?,?,?,1,?,1,1,?)",
+        " alive, connected, joined_at, avatar_emoji, avatar_color, bot_id, bot_owner_id,"
+        " outfit_json) VALUES(?,?,?,?,?,1,?,1,1,?,?,?,?,?,?)",
         (rid, "bot-" + secrets.token_hex(6), seat, name, lang or room["main_lang"],
-         _rng.choice(BOT_PERSONA_KEYS), now_ms()))
+         persona, now_ms(), *extra))
     store._emit_player(conn, dict(room), seat, "player_joined")
     return seat
 
 
-def add_bot(room_id: str, by_player: str) -> None:
+def add_bot(room_id: str, by_player: str, bot_id: Optional[str] = None) -> None:
     with store.tx(room_id) as conn:
-        room = _lobby_host_check(conn, room_id, by_player)
-        _insert_bot(conn, room)
+        if bot_id is None:
+            room = _lobby_host_check(conn, room_id, by_player)
+            _insert_bot(conn, room)
+        else:
+            room = _room(conn, room_id)
+            if store.seat_of(room_id, by_player, conn) is None:
+                raise StoreError(403, "not_member", "You are not in this room.")
+            if room["status"] != "lobby":
+                raise StoreError(409, "not_lobby", "Only possible in the lobby.")
+            custom = custombots.get_owned(conn, by_player, bot_id)
+            if custom is None:
+                raise StoreError(404, "not_found", "No such bot.")
+            if conn.execute("SELECT 1 FROM players WHERE room_id=? AND bot_owner_id=?",
+                            (room_id, by_player)).fetchone():
+                raise StoreError(409, "bot_in_room", "You already have a bot in this room.")
+            _insert_bot(conn, room, custom=custom, owner=by_player)
         store._bump(conn, room_id)
 
 
-def remove_bot(room_id: str, by_player: str) -> None:
+def remove_bot(room_id: str, by_player: str, seat: Optional[int] = None) -> None:
     with store.tx(room_id) as conn:
-        room = _lobby_host_check(conn, room_id, by_player)
-        bots = [r for r in _players(conn, room_id) if r["is_bot"]]
-        if not bots:
-            raise StoreError(409, "no_bots", "There are no bots to remove.")
-        seat = bots[-1]["seat"]
+        if seat is None:
+            room = _lobby_host_check(conn, room_id, by_player)
+            bots = [r for r in _players(conn, room_id) if r["is_bot"]]
+            if not bots:
+                raise StoreError(409, "no_bots", "There are no bots to remove.")
+            seat = bots[-1]["seat"]
+        else:
+            if not isinstance(seat, int) or isinstance(seat, bool):
+                raise StoreError(400, "bad_request", "seat must be an integer.")
+            room = _room(conn, room_id)
+            if store.seat_of(room_id, by_player, conn) is None:
+                raise StoreError(403, "not_member", "You are not in this room.")
+            if room["status"] != "lobby":
+                raise StoreError(409, "not_lobby", "Only possible in the lobby.")
+            row = conn.execute("SELECT * FROM players WHERE room_id=? AND seat=? AND is_bot=1",
+                               (room_id, seat)).fetchone()
+            if row is None:
+                raise StoreError(404, "not_found", "No such bot.")
+            if room["host_player_id"] != by_player and row["bot_owner_id"] != by_player:
+                raise StoreError(403, "not_allowed", "You cannot remove that bot.")
         player = _public(conn, room_id, room["host_player_id"], seat)
         conn.execute("DELETE FROM players WHERE room_id=? AND seat=?", (room_id, seat))
         store._bump(conn, room_id)
@@ -585,6 +622,13 @@ def leave(room_id: str, player_id: str) -> None:
             conn.execute("DELETE FROM players WHERE room_id=? AND seat=?", (room_id, seat))
         store._bump(conn, room_id)
         append_event(room_id, "player_left", {"player": player}, "all", conn=conn)
+        if room["status"] != "playing":
+            for bseat in [r["seat"] for r in conn.execute(
+                    "SELECT seat FROM players WHERE room_id=? AND bot_owner_id=?",
+                    (room_id, player_id)).fetchall()]:
+                bplayer = _public(conn, room_id, None, bseat)
+                conn.execute("DELETE FROM players WHERE room_id=? AND seat=?", (room_id, bseat))
+                append_event(room_id, "player_left", {"player": bplayer}, "all", conn=conn)
 
         humans = conn.execute(
             "SELECT * FROM players WHERE room_id=? AND is_bot=0 ORDER BY joined_at, rowid",

@@ -87,6 +87,9 @@ def public_player(row: sqlite3.Row, host_player_id: Optional[str]) -> Dict[str, 
         "is_bot": bool(row["is_bot"]),
         "alive": bool(row["alive"]),
         "connected": bool(row["connected"]),
+        "avatar": ({"emoji": row["avatar_emoji"], "color": row["avatar_color"]}
+                   if row["avatar_emoji"] is not None else None),
+        "bot_id": row["bot_id"],
         "is_host": row["player_id"] == host_player_id,
     }
 

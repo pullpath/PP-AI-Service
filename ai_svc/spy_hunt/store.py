@@ -28,7 +28,7 @@ CODE_LEN = 4
 NAME_MAX = 16
 _CODE_ATTEMPTS = 50
 # Columns store may read from players; never `role` (visibility.py owns that).
-PUBLIC_PLAYER_COLS = "seat, player_id, name, lang, is_bot, alive, connected"
+PUBLIC_PLAYER_COLS = "seat, player_id, name, lang, is_bot, alive, connected, avatar_emoji, avatar_color, bot_id"
 
 
 class StoreError(Exception):

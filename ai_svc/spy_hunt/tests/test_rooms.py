@@ -45,7 +45,8 @@ def test_create_join_snapshot_flow(client, conn):
     assert snap["host_seat"] == 0
     assert snap["players"] == [{
         "seat": 0, "name": "Alice", "lang": "zh-Hans", "is_bot": False,
-        "alive": True, "connected": False, "is_host": True}]
+        "alive": True, "connected": False, "is_host": True,
+        "avatar": None, "bot_id": None}]
     assert snap["config"]["max_players"] == GameConfig().max_players
     assert snap["config"]["bot_fill"] is True
     assert isinstance(snap["server_time"], int) and snap["server_time"] > 1_600_000_000_000

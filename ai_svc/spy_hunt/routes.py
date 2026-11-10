@@ -190,8 +190,16 @@ def bots(code: str):
     action = body.get("action")
     if action not in ("add", "remove"):
         raise store.StoreError(400, "bad_request", "action must be add or remove.")
+    bot_id, seat = body.get("bot_id"), body.get("seat")
+    if bot_id is not None and not isinstance(bot_id, str):
+        raise store.StoreError(400, "bad_request", "bot_id must be a string.")
+    if seat is not None and (not isinstance(seat, int) or isinstance(seat, bool)):
+        raise store.StoreError(400, "bad_request", "seat must be an integer.")
     room = _room_or_404(code)
-    (game.add_bot if action == "add" else game.remove_bot)(room["id"], g.player_id)
+    if action == "add":
+        game.add_bot(room["id"], g.player_id, bot_id)
+    else:
+        game.remove_bot(room["id"], g.player_id, seat)
     return jsonify(_snapshot(room["id"]))
 
 
