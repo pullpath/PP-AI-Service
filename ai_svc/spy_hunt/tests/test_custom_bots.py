@@ -271,3 +271,77 @@ def test_outfit_change_resets_ranked_but_not_plain(client, conn):
         card = client.patch(f"{API}/bots/{bid}", json={"outfit": out}, headers=h).get_json()
         assert card["ranked"] == ZERO
         assert card["record"]["games"] == 4
+
+
+# ---- top bots board ----
+
+def _rank(bid, games, wins, spy_games=0, spy_wins=0, **extra):
+    sets = {"ranked_games": games, "ranked_wins": wins, "ranked_spy_games": spy_games,
+            "ranked_spy_wins": spy_wins, **extra}
+    conn = db.get_conn()
+    conn.execute(f"UPDATE custom_bots SET {', '.join(k + '=?' for k in sets)} WHERE id=?",
+                 (*sets.values(), bid))
+    conn.commit()
+
+
+def _bot(client, h, name="B"):
+    return mk(client, h, name=name).get_json()["id"]
+
+
+def test_top_threshold_and_order(client):
+    a, b, c, d, e = (_bot(client, guest(client)[0], n) for n in "abcde")
+    _rank(a, 9, 9)
+    _rank(b, 10, 7)
+    _rank(c, 40, 26)
+    _rank(d, 20, 14)
+    _rank(e, 10, 7)
+    bots = client.get(f"{API}/bots/top").get_json()["bots"]
+    assert [x["id"] for x in bots] == [d, b, e, c]
+    assert [x["rank"] for x in bots] == [1, 2, 3, 4]
+    assert bots[0]["rate"] == 70 and bots[0]["games"] == 20 and bots[3]["rate"] == 65
+
+
+def test_top_spies_uses_spy_columns_and_threshold(client):
+    h, _ = guest(client)
+    a, b = _bot(client, h, "a"), _bot(client, h, "b")
+    _rank(a, 0, 0, 4, 4)
+    _rank(b, 0, 0, 5, 3)
+    r = client.get(f"{API}/bots/top?kind=spies").get_json()
+    assert r["kind"] == "spies"
+    assert [(x["id"], x["games"], x["rate"]) for x in r["bots"]] == [(b, 5, 60)]
+
+
+def test_top_excludes_hidden_and_blocked_and_caps_at_ten(client):
+    h, _ = guest(client)
+    ids = []
+    for i in range(12):
+        if i % 3 == 0:
+            h, _ = guest(client)
+        ids.append(_bot(client, h, f"n{i}"))
+    for i in ids:
+        _rank(i, 10, 5)
+    assert len(client.get(f"{API}/bots/top").get_json()["bots"]) == 10
+    _rank(ids[0], 10, 5, listed=0)
+    _rank(ids[1], 10, 5, blocked=1)
+    got = {x["id"] for x in client.get(f"{API}/bots/top").get_json()["bots"]}
+    assert ids[0] not in got and ids[1] not in got and len(got) == 10
+
+
+def test_top_rows_have_no_owner_and_need_no_token(client):
+    h, _ = guest(client)
+    a = _bot(client, h)
+    _rank(a, 10, 5)
+    r = client.get(f"{API}/bots/top")
+    assert r.status_code == 200 and r.get_json()["bots"]
+    assert not any(w in r.get_data(as_text=True) for w in ("owner", "owner_player_id", "player_id"))
+
+
+def test_top_bad_kind_and_empty(client):
+    r = client.get(f"{API}/bots/top?kind=nope")
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_request"
+    assert client.get(f"{API}/bots/top").get_json() == {"kind": "winners", "bots": []}
+    h, _ = guest(client)
+    a = _bot(client, h)
+    _rank(a, 10, 5)
+    row = client.get(f"{API}/bots/top").get_json()["bots"][0]
+    assert row["remixes"] == client.get(f"{API}/bots/{a}").get_json()["remixes"]

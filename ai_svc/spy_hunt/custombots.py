@@ -164,6 +164,25 @@ def get_card(bot_id: str) -> Optional[Dict[str, Any]]:
     return _card(conn, row) if row else None
 
 
+def top(kind: str) -> List[Dict[str, Any]]:
+    if kind not in ("winners", "spies"):
+        raise StoreError(400, "bad_request", "kind must be winners or spies.")
+    pre, minimum = ("ranked_spy", MIN_RANKED_SPY_GAMES) if kind == "spies" else ("ranked", MIN_RANKED_GAMES)
+    g, w = f"{pre}_games", f"{pre}_wins"
+    conn = get_conn()
+    rows = conn.execute(
+        f"SELECT * FROM custom_bots WHERE COALESCE(listed, 1) != 0 AND COALESCE(blocked, 0) = 0"
+        f" AND COALESCE({g}, 0) >= ? ORDER BY CAST({w} AS REAL) / {g} DESC, {g} DESC,"
+        f" created_at ASC, rowid ASC LIMIT ?", (minimum, BOARD_SIZE)).fetchall()
+    out = []
+    for i, r in enumerate(rows, 1):
+        n = conn.execute("SELECT COUNT(*) FROM remixes WHERE source_id=?", (r["id"],)).fetchone()[0]
+        out.append({"rank": i, "id": r["id"], "name": r["name"],
+                    "avatar": {"emoji": r["avatar_emoji"], "color": r["avatar_color"]},
+                    "rate": round(100 * r[w] / r[g]), "games": r[g], "remixes": n})
+    return out
+
+
 def record_game(conn: sqlite3.Connection, rows, winner: Optional[str]) -> None:
     if winner is None:
         return

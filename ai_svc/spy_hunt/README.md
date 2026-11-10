@@ -120,12 +120,22 @@ for the public card.
 | --- | --- |
 | `GET /bots/catalog` | `{voices, styles, quirks, emojis, colors, triggers, actions, max_rules}` (ids/values only) |
 | `GET /bots` | `{bots: MyBot[]}`; `MyBot = {id, name, avatar, outfit, record}` |
-| `POST /bots` `{name, avatar, outfit}` | 201 `MyBot` |
-| `PATCH /bots/<id>` (any subset of `name`, `avatar`, `outfit`) | `MyBot`; `avatar` and `outfit` must be complete |
+| `POST /bots` `{name, avatar, outfit, remix_of?, listed?}` | 201 `MyBot`; `remix_of` is a bot id to credit, `listed` (default true) shows the bot on the board |
+| `PATCH /bots/<id>` (any subset of `name`, `avatar`, `outfit`, `listed`) | `MyBot`; `avatar` and `outfit` must be complete |
 | `DELETE /bots/<id>` | `{ok: true}`; the public card then 404s, running rooms keep their copy |
-| `GET /bots/<id>` (no token) | `{id, name, avatar, outfit, record: {games, wins, spy_games, spy_wins}}` |
+| `GET /bots/top?kind=winners\|spies` (no token) | `{kind, bots: [{rank, id, name, avatar, rate, games, remixes}]}`, at most 10; `kind` defaults to `winners`, other values `400 bad_request` |
+| `GET /bots/<id>` (no token) | `{id, name, avatar, outfit, record: {games, wins, spy_games, spy_wins}, remix_of, remixes, remixable, ranked: {games, wins, spy_games, spy_wins}, listed}`; `remix_of` is `{id, name}` or null |
 | `POST /rooms/<code>/bots` `{action: "add", bot_id?}` | adds your custom bot (or a random one without `bot_id`) |
 | `POST /rooms/<code>/bots` `{action: "remove", seat?}` | removes a bot; an owner may remove their own custom bot by `seat` |
+
+### Ranked record and board
+
+A game updates a bot's ranked record only if it ends with a winner and has at least 3 humans
+(non-bot players). The board lists bots with at least 10 ranked games (`winners`) or 5 ranked
+spy games (`spies`), ordered by win rate, then more games, then older bot; top 10 only.
+Changing a bot's outfit resets its ranked record. A bot with `listed: false` is hidden from the
+board but still remixable; a blocked bot is off the board and not remixable. Block from the
+server: `python -m ai_svc.spy_hunt.scripts.block_bot <id> [--unblock]`.
 
 ### Rule cards
 

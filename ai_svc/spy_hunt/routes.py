@@ -282,6 +282,13 @@ def bot_catalog():
     return jsonify(outfits.catalog())
 
 
+@spy_hunt_bp.route("/bots/top", methods=["GET"])
+@ratelimits.limit("flood")
+def top_bots():
+    kind = request.args.get("kind", "winners")
+    return jsonify({"kind": kind, "bots": custombots.top(kind)})
+
+
 @spy_hunt_bp.route("/bots", methods=["GET"])
 @ratelimits.limit("flood")
 @auth.require_guest
