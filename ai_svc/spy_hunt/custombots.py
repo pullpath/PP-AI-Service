@@ -1,6 +1,7 @@
 """Custom bots owned by guests: CRUD and the public card."""
 from __future__ import annotations
 
+import json
 import secrets
 import sqlite3
 import time
@@ -34,11 +35,19 @@ def _record(row: sqlite3.Row) -> Dict[str, int]:
     return {k: row[k] or 0 for k in ("games", "wins", "spy_games", "spy_wins")}
 
 
+def stored_rules(row: sqlite3.Row) -> List[Dict[str, str]]:
+    try:
+        return outfits.clean_rules(json.loads(row["rules_json"]))
+    except (TypeError, ValueError):
+        return []
+
+
 def _card(row: sqlite3.Row) -> Dict[str, Any]:
     return {
         "id": row["id"], "name": row["name"],
         "avatar": {"emoji": row["avatar_emoji"], "color": row["avatar_color"]},
-        "outfit": {"voice": row["voice"], "style": row["style"], "quirk": row["quirk"]},
+        "outfit": {"voice": row["voice"], "style": row["style"], "quirk": row["quirk"],
+                   "rules": stored_rules(row)},
         "record": _record(row),
     }
 
@@ -62,9 +71,9 @@ def create(owner: str, name: Any, avatar: Any, outfit: Any) -> Dict[str, Any]:
                 break
         c.execute(
             "INSERT INTO custom_bots(id, owner_player_id, name, avatar_emoji, avatar_color,"
-            " voice, style, quirk, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            " voice, style, quirk, created_at, rules_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (bot_id, owner, name, av["emoji"], av["color"], out["voice"], out["style"],
-             out["quirk"], int(time.time() * 1000)))
+             out["quirk"], int(time.time() * 1000), json.dumps(out["rules"])))
         return _card(c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
 
 
@@ -84,7 +93,10 @@ def update(owner: str, bot_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
         av = outfits.check_avatar(body["avatar"])
         sets["avatar_emoji"], sets["avatar_color"] = av["emoji"], av["color"]
     if "outfit" in body:
-        sets.update(outfits.check_outfit(body["outfit"]))
+        out = outfits.check_outfit(body["outfit"])
+        rules = out.pop("rules")
+        sets.update(out)
+        sets["rules_json"] = json.dumps(rules)
     with _tx() as c:
         if get_owned(c, owner, bot_id) is None:
             raise StoreError(404, "not_found", "No such bot.")

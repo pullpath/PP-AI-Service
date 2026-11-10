@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from ai_svc.spy_hunt import outfits
+import json
+
+from ai_svc.spy_hunt import db, outfits
 
 from .test_rooms import API, guest
 
 AV = {"emoji": "🦊", "color": "#ff6b6b"}
-OUT = {"voice": "dry", "style": "brief", "quirk": "emoji"}
+OUT = {"voice": "dry", "style": "brief", "quirk": "emoji", "rules": []}
 
 
 def mk(client, h, name="Mochi", avatar=AV, outfit=OUT):
@@ -104,3 +106,65 @@ def test_public_card_is_rate_limited_per_ip_only(client):
         assert client.get(f"{API}/bots/abcdefgh", headers=ip).status_code == 404
     r = client.get(f"{API}/bots/abcdefgh", headers=ip)
     assert r.status_code == 429 and r.get_json()["error"] == "rate_limited"
+
+
+RULES = [{"when": "accused", "do": "counter_accuse"}, {"when": "late_game", "do": "vote_leader"}]
+
+
+def test_rules_roundtrip_through_create_list_update_public_card(client):
+    h, _ = guest(client)
+    b = mk(client, h, outfit={**OUT, "rules": RULES}).get_json()
+    assert b["outfit"]["rules"] == RULES
+    assert client.get(f"{API}/bots", headers=h).get_json()["bots"][0]["outfit"]["rules"] == RULES
+    assert client.get(f"{API}/bots/{b['id']}", headers=h).get_json()["outfit"]["rules"] == RULES
+    new = [{"when": "first_to_speak", "do": "go_vague"}]
+    r = client.patch(f"{API}/bots/{b['id']}", json={"outfit": {**OUT, "rules": new}}, headers=h)
+    assert r.get_json()["outfit"]["rules"] == new
+    bare = {k: OUT[k] for k in ("voice", "style", "quirk")}
+    r = client.patch(f"{API}/bots/{b['id']}", json={"outfit": bare}, headers=h)
+    assert r.get_json()["outfit"]["rules"] == []
+
+
+def test_bot_without_rules_json_reads_as_empty_rules(client, conn):
+    h, pid = guest(client)
+    conn.execute("INSERT INTO custom_bots(id, owner_player_id, name, avatar_emoji, avatar_color,"
+                 " voice, style, quirk, created_at) VALUES('old1',?,'Old','🦊','#ff6b6b','dry','brief','emoji',1)",
+                 (pid,))
+    conn.commit()
+    assert client.get(f"{API}/bots", headers=h).get_json()["bots"][0]["outfit"]["rules"] == []
+    assert client.get(f"{API}/bots/old1", headers=h).get_json()["outfit"]["rules"] == []
+    conn.execute("UPDATE custom_bots SET rules_json='{not json' WHERE id='old1'")
+    conn.commit()
+    assert client.get(f"{API}/bots/old1", headers=h).get_json()["outfit"]["rules"] == []
+
+
+def test_bad_rules_are_400_bad_outfit(client):
+    h, _ = guest(client)
+    for bad in ("x", [1], [{"when": "accused"}], RULES + RULES, [RULES[0], RULES[0]]):
+        r = mk(client, h, outfit={**OUT, "rules": bad})
+        assert r.status_code == 400 and r.get_json()["error"] == "bad_outfit"
+    bid = mk(client, h).get_json()["id"]
+    r = client.patch(f"{API}/bots/{bid}", json={"outfit": {**OUT, "rules": "x"}}, headers=h)
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_outfit"
+
+
+def test_catalog_endpoint_lists_triggers_and_actions(client):
+    h, _ = guest(client)
+    c = client.get(f"{API}/bots/catalog", headers=h).get_json()
+    assert c["triggers"] == list(outfits.TRIGGERS) and c["actions"] == list(outfits.ACTIONS)
+    assert c["max_rules"] == 3
+
+
+def test_old_custom_bots_table_is_migrated(temp_db, conn):
+    conn.execute("DROP TABLE custom_bots")
+    conn.execute("CREATE TABLE custom_bots(id TEXT PRIMARY KEY, owner_player_id TEXT, name TEXT,"
+                 " avatar_emoji TEXT, avatar_color TEXT, voice TEXT, style TEXT, quirk TEXT,"
+                 " games INTEGER DEFAULT 0, wins INTEGER DEFAULT 0, spy_games INTEGER DEFAULT 0,"
+                 " spy_wins INTEGER DEFAULT 0, created_at INTEGER)")
+    conn.execute("INSERT INTO custom_bots(id, name) VALUES('a','A')")
+    conn.commit()
+    db.init_db()
+    db.init_db()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(custom_bots)")}
+    assert "rules_json" in cols
+    assert conn.execute("SELECT name FROM custom_bots WHERE id='a'").fetchone()[0] == "A"

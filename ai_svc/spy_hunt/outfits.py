@@ -1,7 +1,7 @@
 """Bot outfit option tables and validation. Must not import bots/game."""
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from .store import StoreError
 
@@ -41,6 +41,12 @@ EMOJIS = (
 )
 COLORS = ("#ff6b6b", "#ffa94d", "#4cd08a", "#38c9d6", "#5b8cff", "#b07cff")
 
+TRIGGERS = ("accused", "first_to_speak", "last_to_speak", "after_elimination", "late_game")
+ACTIONS = ("counter_accuse", "copy_previous", "go_vague", "vote_accuser", "vote_leader")
+MAX_RULES = 3
+STATEMENT_ACTIONS = frozenset({"counter_accuse", "copy_previous", "go_vague"})
+VOTE_ACTIONS = frozenset({"vote_accuser", "vote_leader"})
+
 _AVATAR_SLOTS = {"emoji": EMOJIS, "color": COLORS}
 _OUTFIT_SLOTS = {"voice": VOICES, "style": STYLES, "quirk": QUIRKS}
 
@@ -61,10 +67,51 @@ def check_avatar(value: Any) -> Dict[str, str]:
     return _check(value, _AVATAR_SLOTS, "bad_avatar")
 
 
-def check_outfit(value: Any) -> Dict[str, str]:
-    return _check(value, _OUTFIT_SLOTS, "bad_outfit")
+def _rule(e: Any) -> Any:
+    if not isinstance(e, dict):
+        return None
+    when, do = e.get("when"), e.get("do")
+    if not isinstance(when, str) or when not in TRIGGERS or not isinstance(do, str) or do not in ACTIONS:
+        return None
+    return {"when": when, "do": do}
+
+
+def _check_rules(value: Any) -> List[Dict[str, str]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise StoreError(400, "bad_outfit", "bad rules")
+    if len(value) > MAX_RULES:
+        raise StoreError(400, "bad_outfit", f"at most {MAX_RULES} rules")
+    out: List[Dict[str, str]] = []
+    for e in value:
+        r = _rule(e)
+        if r is None or r in out:
+            raise StoreError(400, "bad_outfit", "bad rule")
+        out.append(r)
+    return out
+
+
+def clean_rules(value: Any) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    if not isinstance(value, list):
+        return out
+    for e in value:
+        r = _rule(e)
+        if r is not None and r not in out:
+            out.append(r)
+        if len(out) == MAX_RULES:
+            break
+    return out
+
+
+def check_outfit(value: Any) -> Dict[str, Any]:
+    out: Dict[str, Any] = _check(value, _OUTFIT_SLOTS, "bad_outfit")
+    out["rules"] = _check_rules(value.get("rules"))
+    return out
 
 
 def catalog() -> Dict[str, Any]:
     return {"voices": list(VOICES), "styles": list(STYLES), "quirks": list(QUIRKS),
-            "emojis": list(EMOJIS), "colors": list(COLORS)}
+            "emojis": list(EMOJIS), "colors": list(COLORS),
+            "triggers": list(TRIGGERS), "actions": list(ACTIONS), "max_rules": MAX_RULES}

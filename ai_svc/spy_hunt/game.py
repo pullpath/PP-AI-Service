@@ -286,7 +286,8 @@ def _insert_bot(conn, room, lang: Optional[str] = None, custom=None, owner: Opti
         name, persona = custom["name"], "custom"
         extra = (custom["avatar_emoji"], custom["avatar_color"], custom["id"], owner,
                  json.dumps({"voice": custom["voice"], "style": custom["style"],
-                             "quirk": custom["quirk"]}))
+                             "quirk": custom["quirk"],
+                              "rules": custombots.stored_rules(custom)}))
     else:
         free = [n for n in BOT_NAMES if n not in used_names]
         name = _rng.choice(free) if free else f"Bot{seat}"

@@ -56,7 +56,7 @@ def test_member_adds_own_bot_and_snapshot_shows_avatar_not_owner(client, conn):
     assert ev[-1]["player"] == {k: b[k] for k in b}
     row = conn.execute("SELECT * FROM players WHERE room_id=? AND is_bot=1", (rid,)).fetchone()
     assert row["bot_persona"] == "custom" and row["bot_owner_id"] == owner_pid
-    assert json.loads(row["outfit_json"]) == OUT
+    assert json.loads(row["outfit_json"]) == {**OUT, "rules": []}
 
 
 def test_second_custom_bot_from_the_same_owner_is_refused(client):
@@ -302,3 +302,23 @@ def test_rematch_then_second_game_adds_another_game(client, conn):
     assert client.post(f"{API}/rooms/{code}/rematch", headers=h).status_code == 200
     _play(conn, rid, {bid: "civilian"}, "spies")
     assert _record(client, bid) == {"games": 2, "wins": 1, "spy_games": 1, "spy_wins": 1}
+
+
+def test_room_copy_carries_the_rules(client, conn):
+    code, h, (h2,) = room_with(client)
+    rules = [{"when": "accused", "do": "vote_accuser"}, {"when": "first_to_speak", "do": "go_vague"}]
+    r = client.post(f"{API}/bots", json={"name": "R", "avatar": AV, "outfit": {**OUT, "rules": rules}}, headers=h2)
+    bid = r.get_json()["id"]
+    r = bots(client, code, h2, action="add", bot_id=bid)
+    assert r.status_code == 200
+    text = r.get_data(as_text=True)
+    assert "rules" not in text and "outfit_json" not in text
+    rid = room_row(conn, code)["id"]
+    row = conn.execute("SELECT outfit_json FROM players WHERE room_id=? AND is_bot=1", (rid,)).fetchone()
+    assert json.loads(row["outfit_json"])["rules"] == rules
+    ev = [e["payload_json"] for e in conn.execute(
+        "SELECT payload_json FROM events WHERE room_id=? AND type='player_joined'", (rid,))]
+    assert "rules" not in ev[-1] and "outfit_json" not in ev[-1]
+    client.patch(f"{API}/bots/{bid}", json={"outfit": OUT}, headers=h2)
+    row = conn.execute("SELECT outfit_json FROM players WHERE room_id=? AND is_bot=1", (rid,)).fetchone()
+    assert json.loads(row["outfit_json"])["rules"] == rules
