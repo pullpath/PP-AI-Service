@@ -316,7 +316,7 @@ def run_night(matches: int = ARENA_MATCHES_PER_DAY, rng: Optional[random.Random]
         result["skipped"] = len(eligible) - placed
         log(f"dry run: {len(groups)} matches planned, {result['skipped']} bots left out")
         return result
-    row = conn.execute("SELECT id FROM rooms WHERE host_player_id='arena' ORDER BY created_at LIMIT 1").fetchone()
+    row = conn.execute("SELECT id FROM rooms WHERE host_player_id='arena' ORDER BY created_at, rowid LIMIT 1").fetchone()
     room_id = row["id"] if row else store.create_room("arena", "builder", "en")["id"]
     matched = 0
     streak = 0
@@ -365,15 +365,19 @@ def _quote(log: Dict[str, Any], bot_id: str) -> Optional[str]:
     return None
 
 
-def _who(log: Dict[str, Any], bot_id: str) -> Dict[str, Any]:
-    return next(p for p in log["players"] if p.get("bot_id") == bot_id)
+def _who(log: Dict[str, Any], bot_id: str, live: Dict[str, Any]) -> Dict[str, Any]:
+    return next((p for p in log.get("players", []) if p.get("bot_id") == bot_id), live)
+
+
+def _live(r) -> Dict[str, Any]:
+    return {"name": r["name"], "avatar": {"emoji": r["avatar_emoji"], "color": r["avatar_color"]}}
 
 
 def recaps_for(owner: str, limit: int = 10) -> Dict[str, Any]:
     conn = get_conn()
     rows = conn.execute(
         "SELECT e.match_id, e.bot_id, e.day, e.role, e.won, e.accused, e.out_round, e.seen,"
-        " m.lang, m.log_json"
+        " b.name, b.avatar_emoji, b.avatar_color, m.lang, m.log_json"
         " FROM arena_entries e JOIN custom_bots b ON b.id=e.bot_id"
         " JOIN arena_matches m ON m.id=e.match_id WHERE b.owner_player_id=?"
         " ORDER BY m.created_at DESC, e.match_id DESC LIMIT ?", (owner, limit)).fetchall()
@@ -382,8 +386,8 @@ def recaps_for(owner: str, limit: int = 10) -> Dict[str, Any]:
         " WHERE b.owner_player_id=? AND COALESCE(e.seen,0)=0", (owner,)).fetchone()[0]
     logs = [json.loads(r["log_json"]) for r in rows]
     return {"recaps": [{
-        "match_id": r["match_id"], "bot_id": r["bot_id"], "bot_name": _who(logs[i], r["bot_id"])["name"],
-        "avatar": _who(logs[i], r["bot_id"])["avatar"],
+        "match_id": r["match_id"], "bot_id": r["bot_id"], "bot_name": _who(logs[i], r["bot_id"], _live(r))["name"],
+        "avatar": _who(logs[i], r["bot_id"], _live(r))["avatar"],
         "day": r["day"], "lang": r["lang"], "role": r["role"], "won": bool(r["won"]),
         "accused": r["accused"], "out_round": r["out_round"],
         "quote": _quote(logs[i], r["bot_id"]), "seen": bool(r["seen"]),

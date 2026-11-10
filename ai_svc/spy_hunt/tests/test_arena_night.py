@@ -234,7 +234,7 @@ def test_languages_alternate_by_match_index(temp_db):
     res = arena.run_night(2, random.Random(1), log=lambda *a: None, today=TODAY)
     assert res["played"] == 2
     langs = [r[0] for r in get_conn().execute("SELECT lang FROM arena_matches ORDER BY created_at, rowid")]
-    assert sorted(langs) == ["en", "zh-Hans"]
+    assert langs == ["en", "zh-Hans"]
 
 
 def test_skipped_is_eligible_minus_placed(temp_db):
@@ -262,9 +262,7 @@ def test_duplicate_custom_names_are_made_unique(temp_db):
     names = [s.name for s in seats]
     assert len(names) == 5 and len({x.strip().lower() for x in names}) == 5
     custom = sorted(s.name for s in seats if s.bot_id)
-    assert custom[0].lower() == "mochi" and custom[1:] == ["Mochi 2", "Mochi 3"] or \
-        sorted(x.lower() for x in custom) == ["mochi", "mochi 2", "mochi 3"]
-    assert sum(1 for x in custom if x.lower() == "mochi") == 1
+    assert custom == ["Mochi", "Mochi 3", "mochi 2"]
 
 
 def test_duplicate_long_names_stay_within_16(temp_db):

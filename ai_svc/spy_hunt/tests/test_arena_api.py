@@ -144,3 +144,17 @@ def test_recap_and_match_page_keep_the_match_time_name_and_avatar(client):
     page = client.get(f"{API}/arena/matches/{mid}").get_json()["players"][0]
     assert rc["bot_name"] == "B0" == page["name"]
     assert rc["avatar"] == AV == page["avatar"]
+
+
+def test_recap_falls_back_to_the_live_bot_when_the_log_lacks_it(client):
+    h, (a,) = setup(client)
+    mid = make_match("2026-11-10", [(a, "spy", True, 0, None)])
+    row = get_conn().execute("SELECT log_json FROM arena_matches WHERE id=?", (mid,)).fetchone()
+    log = json.loads(row[0])
+    log["players"] = [p for p in log["players"] if p["bot_id"] != a]
+    get_conn().execute("UPDATE arena_matches SET log_json=? WHERE id=?", (json.dumps(log), mid))
+    get_conn().commit()
+    r = client.get(f"{API}/bots/recaps", headers=h)
+    assert r.status_code == 200
+    rc = r.get_json()["recaps"][0]
+    assert rc["bot_name"] == "b0" and rc["avatar"] == AV and rc["quote"] is None
