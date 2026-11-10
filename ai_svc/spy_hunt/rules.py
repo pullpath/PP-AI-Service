@@ -48,7 +48,11 @@ def context(view: Dict[str, Any]) -> RuleContext:
     history = _dicts(view.get("reveal_history"))
     latest = history[-1] if history else {}
     votes = [v for v in _dicts(latest.get("votes")) if isinstance(v.get("target"), int)]
-    accusers = tuple(sorted({v["voter"] for v in votes
+    latest_round = latest.get("round")
+    round_votes = [v for e in history
+                   if e is latest or (latest_round is not None and e.get("round") == latest_round)
+                   for v in _dicts(e.get("votes")) if isinstance(v.get("target"), int)]
+    accusers = tuple(sorted({v["voter"] for v in round_votes
                              if v["target"] == seat and isinstance(v.get("voter"), int)}))
     counts: Dict[int, int] = {}
     for v in votes:

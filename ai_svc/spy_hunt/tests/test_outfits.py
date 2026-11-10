@@ -113,3 +113,9 @@ def test_catalog_has_triggers_actions_and_max_rules():
 def test_action_sets_partition_actions():
     assert outfits.STATEMENT_ACTIONS | outfits.VOTE_ACTIONS == set(outfits.ACTIONS)
     assert not outfits.STATEMENT_ACTIONS & outfits.VOTE_ACTIONS
+
+
+def test_number_quirk_asks_for_digits():
+    from ai_svc.spy_hunt.outfits import QUIRKS
+    assert "digits" in QUIRKS["number"]
+    assert "language of the statement" in QUIRKS["number"]

@@ -28,7 +28,7 @@ STYLES: Dict[str, str] = {
 QUIRKS: Dict[str, str] = {
     "question": "End every statement with a question, applied in the language of the statement.",
     "agree": "Begin by agreeing with the previous speaker, applied in the language of the statement.",
-    "number": "Include a number in every statement, applied in the language of the statement.",
+    "number": "Include at least one number written with digits (for example 3) in every statement, applied in the language of the statement.",
     "emoji": "End every statement with one emoji, whatever the language of the statement.",
     "honestly": "Start every statement with the word 'Honestly,', translated into the language of the statement.",
     "color": "Mention a colour in every statement, applied in the language of the statement.",

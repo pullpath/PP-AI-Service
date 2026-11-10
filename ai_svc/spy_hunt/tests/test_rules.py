@@ -26,7 +26,7 @@ def st(seat, rnd=2, stage=0):
 
 
 def test_accused_and_accusers_come_from_the_latest_reveal_only():
-    c = ctx(reveal_history=[rev([(0, 1), (2, 1)]), rev([(0, 3)])])
+    c = ctx(reveal_history=[rev([(0, 1), (2, 1)]), {**rev([(0, 3)]), "round": 2}])
     assert c.accusers == () and not rules.holds("accused", c)
     c = ctx(reveal_history=[rev([(2, 1), (0, 1), (2, 1), (3, None)])])
     assert c.accusers == (0, 2) and rules.holds("accused", c)
@@ -159,3 +159,22 @@ def test_vote_accuser_never_returns_self_even_if_listed():
                           spoken_in_stage=0, others_all_spoken=False, eliminated=False,
                           late_game=False)
     assert rules.vote_pick(r, c, [1, 2], random.Random()) is None
+
+
+def test_accusers_include_the_stage_zero_votes_of_the_latest_round():
+    h = [{"round": 1, "stage": 0, "eliminated": None, "votes": [{"voter": 0, "target": 1}]},
+         {"round": 1, "stage": 1, "eliminated": None, "votes": [{"voter": 2, "target": 3}]}]
+    c = ctx(reveal_history=h)
+    assert c.accusers == (0,) and c.leader == 3
+
+
+def test_accusers_ignore_older_rounds():
+    h = [{"round": 1, "stage": 0, "votes": [{"voter": 0, "target": 1}]},
+         {"round": 2, "stage": 0, "votes": [{"voter": 2, "target": 3}]}]
+    assert ctx(reveal_history=h).accusers == ()
+
+
+def test_entries_without_round_still_work():
+    h = [{"votes": [{"voter": 0, "target": 1}]}, {"votes": [{"voter": 2, "target": 3}]}]
+    c = ctx(reveal_history=h)
+    assert c.accusers == () and c.leader == 3

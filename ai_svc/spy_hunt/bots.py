@@ -131,7 +131,7 @@ def _canned_statement(lang: Optional[str]) -> str:
 
 # ---- public_view: the firewalled "what this bot may know" shape ----
 
-def public_view(room_id: str, seat: int) -> Dict[str, Any]:
+def public_view(room_id: str, seat: int, outfit: Any = None) -> Dict[str, Any]:
     """Everything a bot prompt may be built from: own word, own persona, alive
     seats, public statements (text + speaker seat/name, never roles), already-
     public reveal history (outcome/eliminated seat/votes, role stripped) and
@@ -142,15 +142,15 @@ def public_view(room_id: str, seat: int) -> Dict[str, Any]:
     a `reveal` event) do not apply here."""
     conn = get_conn()
     if conn.in_transaction:
-        return _public_view(conn, room_id, seat)
+        return _public_view(conn, room_id, seat, outfit)
     conn.execute("BEGIN")
     try:
-        return _public_view(conn, room_id, seat)
+        return _public_view(conn, room_id, seat, outfit)
     finally:
         conn.rollback()  # read-only
 
 
-def _public_view(conn, room_id: str, seat: int) -> Dict[str, Any]:
+def _public_view(conn, room_id: str, seat: int, outfit: Any = None) -> Dict[str, Any]:
     room = conn.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
     if room is None:
         raise LookupError("room")
@@ -162,7 +162,7 @@ def _public_view(conn, room_id: str, seat: int) -> Dict[str, Any]:
 
     my_words = game.speaker_words(room_id, seat)  # {lang: own word}, server-side only
     my_word = my_words.get(me["lang"]) if my_words else None
-    persona = _persona_of(me)
+    persona = _persona_of(me, outfit)
 
     players = [{
         "seat": r["seat"], "name": r["name"], "alive": bool(r["alive"]),
@@ -309,18 +309,34 @@ def run_bot_turn(room_id: str, seat: int, phase_seq: int) -> None:
     # else: phase moved past describe/vote entirely; nothing to do
 
 
-def _persona_of(me) -> BotProfile:
+def _outfit_of(me) -> Optional[dict]:
+    if me["bot_persona"] != "custom":
+        return None
+    try:
+        outfit = json.loads(me["outfit_json"])
+    except (TypeError, ValueError):
+        return None
+    return outfit if isinstance(outfit, dict) else None
+
+
+def _persona_of(me, outfit: Optional[dict] = None) -> BotProfile:
     if me["bot_persona"] == "custom":
+        outfit = outfit if outfit is not None else _outfit_of(me)
+        if outfit is None:
+            return PERSONAS["cheerful"]
         try:
-            return compile_outfit(json.loads(me["outfit_json"]))
+            return compile_outfit(outfit)
         except (TypeError, ValueError):
             return PERSONAS["cheerful"]
     return PERSONAS.get(me["bot_persona"]) or BotProfile(str(me["bot_persona"]), "Plain-spoken.")
 
 
-def _rules_of(me) -> List[Dict[str, str]]:
+def _rules_of(me, outfit: Optional[dict] = None) -> List[Dict[str, str]]:
+    outfit = outfit if outfit is not None else _outfit_of(me)
+    if outfit is None:
+        return []
     try:
-        return outfits.clean_rules(json.loads(me["outfit_json"]).get("rules"))
+        return outfits.clean_rules(outfit.get("rules"))
     except (TypeError, ValueError, AttributeError):
         return []
 
@@ -361,13 +377,14 @@ def _prompt_vote(view: Dict[str, Any], persona: BotProfile, valid_targets: List[
 
 
 def _run_describe(room_id: str, seat: int, me) -> None:
-    view = public_view(room_id, seat)
-    persona = _persona_of(me)
-    if me["bot_persona"] == "custom":
-        lines = rules.statement_lines(_rules_of(me), rules.context(view))
+    outfit = _outfit_of(me)
+    view = public_view(room_id, seat, outfit)
+    persona = _persona_of(me, outfit)
+    if outfit is not None:
+        lines = rules.statement_lines(_rules_of(me, outfit), rules.context(view))
         if lines:
             try:
-                persona = compile_outfit(json.loads(me["outfit_json"]), lines)
+                persona = compile_outfit(outfit, lines)
             except (TypeError, ValueError):
                 pass
     prompt = _prompt_describe(view, persona, me["lang"])
@@ -413,13 +430,14 @@ def _run_vote(room_id: str, seat: int, room, me) -> None:
         return  # no longer a pending action for this seat
     valid_targets = [t for t in engine.eligible_targets(alive, stage, tied) if t != seat]
 
-    view = public_view(room_id, seat)
-    if me["bot_persona"] == "custom":
-        pick = rules.vote_pick(_rules_of(me), rules.context(view), valid_targets, _rng)
+    outfit = _outfit_of(me)
+    view = public_view(room_id, seat, outfit)
+    if outfit is not None:
+        pick = rules.vote_pick(_rules_of(me, outfit), rules.context(view), valid_targets, _rng)
         if pick is not None:
             _submit_vote_or_fallback(room_id, me["player_id"], pick, valid_targets)
             return
-    persona = _persona_of(me)
+    persona = _persona_of(me, outfit)
     prompt = _prompt_vote(view, persona, valid_targets)
     target: Optional[int] = None
     model_failed = False

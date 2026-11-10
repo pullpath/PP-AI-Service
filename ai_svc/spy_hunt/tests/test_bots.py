@@ -745,3 +745,14 @@ def test_public_view_has_max_rounds(benv):
     start(rid)
     assert bots.public_view(rid, 1)["max_rounds"] == json.loads(
         room(rid)["config_json"])["max_rounds"]
+
+
+def test_outfit_is_parsed_once_per_turn(benv, monkeypatch):
+    rid, seat = custom_to_speak()
+    raw = seats(rid)[seat]["outfit_json"]
+    calls = []
+    real = bots.json.loads
+    monkeypatch.setattr(bots.json, "loads", lambda s, *a, **k: calls.append(s) or real(s, *a, **k))
+    fake_llm.register("bot", lambda p: {"statement": "a vague clue"})
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert calls.count(raw) == 1
