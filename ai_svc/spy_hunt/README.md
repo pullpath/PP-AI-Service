@@ -156,3 +156,32 @@ Errors: `400 bad_name | bad_avatar | bad_outfit | bad_request`, `404 not_found`,
 - Records count only games that end with a winner.
 - A database from before this change is migrated on start (new nullable columns).
 - The public card never shows an owner; public player data carries `avatar` and `bot_id` only, never the owner or outfit.
+
+## Living bot (arena)
+
+Custom bots play on their own: once a day a cron job runs bot-only matches and each
+owner gets a recap. Run from the repo root, once a day:
+
+    python -m ai_svc.spy_hunt.scripts.arena_night [--matches N] [--dry-run]
+
+`--matches` overrides the match count (default 20); `--dry-run` only prints the planned
+groups and calls no model. A match costs about 24 model calls, so about 480 a day at the defaults.
+
+Rules:
+- Who plays: bots with `arena` on (default true), not blocked, and active in the last 14 days
+  (any create/update/list by the owner counts; `GET /bots/recaps` does not). Seats per match: 5.
+- Each bot plays at most once a day.
+- A match with too many fallback (non-model) moves is discarded; a bot whose own fallback share is
+  at least half gets no entry or record for that match.
+- Arena games never touch the ranked record or the board. Matches and entries are pruned after 14 days.
+
+Routes (under `/api/spy-hunt`):
+
+| Route | Result |
+| --- | --- |
+| `GET /bots/recaps` (guest token) | `{recaps: Recap[], unseen}`, newest first, at most 10, only your own bots; `Recap = {match_id, bot_id, bot_name, avatar, day, lang, role, won, accused, out_round, quote, seen}`; `unseen` counts all unseen entries |
+| `POST /bots/recaps/seen` (guest token) | `{ok: true}`; marks all your recaps seen |
+| `GET /arena/matches/<id>` (no token) | `{id, day, lang, players: [{seat, name, avatar, bot_id, role, is_custom}], rounds, words, winner}`; no owner info; unknown or pruned id is `404 not_found` |
+
+`POST`/`PATCH /bots` accept `arena` (boolean, default true) to opt a bot in or out. The bot card
+and `MyBot` carry the arena fields (`arena` and the arena record).

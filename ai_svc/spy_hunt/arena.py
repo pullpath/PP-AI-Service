@@ -331,3 +331,56 @@ def run_night(matches: int = ARENA_MATCHES_PER_DAY, rng: Optional[random.Random]
     prune(conn, today)
     log(f"played {result['played']}, discarded {result['discarded']}, skipped {result['skipped']}")
     return result
+
+
+def _quote(log: Dict[str, Any], bot_id: str) -> Optional[str]:
+    seat = next((p["seat"] for p in log.get("players", []) if p.get("bot_id") == bot_id), None)
+    if seat is None:
+        return None
+    for r in log.get("rounds", []):
+        for st in r.get("statements", []):
+            if st.get("seat") == seat:
+                return st.get("text")
+    return None
+
+
+def recaps_for(owner: str, limit: int = 10) -> Dict[str, Any]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT e.match_id, e.bot_id, e.day, e.role, e.won, e.accused, e.out_round, e.seen,"
+        " b.name, b.avatar_emoji, b.avatar_color, m.lang, m.log_json"
+        " FROM arena_entries e JOIN custom_bots b ON b.id=e.bot_id"
+        " JOIN arena_matches m ON m.id=e.match_id WHERE b.owner_player_id=?"
+        " ORDER BY m.created_at DESC, e.match_id DESC LIMIT ?", (owner, limit)).fetchall()
+    unseen = conn.execute(
+        "SELECT COUNT(*) FROM arena_entries e JOIN custom_bots b ON b.id=e.bot_id"
+        " WHERE b.owner_player_id=? AND COALESCE(e.seen,0)=0", (owner,)).fetchone()[0]
+    return {"recaps": [{
+        "match_id": r["match_id"], "bot_id": r["bot_id"], "bot_name": r["name"],
+        "avatar": {"emoji": r["avatar_emoji"], "color": r["avatar_color"]},
+        "day": r["day"], "lang": r["lang"], "role": r["role"], "won": bool(r["won"]),
+        "accused": r["accused"], "out_round": r["out_round"],
+        "quote": _quote(json.loads(r["log_json"]), r["bot_id"]), "seen": bool(r["seen"]),
+    } for r in rows], "unseen": unseen}
+
+
+def mark_seen(owner: str) -> None:
+    conn = get_conn()
+    with custombots._tx():
+        conn.execute("UPDATE arena_entries SET seen=1 WHERE bot_id IN"
+                     " (SELECT id FROM custom_bots WHERE owner_player_id=?)", (owner,))
+
+
+def match_view(match_id: str) -> Optional[Dict[str, Any]]:
+    row = get_conn().execute("SELECT id, day, lang, log_json FROM arena_matches WHERE id=?",
+                             (match_id,)).fetchone()
+    if row is None:
+        return None
+    log_ = json.loads(row["log_json"])
+    return {
+        "id": row["id"], "day": row["day"], "lang": row["lang"],
+        "players": [{"seat": p["seat"], "name": p["name"], "avatar": p["avatar"],
+                     "bot_id": p["bot_id"], "role": p["role"], "is_custom": p["bot_id"] is not None}
+                    for p in log_["players"]],
+        "rounds": log_["rounds"], "words": log_["words"], "winner": log_["winner"],
+    }

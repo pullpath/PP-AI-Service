@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import arena, auth, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -307,6 +307,32 @@ def create_bot():
                             body.get("remix_of"), body.get("listed", True),
                             body.get("arena", True))
     return jsonify(bot), 201
+
+
+@spy_hunt_bp.route("/bots/recaps", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def bot_recaps():
+    return jsonify(arena.recaps_for(g.player_id))
+
+
+@spy_hunt_bp.route("/bots/recaps/seen", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def bot_recaps_seen():
+    arena.mark_seen(g.player_id)
+    return jsonify({"ok": True})
+
+
+@spy_hunt_bp.route("/arena/matches/<match_id>", methods=["GET"])
+@ratelimits.limit("flood")
+def arena_match(match_id: str):
+    view = arena.match_view(match_id)
+    if view is None:
+        raise store.StoreError(404, "not_found", "No such match.")
+    return jsonify(view)
 
 
 @spy_hunt_bp.route("/bots/<bot_id>", methods=["PATCH"])
