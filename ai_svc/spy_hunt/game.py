@@ -661,6 +661,11 @@ def rematch(room_id: str, by_player: str) -> None:
             raise StoreError(403, "not_host", "Only the host can start a rematch.")
         if room["status"] != "finished":
             raise StoreError(409, "not_finished", "The game is not over.")
+        conn.execute(
+            "DELETE FROM players WHERE room_id=? AND bot_owner_id IS NOT NULL"
+            " AND bot_owner_id NOT IN"
+            " (SELECT player_id FROM players WHERE room_id=? AND is_bot=0)",
+            (room_id, room_id))
         conn.execute("UPDATE players SET role=NULL, alive=1 WHERE room_id=?", (room_id,))
         conn.execute(
             "UPDATE rooms SET status='lobby', round=0, game_no=game_no+1, pair_id=NULL,"

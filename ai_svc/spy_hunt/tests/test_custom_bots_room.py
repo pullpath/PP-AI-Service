@@ -322,3 +322,38 @@ def test_room_copy_carries_the_rules(client, conn):
     client.patch(f"{API}/bots/{bid}", json={"outfit": OUT}, headers=h2)
     row = conn.execute("SELECT outfit_json FROM players WHERE room_id=? AND is_bot=1", (rid,)).fetchone()
     assert json.loads(row["outfit_json"])["rules"] == rules
+
+
+def _orphan_rematch(client, conn):
+    code, h, (h2,) = room_with(client)
+    orphan = mk(client, h2, "Orphan")
+    mine = mk(client, h, "Mine")
+    bots(client, code, h2, action="add", bot_id=orphan)
+    bots(client, code, h, action="add", bot_id=mine)
+    rid = room_row(conn, code)["id"]
+    conn.execute("UPDATE rooms SET status='playing' WHERE id=?", (rid,))
+    conn.commit()
+    client.post(f"{API}/rooms/{code}/leave", headers=h2)
+    conn.execute("UPDATE rooms SET status='finished' WHERE id=?", (rid,))
+    conn.commit()
+    r = client.post(f"{API}/rooms/{code}/rematch", headers=h)
+    assert r.status_code == 200
+    return rid, orphan, mine, r.get_json()
+
+
+def test_rematch_removes_a_custom_bot_whose_owner_left(client, conn):
+    rid, orphan, mine, snap = _orphan_rematch(client, conn)
+    ids = [p["bot_id"] for p in snap["players"]]
+    assert orphan not in ids and mine in ids
+    assert len([p for p in bot_players(snap) if p["bot_id"] is None]) == 1
+    assert conn.execute("SELECT COUNT(*) FROM players WHERE room_id=? AND bot_id=?",
+                        (rid, orphan)).fetchone()[0] == 0
+
+
+def test_rematch_event_players_match_the_database(client, conn):
+    rid, *_ = _orphan_rematch(client, conn)
+    ev = json.loads(conn.execute(
+        "SELECT payload_json FROM events WHERE room_id=? AND type='rematch' ORDER BY rowid DESC",
+        (rid,)).fetchone()[0])
+    assert len(ev["players"]) == conn.execute(
+        "SELECT COUNT(*) FROM players WHERE room_id=?", (rid,)).fetchone()[0] == 3
