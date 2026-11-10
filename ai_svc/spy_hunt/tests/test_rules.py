@@ -137,3 +137,11 @@ def test_context_never_raises_on_empty_view():
     rules.context({})
     rules.context(view(reveal_history=[{}, {"votes": [{}, {"target": 1}]}, 5],
                        statements=[{}, 3]))
+
+
+def test_vote_accuser_never_returns_self_even_if_listed():
+    r = [{"when": "accused", "do": "vote_accuser"}]
+    c = rules.RuleContext(seat=1, stage=0, describing=False, accusers=(1,), leader=None,
+                          spoken_in_stage=0, others_all_spoken=False, eliminated=False,
+                          late_game=False)
+    assert rules.vote_pick(r, c, [1, 2], random.Random()) is None

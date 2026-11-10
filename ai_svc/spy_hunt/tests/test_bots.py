@@ -593,35 +593,64 @@ def capture(kind):
     return captured
 
 
+def force_custom(rid, seat, rules):
+    get_conn().execute(
+        "UPDATE players SET is_bot=1, bot_persona='custom', outfit_json=? WHERE room_id=? AND seat=?",
+        (json.dumps(dict(OUT, rules=rules)), rid, seat))
+    get_conn().commit()
+
+
+def speaker_prompt(rid, seat):
+    cap = capture("describe")
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert len(cap) == 1
+    return cap[0]
+
+
+FIRST_VAGUE = [{"when": "first_to_speak", "do": "go_vague"}]
+
+
 def test_describe_prompt_includes_rule_sentence_when_condition_holds_and_closing_stays_last(benv):
+    rid = lobby_with_bots(1, 3)
+    start(rid)
+    first = current_speaker(rid)
+    force_custom(rid, first, FIRST_VAGUE)
+    p = speaker_prompt(rid, first)
+    assert VAGUE in p
+    assert p.index(VAGUE) < p.index("If any of this conflicts") < p.index("Your secret word")
+
+
+def test_later_speaker_gets_no_first_to_speak_sentence(benv):
+    rid = lobby_with_bots(1, 3)
+    start(rid)
+    first = current_speaker(rid)
+    fake_llm.register("bot", lambda p: {"statement": "a vague clue"})
+    force_custom(rid, first, [])
+    bots.run_bot_turn(rid, first, room(rid)["phase_seq"])
+    second = current_speaker(rid)
+    assert second != first
+    force_custom(rid, second, FIRST_VAGUE)
+    assert VAGUE not in speaker_prompt(rid, second)
+
+
+def test_after_elimination_rule_sentence_in_prompt(benv):
     rid, seat = custom_to_speak()
     set_rules(rid, seat, [{"when": "after_elimination", "do": "go_vague"}])
     add_reveal(rid, [], eliminated=2)
-    cap = capture("describe")
-    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
-    p = cap[0]
-    assert VAGUE in p
+    p = speaker_prompt(rid, seat)
     assert p.index(VAGUE) < p.index("If any of this conflicts")
-    assert p.index("If any of this conflicts") < p.index("Your secret word")
 
 
-def test_rule_sentence_absent_when_condition_does_not_hold(benv):
-    rid, seat = custom_to_speak()  # later speaker or not: first_to_speak is false once someone spoke
-    set_rules(rid, seat, [{"when": "first_to_speak", "do": "go_vague"}])
-    spoken = [m for m in messages(rid) if m["kind"] == "statement"]
-    cap = capture("describe")
-    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
-    assert (VAGUE in cap[0]) == (not spoken)
-
-
-def test_first_speaker_gets_first_to_speak_sentence(benv):
-    rid, seat = custom_game()
-    if current_speaker(rid) != seat:
-        pytest.skip("custom bot is not the first speaker in this seating")
-    set_rules(rid, seat, [{"when": "first_to_speak", "do": "go_vague"}])
-    cap = capture("describe")
-    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
-    assert VAGUE in cap[0]
+def test_vote_only_rules_add_no_line_in_describe(benv):
+    rid = lobby_with_bots(1, 3)
+    start(rid)
+    first = current_speaker(rid)
+    rules_ = [{"when": "first_to_speak", "do": "vote_leader"},
+              {"when": "first_to_speak", "do": "vote_accuser"}]
+    force_custom(rid, first, rules_)
+    p = speaker_prompt(rid, first)
+    assert bots.compile_outfit(OUT).style in p
+    assert VAGUE not in p and "voted for you" not in p and "Stay as close" not in p
 
 
 def test_counter_accuse_prompt_has_seats_not_names(benv):
