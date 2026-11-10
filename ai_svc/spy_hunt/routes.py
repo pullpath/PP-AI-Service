@@ -296,7 +296,8 @@ def list_bots():
 @ratelimits.limit("action")
 def create_bot():
     body = _json_body()
-    bot = custombots.create(g.player_id, body.get("name"), body.get("avatar"), body.get("outfit"))
+    bot = custombots.create(g.player_id, body.get("name"), body.get("avatar"), body.get("outfit"),
+                            body.get("remix_of"), body.get("listed", True))
     return jsonify(bot), 201
 
 

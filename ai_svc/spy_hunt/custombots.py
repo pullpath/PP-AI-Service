@@ -42,13 +42,23 @@ def stored_rules(row: sqlite3.Row) -> List[Dict[str, str]]:
         return []
 
 
-def _card(row: sqlite3.Row) -> Dict[str, Any]:
+def _card(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]:
+    credit = None
+    if row["remix_of"]:
+        src = conn.execute("SELECT id, name FROM custom_bots WHERE id=? AND blocked=0",
+                           (row["remix_of"],)).fetchone()
+        if src:
+            credit = {"id": src["id"], "name": src["name"]}
+    remixes = conn.execute("SELECT COUNT(*) FROM remixes WHERE source_id=?", (row["id"],)).fetchone()[0]
     return {
         "id": row["id"], "name": row["name"],
         "avatar": {"emoji": row["avatar_emoji"], "color": row["avatar_color"]},
         "outfit": {"voice": row["voice"], "style": row["style"], "quirk": row["quirk"],
                    "rules": stored_rules(row)},
         "record": _record(row),
+        "remix_of": credit, "remixes": remixes, "remixable": not row["blocked"],
+        "ranked": {k: row[f"ranked_{k}"] or 0 for k in ("games", "wins", "spy_games", "spy_wins")},
+        "listed": bool(row["listed"] if row["listed"] is not None else 1),
     }
 
 
@@ -57,7 +67,17 @@ def get_owned(conn: sqlite3.Connection, owner: str, bot_id: str) -> Optional[sql
                         (bot_id, owner)).fetchone()
 
 
-def create(owner: str, name: Any, avatar: Any, outfit: Any) -> Dict[str, Any]:
+def _check_listed(v: Any) -> bool:
+    if not isinstance(v, bool):
+        raise StoreError(400, "bad_request", "listed must be true or false.")
+    return v
+
+
+def create(owner: str, name: Any, avatar: Any, outfit: Any, remix_of: Any = None,
+           listed: Any = True) -> Dict[str, Any]:
+    if remix_of is not None and not isinstance(remix_of, str):
+        raise StoreError(400, "bad_request", "remix_of must be a bot id.")
+    listed = _check_listed(listed)
     name = clean_name(name)
     av = outfits.check_avatar(avatar)
     out = outfits.check_outfit(outfit)
@@ -65,28 +85,43 @@ def create(owner: str, name: Any, avatar: Any, outfit: Any) -> Dict[str, Any]:
         n = c.execute("SELECT COUNT(*) FROM custom_bots WHERE owner_player_id=?", (owner,)).fetchone()[0]
         if n >= MAX_BOTS:
             raise StoreError(409, "bot_limit", f"You can have at most {MAX_BOTS} bots.")
+        credit = None
+        if remix_of is not None:
+            src = c.execute("SELECT id, owner_player_id FROM custom_bots WHERE id=? AND blocked=0",
+                            (remix_of,)).fetchone()
+            if src is None:
+                raise StoreError(404, "not_found", "No such bot.")
+            if src["owner_player_id"] != owner:
+                credit = src["id"]
         while True:
             bot_id = secrets.token_urlsafe(6)
             if not c.execute("SELECT 1 FROM custom_bots WHERE id=?", (bot_id,)).fetchone():
                 break
         c.execute(
             "INSERT INTO custom_bots(id, owner_player_id, name, avatar_emoji, avatar_color,"
-            " voice, style, quirk, created_at, rules_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            " voice, style, quirk, created_at, rules_json, listed, remix_of)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (bot_id, owner, name, av["emoji"], av["color"], out["voice"], out["style"],
-             out["quirk"], int(time.time() * 1000), json.dumps(out["rules"])))
-        return _card(c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
+             out["quirk"], int(time.time() * 1000), json.dumps(out["rules"]), int(listed), credit))
+        if credit:
+            c.execute("INSERT OR IGNORE INTO remixes(source_id, owner_player_id) VALUES(?,?)",
+                      (credit, owner))
+        return _card(c, c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
 
 
 def list_for(owner: str) -> List[Dict[str, Any]]:
     rows = get_conn().execute(
         "SELECT * FROM custom_bots WHERE owner_player_id=? ORDER BY created_at, rowid", (owner,)).fetchall()
-    return [_card(r) for r in rows]
+    conn = get_conn()
+    return [_card(conn, r) for r in rows]
 
 
 def update(owner: str, bot_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
-    if not any(k in body for k in ("name", "avatar", "outfit")):
+    if not any(k in body for k in ("name", "avatar", "outfit", "listed")):
         raise StoreError(400, "bad_request", "Nothing to update.")
     sets: Dict[str, Any] = {}
+    if "listed" in body:
+        sets["listed"] = int(_check_listed(body["listed"]))
     if "name" in body:
         sets["name"] = clean_name(body["name"])
     if "avatar" in body:
@@ -102,7 +137,7 @@ def update(owner: str, bot_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
             raise StoreError(404, "not_found", "No such bot.")
         cols = ", ".join(f"{k}=?" for k in sets)
         c.execute(f"UPDATE custom_bots SET {cols} WHERE id=?", (*sets.values(), bot_id))
-        return _card(c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
+        return _card(c, c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
 
 
 def delete(owner: str, bot_id: str) -> None:
@@ -113,8 +148,9 @@ def delete(owner: str, bot_id: str) -> None:
 
 
 def get_card(bot_id: str) -> Optional[Dict[str, Any]]:
-    row = get_conn().execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone()
-    return _card(row) if row else None
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone()
+    return _card(conn, row) if row else None
 
 
 def record_game(conn: sqlite3.Connection, rows, winner: Optional[str]) -> None:

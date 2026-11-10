@@ -57,7 +57,11 @@ CREATE TABLE IF NOT EXISTS puzzle_results(
 CREATE TABLE IF NOT EXISTS custom_bots(
   id TEXT PRIMARY KEY, owner_player_id TEXT, name TEXT, avatar_emoji TEXT, avatar_color TEXT,
   voice TEXT, style TEXT, quirk TEXT, games INTEGER DEFAULT 0, wins INTEGER DEFAULT 0,
-  spy_games INTEGER DEFAULT 0, spy_wins INTEGER DEFAULT 0, created_at INTEGER, rules_json TEXT);
+  spy_games INTEGER DEFAULT 0, spy_wins INTEGER DEFAULT 0, created_at INTEGER, rules_json TEXT,
+  ranked_games INTEGER DEFAULT 0, ranked_wins INTEGER DEFAULT 0, ranked_spy_games INTEGER DEFAULT 0,
+  ranked_spy_wins INTEGER DEFAULT 0, listed INTEGER DEFAULT 1, blocked INTEGER DEFAULT 0, remix_of TEXT);
+CREATE TABLE IF NOT EXISTS remixes(
+  source_id TEXT, owner_player_id TEXT, PRIMARY KEY(source_id, owner_player_id));
 CREATE INDEX IF NOT EXISTS idx_custom_bots_owner ON custom_bots(owner_player_id);
 CREATE INDEX IF NOT EXISTS idx_events_room_seq ON events(room_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id, id);
@@ -97,8 +101,13 @@ def init_db() -> None:
     for col in ("avatar_emoji", "avatar_color", "bot_id", "bot_owner_id", "outfit_json"):
         if col not in have:
             conn.execute(f"ALTER TABLE players ADD COLUMN {col} TEXT")
-    if "rules_json" not in {r[1] for r in conn.execute("PRAGMA table_info(custom_bots)")}:
-        conn.execute("ALTER TABLE custom_bots ADD COLUMN rules_json TEXT")
+    have = {r[1] for r in conn.execute("PRAGMA table_info(custom_bots)")}
+    for col, decl in (("rules_json", "TEXT"), ("ranked_games", "INTEGER DEFAULT 0"),
+                      ("ranked_wins", "INTEGER DEFAULT 0"), ("ranked_spy_games", "INTEGER DEFAULT 0"),
+                      ("ranked_spy_wins", "INTEGER DEFAULT 0"), ("listed", "INTEGER DEFAULT 1"),
+                      ("blocked", "INTEGER DEFAULT 0"), ("remix_of", "TEXT")):
+        if col not in have:
+            conn.execute(f"ALTER TABLE custom_bots ADD COLUMN {col} {decl}")
     conn.commit()
     _load_seed(conn)
 

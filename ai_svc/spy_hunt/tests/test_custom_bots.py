@@ -80,7 +80,8 @@ def test_public_card_needs_no_token_and_hides_owner(client):
     b = mk(client, h).get_json()
     r = client.get(f"{API}/bots/{b['id']}")
     assert r.status_code == 200
-    assert set(r.get_json()) == {"id", "name", "avatar", "outfit", "record"}
+    assert set(r.get_json()) == {"id", "name", "avatar", "outfit", "record", "remix_of", "remixes",
+                                "remixable", "ranked", "listed"}
     assert pid not in r.get_data(as_text=True)
     client.delete(f"{API}/bots/{b['id']}", headers=h)
     assert client.get(f"{API}/bots/{b['id']}").status_code == 404
@@ -168,3 +169,83 @@ def test_old_custom_bots_table_is_migrated(temp_db, conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(custom_bots)")}
     assert "rules_json" in cols
     assert conn.execute("SELECT name FROM custom_bots WHERE id='a'").fetchone()[0] == "A"
+
+
+# ---- remix fields, listed ----
+
+def _remix(client, h, src, name="Remix", outfit=None, **kw):
+    body = {"name": name, "avatar": AV, "outfit": outfit or {**OUT, "voice": "pirate"}, "remix_of": src, **kw}
+    return client.post(f"{API}/bots", json=body, headers=h)
+
+
+def test_card_has_remix_fields_with_defaults(client):
+    h, _ = guest(client)
+    b = mk(client, h).get_json()
+    assert b["remix_of"] is None and b["remixes"] == 0 and b["remixable"] is True
+    assert b["ranked"] == {"games": 0, "wins": 0, "spy_games": 0, "spy_wins": 0}
+    assert b["listed"] is True
+    assert client.get(f"{API}/bots/{b['id']}").get_json() == b
+    assert client.get(f"{API}/bots", headers=h).get_json()["bots"] == [b]
+
+
+def test_listed_roundtrip(client):
+    h, _ = guest(client)
+    r = client.post(f"{API}/bots", json={"name": "M", "avatar": AV, "outfit": OUT, "listed": False}, headers=h)
+    b = r.get_json()
+    assert r.status_code == 201 and b["listed"] is False
+    r = client.patch(f"{API}/bots/{b['id']}", json={"listed": True}, headers=h)
+    assert r.status_code == 200 and r.get_json()["listed"] is True
+    r = client.patch(f"{API}/bots/{b['id']}", json={"listed": "yes"}, headers=h)
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_request"
+
+
+def test_remix_credit_and_count(client):
+    ha, _ = guest(client)
+    hb, _ = guest(client)
+    hc, _ = guest(client)
+    a = mk(client, ha).get_json()
+    b = _remix(client, hb, a["id"]).get_json()
+    assert b["remix_of"] == {"id": a["id"], "name": "Mochi"}
+    assert client.get(f"{API}/bots/{a['id']}").get_json()["remixes"] == 1
+    _remix(client, hb, a["id"], name="Again")
+    assert client.get(f"{API}/bots/{a['id']}").get_json()["remixes"] == 1
+    client.delete(f"{API}/bots/{b['id']}", headers=hb)
+    assert client.get(f"{API}/bots/{a['id']}").get_json()["remixes"] == 1
+    _remix(client, hc, a["id"])
+    assert client.get(f"{API}/bots/{a['id']}").get_json()["remixes"] == 2
+
+
+def test_remix_of_own_bot_has_no_credit(client):
+    h, _ = guest(client)
+    a = mk(client, h).get_json()
+    b = _remix(client, h, a["id"]).get_json()
+    assert b["remix_of"] is None
+    assert client.get(f"{API}/bots/{a['id']}").get_json()["remixes"] == 0
+
+
+def test_remix_of_errors(client):
+    ha, _ = guest(client)
+    hb, _ = guest(client)
+    a = mk(client, ha).get_json()
+    r = _remix(client, hb, "nope")
+    assert r.status_code == 404 and r.get_json()["error"] == "not_found"
+    r = _remix(client, hb, 5)
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_request"
+    db.get_conn().execute("UPDATE custom_bots SET blocked=1 WHERE id=?", (a["id"],))
+    db.get_conn().commit()
+    r = _remix(client, hb, a["id"])
+    assert r.status_code == 404 and r.get_json()["error"] == "not_found"
+    assert client.get(f"{API}/bots", headers=hb).get_json() == {"bots": []}
+
+
+def test_remix_credit_disappears_when_source_is_deleted_or_blocked(client):
+    ha, _ = guest(client)
+    hb, _ = guest(client)
+    a = mk(client, ha).get_json()
+    b = _remix(client, hb, a["id"]).get_json()
+    db.get_conn().execute("UPDATE custom_bots SET blocked=1 WHERE id=?", (a["id"],))
+    db.get_conn().commit()
+    assert client.get(f"{API}/bots/{b['id']}").get_json()["remix_of"] is None
+    assert client.get(f"{API}/bots/{a['id']}").get_json()["remixable"] is False
+    client.delete(f"{API}/bots/{a['id']}", headers=ha)
+    assert client.get(f"{API}/bots/{b['id']}").get_json()["remix_of"] is None

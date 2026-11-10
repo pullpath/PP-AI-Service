@@ -205,6 +205,30 @@ def test_old_players_table_is_migrated(tmp_path, monkeypatch):
     db.close_conn()
 
 
+def test_old_custom_bots_table_is_migrated(tmp_path, monkeypatch):
+    path = str(tmp_path / "oldbots.db")
+    monkeypatch.setattr(db, "DB_PATH", path)
+    db.close_conn()
+    c = sqlite3.connect(path)
+    c.execute("CREATE TABLE custom_bots(id TEXT PRIMARY KEY, owner_player_id TEXT, name TEXT,"
+              " avatar_emoji TEXT, avatar_color TEXT, voice TEXT, style TEXT, quirk TEXT,"
+              " games INTEGER DEFAULT 0, wins INTEGER DEFAULT 0, spy_games INTEGER DEFAULT 0,"
+              " spy_wins INTEGER DEFAULT 0, created_at INTEGER, rules_json TEXT)")
+    c.execute("INSERT INTO custom_bots(id, owner_player_id, name) VALUES('b','o','Old')")
+    c.commit()
+    c.close()
+    db.init_db()
+    db.init_db()
+    conn = db.get_conn()
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(custom_bots)")}
+    assert {"ranked_games", "ranked_wins", "ranked_spy_games", "ranked_spy_wins",
+            "listed", "blocked", "remix_of"} <= cols
+    row = conn.execute("SELECT * FROM custom_bots").fetchone()
+    assert row["name"] == "Old" and row["listed"] == 1 and row["blocked"] == 0
+    assert conn.execute("SELECT COUNT(*) FROM remixes").fetchone()[0] == 0
+    db.close_conn()
+
+
 # ---- records at game end ----
 
 def _record(client, bid):
