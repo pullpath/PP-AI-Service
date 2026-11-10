@@ -226,6 +226,11 @@ def test_old_custom_bots_table_is_migrated(tmp_path, monkeypatch):
     row = conn.execute("SELECT * FROM custom_bots").fetchone()
     assert row["name"] == "Old" and row["listed"] == 1 and row["blocked"] == 0
     assert conn.execute("SELECT COUNT(*) FROM remixes").fetchone()[0] == 0
+    assert {"arena", "last_active", "arena_games", "arena_wins", "arena_spy_games",
+            "arena_spy_wins"} <= cols
+    assert row["arena"] == 1 and row["arena_games"] == 0 and row["last_active"] is None
+    tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"arena_matches", "arena_entries"} <= tables
     db.close_conn()
 
 

@@ -59,7 +59,14 @@ CREATE TABLE IF NOT EXISTS custom_bots(
   voice TEXT, style TEXT, quirk TEXT, games INTEGER DEFAULT 0, wins INTEGER DEFAULT 0,
   spy_games INTEGER DEFAULT 0, spy_wins INTEGER DEFAULT 0, created_at INTEGER, rules_json TEXT,
   ranked_games INTEGER DEFAULT 0, ranked_wins INTEGER DEFAULT 0, ranked_spy_games INTEGER DEFAULT 0,
-  ranked_spy_wins INTEGER DEFAULT 0, listed INTEGER DEFAULT 1, blocked INTEGER DEFAULT 0, remix_of TEXT);
+  ranked_spy_wins INTEGER DEFAULT 0, listed INTEGER DEFAULT 1, blocked INTEGER DEFAULT 0, remix_of TEXT,
+  arena INTEGER DEFAULT 1, last_active INTEGER, arena_games INTEGER DEFAULT 0,
+  arena_wins INTEGER DEFAULT 0, arena_spy_games INTEGER DEFAULT 0, arena_spy_wins INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS arena_matches(
+  id TEXT PRIMARY KEY, day TEXT, lang TEXT, pair_id TEXT, log_json TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS arena_entries(
+  match_id TEXT, bot_id TEXT, day TEXT, role TEXT, won INTEGER, accused INTEGER, out_round INTEGER,
+  seen INTEGER DEFAULT 0, PRIMARY KEY(match_id, bot_id), UNIQUE(day, bot_id));
 CREATE TABLE IF NOT EXISTS remixes(
   source_id TEXT, owner_player_id TEXT, PRIMARY KEY(source_id, owner_player_id));
 CREATE INDEX IF NOT EXISTS idx_custom_bots_owner ON custom_bots(owner_player_id);
@@ -105,7 +112,10 @@ def init_db() -> None:
     for col, decl in (("rules_json", "TEXT"), ("ranked_games", "INTEGER DEFAULT 0"),
                       ("ranked_wins", "INTEGER DEFAULT 0"), ("ranked_spy_games", "INTEGER DEFAULT 0"),
                       ("ranked_spy_wins", "INTEGER DEFAULT 0"), ("listed", "INTEGER DEFAULT 1"),
-                      ("blocked", "INTEGER DEFAULT 0"), ("remix_of", "TEXT")):
+                      ("blocked", "INTEGER DEFAULT 0"), ("remix_of", "TEXT"),
+                      ("arena", "INTEGER DEFAULT 1"), ("last_active", "INTEGER"),
+                      ("arena_games", "INTEGER DEFAULT 0"), ("arena_wins", "INTEGER DEFAULT 0"),
+                      ("arena_spy_games", "INTEGER DEFAULT 0"), ("arena_spy_wins", "INTEGER DEFAULT 0")):
         if col not in have:
             conn.execute(f"ALTER TABLE custom_bots ADD COLUMN {col} {decl}")
     conn.commit()

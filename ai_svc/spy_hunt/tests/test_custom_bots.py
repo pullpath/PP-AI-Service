@@ -82,7 +82,7 @@ def test_public_card_needs_no_token_and_hides_owner(client):
     r = client.get(f"{API}/bots/{b['id']}")
     assert r.status_code == 200
     assert set(r.get_json()) == {"id", "name", "avatar", "outfit", "record", "remix_of", "remixes",
-                                "remixable", "ranked", "listed"}
+                                "remixable", "ranked", "listed", "arena", "arena_record"}
     assert pid not in r.get_data(as_text=True)
     client.delete(f"{API}/bots/{b['id']}", headers=h)
     assert client.get(f"{API}/bots/{b['id']}").status_code == 404
@@ -353,3 +353,46 @@ def test_top_bad_kind_and_empty(client):
     _rank(a, 10, 5)
     row = client.get(f"{API}/bots/top").get_json()["bots"][0]
     assert row["remixes"] == client.get(f"{API}/bots/{a}").get_json()["remixes"]
+
+
+def test_card_has_arena_fields_with_defaults(client):
+    h, _ = guest(client)
+    b = mk(client, h).get_json()
+    assert b["arena"] is True
+    assert b["arena_record"] == {"games": 0, "wins": 0, "spy_games": 0, "spy_wins": 0}
+    assert client.get(f"{API}/bots/{b['id']}").get_json() == client.get(f"{API}/bots", headers=h).get_json()["bots"][0]
+
+
+def test_arena_roundtrip(client):
+    h, _ = guest(client)
+    r = client.post(f"{API}/bots", json={"name": "A", "avatar": AV, "outfit": OUT, "arena": False}, headers=h)
+    b = r.get_json()
+    assert b["arena"] is False
+    r = client.patch(f"{API}/bots/{b['id']}", json={"arena": True}, headers=h)
+    assert r.status_code == 200 and r.get_json()["arena"] is True
+    r = client.patch(f"{API}/bots/{b['id']}", json={"arena": "yes"}, headers=h)
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_request"
+
+
+def test_last_active_is_set_by_owner_actions(client, conn):
+    h, _ = guest(client)
+    b = mk(client, h).get_json()
+    q = "SELECT last_active FROM custom_bots WHERE id=?"
+    assert conn.execute(q, (b["id"],)).fetchone()[0] is not None
+    conn.execute("UPDATE custom_bots SET last_active=0 WHERE id=?", (b["id"],))
+    conn.commit()
+    client.get(f"{API}/bots/{b['id']}")
+    assert conn.execute(q, (b["id"],)).fetchone()[0] == 0
+    client.get(f"{API}/bots", headers=h)
+    assert conn.execute(q, (b["id"],)).fetchone()[0] > 0
+
+
+def test_delete_removes_arena_entries(client, conn):
+    h, _ = guest(client)
+    b = mk(client, h).get_json()
+    conn.execute("INSERT INTO arena_matches(id, day) VALUES('m1','2026-11-10')")
+    conn.execute("INSERT INTO arena_entries(match_id, bot_id, day) VALUES('m1',?,'2026-11-10')", (b["id"],))
+    conn.commit()
+    client.delete(f"{API}/bots/{b['id']}", headers=h)
+    assert conn.execute("SELECT COUNT(*) FROM arena_entries").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM arena_matches").fetchone()[0] == 1

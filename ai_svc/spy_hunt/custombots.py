@@ -68,6 +68,8 @@ def _card(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]:
         "remix_of": credit, "remixes": remixes, "remixable": not row["blocked"],
         "ranked": {k: row[f"ranked_{k}"] or 0 for k in ("games", "wins", "spy_games", "spy_wins")},
         "listed": bool(row["listed"] if row["listed"] is not None else 1),
+        "arena": bool(row["arena"] if row["arena"] is not None else 1),
+        "arena_record": {k: row[f"arena_{k}"] or 0 for k in ("games", "wins", "spy_games", "spy_wins")},
     }
 
 
@@ -82,11 +84,18 @@ def _check_listed(v: Any) -> bool:
     return v
 
 
+def _check_arena(v: Any) -> bool:
+    if not isinstance(v, bool):
+        raise StoreError(400, "bad_request", "arena must be true or false.")
+    return v
+
+
 def create(owner: str, name: Any, avatar: Any, outfit: Any, remix_of: Any = None,
-           listed: Any = True) -> Dict[str, Any]:
+           listed: Any = True, arena: Any = True) -> Dict[str, Any]:
     if remix_of is not None and not isinstance(remix_of, str):
         raise StoreError(400, "bad_request", "remix_of must be a bot id.")
     listed = _check_listed(listed)
+    arena = _check_arena(arena)
     name = clean_name(name)
     av = outfits.check_avatar(avatar)
     out = outfits.check_outfit(outfit)
@@ -108,10 +117,11 @@ def create(owner: str, name: Any, avatar: Any, outfit: Any, remix_of: Any = None
                 break
         c.execute(
             "INSERT INTO custom_bots(id, owner_player_id, name, avatar_emoji, avatar_color,"
-            " voice, style, quirk, created_at, rules_json, listed, remix_of)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            " voice, style, quirk, created_at, rules_json, listed, remix_of, arena, last_active)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (bot_id, owner, name, av["emoji"], av["color"], out["voice"], out["style"],
-             out["quirk"], int(time.time() * 1000), json.dumps(out["rules"]), int(listed), credit))
+             out["quirk"], int(time.time() * 1000), json.dumps(out["rules"]), int(listed), credit,
+             int(arena), int(time.time() * 1000)))
         if credit:
             c.execute("INSERT OR IGNORE INTO remixes(source_id, owner_player_id) VALUES(?,?)",
                       (credit, owner))
@@ -119,18 +129,23 @@ def create(owner: str, name: Any, avatar: Any, outfit: Any, remix_of: Any = None
 
 
 def list_for(owner: str) -> List[Dict[str, Any]]:
-    rows = get_conn().execute(
-        "SELECT * FROM custom_bots WHERE owner_player_id=? ORDER BY created_at, rowid", (owner,)).fetchall()
     conn = get_conn()
+    with _tx():
+        conn.execute("UPDATE custom_bots SET last_active=? WHERE owner_player_id=?",
+                     (int(time.time() * 1000), owner))
+    rows = conn.execute(
+        "SELECT * FROM custom_bots WHERE owner_player_id=? ORDER BY created_at, rowid", (owner,)).fetchall()
     return [_card(conn, r) for r in rows]
 
 
 def update(owner: str, bot_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
-    if not any(k in body for k in ("name", "avatar", "outfit", "listed")):
+    if not any(k in body for k in ("name", "avatar", "outfit", "listed", "arena")):
         raise StoreError(400, "bad_request", "Nothing to update.")
     sets: Dict[str, Any] = {}
     if "listed" in body:
         sets["listed"] = int(_check_listed(body["listed"]))
+    if "arena" in body:
+        sets["arena"] = int(_check_arena(body["arena"]))
     if "name" in body:
         sets["name"] = clean_name(body["name"])
     if "avatar" in body:
@@ -146,6 +161,7 @@ def update(owner: str, bot_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
             raise StoreError(404, "not_found", "No such bot.")
         if "outfit" in body and not _same_outfit(get_owned(c, owner, bot_id), out | {"rules": rules}):
             sets.update(ranked_games=0, ranked_wins=0, ranked_spy_games=0, ranked_spy_wins=0)
+        sets["last_active"] = int(time.time() * 1000)
         cols = ", ".join(f"{k}=?" for k in sets)
         c.execute(f"UPDATE custom_bots SET {cols} WHERE id=?", (*sets.values(), bot_id))
         return _card(c, c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
@@ -156,6 +172,7 @@ def delete(owner: str, bot_id: str) -> None:
         if c.execute("DELETE FROM custom_bots WHERE id=? AND owner_player_id=?",
                      (bot_id, owner)).rowcount == 0:
             raise StoreError(404, "not_found", "No such bot.")
+        c.execute("DELETE FROM arena_entries WHERE bot_id=?", (bot_id,))
 
 
 def get_card(bot_id: str) -> Optional[Dict[str, Any]]:
