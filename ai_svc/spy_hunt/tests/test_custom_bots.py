@@ -7,6 +7,7 @@ from ai_svc.spy_hunt import db, outfits
 from .test_rooms import API, guest
 
 AV = {"emoji": "🦊", "color": "#ff6b6b"}
+RULE_PAIRS = [(t, d) for t, d in list(zip(sorted(outfits.TRIGGERS), sorted(outfits.ACTIONS)))[:2]]
 OUT = {"voice": "dry", "style": "brief", "quirk": "emoji", "rules": []}
 
 
@@ -249,3 +250,24 @@ def test_remix_credit_disappears_when_source_is_deleted_or_blocked(client):
     assert client.get(f"{API}/bots/{a['id']}").get_json()["remixable"] is False
     client.delete(f"{API}/bots/{a['id']}", headers=ha)
     assert client.get(f"{API}/bots/{b['id']}").get_json()["remix_of"] is None
+
+
+ZERO = {"games": 0, "wins": 0, "spy_games": 0, "spy_wins": 0}
+
+
+def test_outfit_change_resets_ranked_but_not_plain(client, conn):
+    r1, r2 = (outfits.clean_rules([{"when": t, "do": d}])[0] for t, d in RULE_PAIRS)
+    cases = [{"voice": "chatty"}, {"rules": [r1]}, {"rules": [r1, r2]}, "reorder"]
+    for new in cases:
+        h, _ = guest(client)
+        base = {**OUT, "rules": [r1, r2]} if new == "reorder" else OUT
+        bid = mk(client, h, outfit=base).get_json()["id"]
+        conn.execute("UPDATE custom_bots SET games=4, ranked_games=3, ranked_wins=2,"
+                     " ranked_spy_games=1, ranked_spy_wins=1 WHERE id=?", (bid,))
+        conn.commit()
+        same = client.patch(f"{API}/bots/{bid}", json={"outfit": base}, headers=h).get_json()
+        assert same["ranked"]["games"] == 3
+        out = {**base, "rules": [r2, r1]} if new == "reorder" else {**base, **new}
+        card = client.patch(f"{API}/bots/{bid}", json={"outfit": out}, headers=h).get_json()
+        assert card["ranked"] == ZERO
+        assert card["record"]["games"] == 4

@@ -381,3 +381,62 @@ def test_rematch_event_players_match_the_database(client, conn):
         (rid,)).fetchone()[0])
     assert len(ev["players"]) == conn.execute(
         "SELECT COUNT(*) FROM players WHERE room_id=?", (rid,)).fetchone()[0] == 3
+
+
+def _ranked(client, bid):
+    return client.get(f"{API}/bots/{bid}").get_json()["ranked"]
+
+
+def _full(client, bid):
+    return client.get(f"{API}/bots/{bid}").get_json()
+
+
+ZERO = {"games": 0, "wins": 0, "spy_games": 0, "spy_wins": 0}
+
+
+def test_ranked_counts_with_three_humans(client, conn):
+    code, h, hs, (bid, _), rid = _bot_room(client, conn, 2)
+    # members[1] has no bot added; first extra member's bot is the only bot
+    _play(conn, rid, {bid: "spy"}, "spies")
+    one = {"games": 1, "wins": 1, "spy_games": 1, "spy_wins": 1}
+    assert _ranked(client, bid) == one
+    assert _record(client, bid) == one
+
+
+def test_two_humans_do_not_rank(client, conn):
+    code, h, hs, (bid,), rid = _bot_room(client, conn, 1)
+    _play(conn, rid, {bid: "spy"}, "spies")
+    assert _record(client, bid)["games"] == 1
+    assert _ranked(client, bid)["games"] == 0
+
+
+def test_human_who_left_does_not_count(client, conn):
+    code, h, hs = room_with(client, 2)
+    bid = mk(client, hs[0])
+    assert bots(client, code, hs[0], action="add", bot_id=bid).status_code == 200
+    rid = room_row(conn, code)["id"]
+    seat = conn.execute("SELECT seat FROM players WHERE room_id=? AND is_bot=0 LIMIT 1",
+                        (rid,)).fetchone()["seat"]
+    conn.execute("UPDATE players SET is_bot=1 WHERE room_id=? AND seat=?", (rid, seat))
+    conn.commit()
+    _play(conn, rid, {bid: "spy"}, "spies")
+    assert _ranked(client, bid) == ZERO
+
+
+def test_edit_during_game_skips_ranked(client, conn):
+    code, h, hs, (bid, _), rid = _bot_room(client, conn, 2)
+    r = client.patch(f"{API}/bots/{bid}", json={"outfit": {**OUT, "voice": "chatty"}}, headers=hs[0])
+    assert r.status_code == 200
+    _play(conn, rid, {bid: "spy"}, "spies")
+    assert _record(client, bid)["games"] == 1
+    assert _ranked(client, bid)["games"] == 0
+
+
+def test_name_only_save_keeps_ranked(client, conn):
+    code, h, hs, (bid, _), rid = _bot_room(client, conn, 2)
+    _play(conn, rid, {bid: "spy"}, "spies")
+    draft = _full(client, bid)
+    r = client.patch(f"{API}/bots/{bid}", headers=hs[0],
+                     json={"name": "Renamed", "avatar": draft["avatar"], "outfit": draft["outfit"]})
+    assert r.status_code == 200
+    assert _ranked(client, bid)["games"] == 1

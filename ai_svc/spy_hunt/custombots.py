@@ -13,6 +13,10 @@ from .db import get_conn
 from .store import StoreError, clean_name
 
 MAX_BOTS = 3
+MIN_HUMANS = 3
+MIN_RANKED_GAMES = 10
+MIN_RANKED_SPY_GAMES = 5
+BOARD_SIZE = 10
 
 
 @contextmanager
@@ -40,6 +44,11 @@ def stored_rules(row: sqlite3.Row) -> List[Dict[str, str]]:
         return outfits.clean_rules(json.loads(row["rules_json"]))
     except (TypeError, ValueError):
         return []
+
+
+def _same_outfit(stored: sqlite3.Row, outfit: Dict[str, Any]) -> bool:
+    return (all(stored[k] == outfit.get(k) for k in ("voice", "style", "quirk"))
+            and stored_rules(stored) == outfits.clean_rules(outfit.get("rules")))
 
 
 def _card(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]:
@@ -135,6 +144,8 @@ def update(owner: str, bot_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
     with _tx() as c:
         if get_owned(c, owner, bot_id) is None:
             raise StoreError(404, "not_found", "No such bot.")
+        if "outfit" in body and not _same_outfit(get_owned(c, owner, bot_id), out | {"rules": rules}):
+            sets.update(ranked_games=0, ranked_wins=0, ranked_spy_games=0, ranked_spy_wins=0)
         cols = ", ".join(f"{k}=?" for k in sets)
         c.execute(f"UPDATE custom_bots SET {cols} WHERE id=?", (*sets.values(), bot_id))
         return _card(c, c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
@@ -156,6 +167,7 @@ def get_card(bot_id: str) -> Optional[Dict[str, Any]]:
 def record_game(conn: sqlite3.Connection, rows, winner: Optional[str]) -> None:
     if winner is None:
         return
+    humans = sum(1 for r in rows if not r["is_bot"])
     for r in rows:
         if not r["bot_id"]:
             continue
@@ -164,4 +176,17 @@ def record_game(conn: sqlite3.Connection, rows, winner: Optional[str]) -> None:
         conn.execute(
             "UPDATE custom_bots SET games = games + 1, wins = wins + ?, spy_games = spy_games + ?,"
             " spy_wins = spy_wins + ? WHERE id=?",
+            (int(won), int(spy), int(spy and won), r["bot_id"]))
+        if humans < MIN_HUMANS:
+            continue
+        bot = conn.execute("SELECT * FROM custom_bots WHERE id=?", (r["bot_id"],)).fetchone()
+        try:
+            used = json.loads(r["outfit_json"])
+        except (TypeError, ValueError):
+            continue
+        if bot is None or not isinstance(used, dict) or not _same_outfit(bot, used):
+            continue
+        conn.execute(
+            "UPDATE custom_bots SET ranked_games = ranked_games + 1, ranked_wins = ranked_wins + ?,"
+            " ranked_spy_games = ranked_spy_games + ?, ranked_spy_wins = ranked_spy_wins + ? WHERE id=?",
             (int(won), int(spy), int(spy and won), r["bot_id"]))
