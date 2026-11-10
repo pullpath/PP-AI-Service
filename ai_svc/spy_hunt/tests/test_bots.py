@@ -467,3 +467,101 @@ def test_public_view_reveal_history_only_covers_the_current_game(benv):
         store.append_event(rid, "reveal", dict(old, eliminated=2), "all", conn=c)
     view = bots.public_view(rid, 1)
     assert [r["eliminated"] for r in view["reveal_history"]] == [2]
+
+
+# ---- custom bots play with their outfit ----
+
+AV = {"emoji": "🦊", "color": "#ff6b6b"}
+OUT = {"voice": "pirate", "style": "metaphor", "quirk": "number"}
+
+
+def custom_game():
+    from ai_svc.spy_hunt import custombots
+    rid = lobby_with_bots(1, 2)
+    bid = custombots.create("pid0", "Mochi", AV, OUT)["id"]
+    game.add_bot(rid, "pid0", bid)
+    start(rid)
+    seat = next(s for s, p in seats(rid).items() if p["bot_persona"] == "custom")
+    return rid, seat
+
+
+def custom_to_speak():
+    rid, seat = custom_game()
+    for _ in range(50):
+        sp = current_speaker(rid)
+        if sp == seat:
+            return rid, seat
+        if seats(rid)[sp]["is_bot"]:
+            fake_llm.register("bot", lambda p: {"statement": "a vague clue"})
+            bots.run_bot_turn(rid, sp, room(rid)["phase_seq"])
+        else:
+            game.submit_statement(rid, pid_of(rid, sp), "a plain human clue")
+    raise AssertionError("custom bot never spoke")
+
+
+def test_custom_bot_prompt_contains_the_compiled_outfit_only(benv):
+    rid, seat = custom_to_speak()
+    captured = []
+    fake_llm.register("bot", lambda p: captured.append(p) or {"statement": "a vague clue"})
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    prompt = captured[0]
+    assert bots.compile_outfit(OUT).style in prompt
+    own = seats(rid)[seat]
+    assert word_of(rid, seat, own["lang"]) in prompt
+    assert '"spy"' not in prompt and '"civilian"' not in prompt and "role" not in prompt
+    other = next(s for s, p in seats(rid).items() if p["role"] != own["role"])
+    for s in seats(rid):
+        if seats(rid)[s]["role"] != own["role"]:
+            for lang in WORDS:
+                assert word_of(rid, s, lang) not in prompt
+    assert other is not None
+
+
+def test_custom_bot_vote_prompt_uses_the_outfit_and_still_asks_for_json(benv):
+    rid, seat = custom_game()
+    advance_through_describe(rid)
+    assert room(rid)["phase"] in VOTE_PHASES
+    captured = []
+    fake_llm.register("bot", lambda p: captured.append(p) or {"vote_for": None, "reason": "x"})
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    prompt = captured[0]
+    assert bots.compile_outfit(OUT).style in prompt
+    assert ('Return ONLY JSON of the exact form: {"vote_for": <one seat number from the '
+            'list above, or null>') in prompt
+
+
+def test_broken_outfit_json_falls_back_to_cheerful_and_the_bot_still_speaks(benv):
+    rid, seat = custom_to_speak()
+    get_conn().execute("UPDATE players SET outfit_json='{' WHERE room_id=? AND seat=?",
+                       (rid, seat))
+    get_conn().commit()
+    captured = []
+    fake_llm.register("bot", lambda p: captured.append(p) or {"statement": "a vague clue"})
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert bots.PERSONAS["cheerful"].style in captured[0]
+    assert [m for m in messages(rid) if m["seat"] == seat and m["kind"] == "statement"]
+
+
+@pytest.mark.parametrize("reply", ["own", ""])
+def test_custom_bot_keeps_existing_checks(benv, reply):
+    rid, seat = custom_to_speak()
+    lang = seats(rid)[seat]["lang"]
+    text = f"I think about {word_of(rid, seat, lang)} a lot" if reply == "own" else ""
+    fake_llm.register("bot", lambda p: {"statement": text})
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    msgs = [m for m in messages(rid) if m["seat"] == seat and m["kind"] == "statement"]
+    assert len(msgs) == 1
+    assert msgs[0]["text"] in bots.CANNED_STATEMENTS.get(lang, bots.CANNED_STATEMENTS["en"])
+
+
+def test_builtin_bot_prompts_are_unchanged(benv):
+    rid = lobby_with_bots(1, 3)
+    start(rid)
+    seat = advance_to_bot_speaker(rid)
+    me = seats(rid)[seat]
+    captured = []
+    fake_llm.register("bot", lambda p: captured.append(p) or {"statement": "a vague clue"})
+    expected = bots._prompt_describe(bots.public_view(rid, seat), bots.PERSONAS[me["bot_persona"]])
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert captured[0] == expected
+    assert bots.public_view(rid, seat)["persona"] == bots.PERSONAS[me["bot_persona"]].style

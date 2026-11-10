@@ -161,7 +161,7 @@ def _public_view(conn, room_id: str, seat: int) -> Dict[str, Any]:
 
     my_words = game.speaker_words(room_id, seat)  # {lang: own word}, server-side only
     my_word = my_words.get(me["lang"]) if my_words else None
-    persona = PERSONAS.get(me["bot_persona"])
+    persona = _persona_of(me)
 
     players = [{
         "seat": r["seat"], "name": r["name"], "alive": bool(r["alive"]),
@@ -303,6 +303,11 @@ def run_bot_turn(room_id: str, seat: int, phase_seq: int) -> None:
 
 
 def _persona_of(me) -> BotProfile:
+    if me["bot_persona"] == "custom":
+        try:
+            return compile_outfit(json.loads(me["outfit_json"]))
+        except (TypeError, ValueError):
+            return PERSONAS["cheerful"]
     return PERSONAS.get(me["bot_persona"]) or BotProfile(str(me["bot_persona"]), "Plain-spoken.")
 
 
