@@ -179,7 +179,7 @@ def top(kind: str) -> List[Dict[str, Any]]:
         n = conn.execute("SELECT COUNT(*) FROM remixes WHERE source_id=?", (r["id"],)).fetchone()[0]
         out.append({"rank": i, "id": r["id"], "name": r["name"],
                     "avatar": {"emoji": r["avatar_emoji"], "color": r["avatar_color"]},
-                    "rate": round(100 * r[w] / r[g]), "games": r[g], "remixes": n})
+                    "rate": int(100 * r[w] / r[g] + 0.5), "games": r[g], "remixes": n})
     return out
 
 

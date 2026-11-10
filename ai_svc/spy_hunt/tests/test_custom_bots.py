@@ -301,6 +301,14 @@ def test_top_threshold_and_order(client):
     assert bots[0]["rate"] == 70 and bots[0]["games"] == 20 and bots[3]["rate"] == 65
 
 
+def test_top_rate_rounds_half_up(client):
+    a, b = (_bot(client, guest(client)[0], n) for n in "ab")
+    _rank(a, 16, 10)  # 62.5%
+    _rank(b, 40, 13)  # 32.5%
+    rates = {x["id"]: x["rate"] for x in client.get(f"{API}/bots/top").get_json()["bots"]}
+    assert rates == {a: 63, b: 33}
+
+
 def test_top_spies_uses_spy_columns_and_threshold(client):
     h, _ = guest(client)
     a, b = _bot(client, h, "a"), _bot(client, h, "b")
