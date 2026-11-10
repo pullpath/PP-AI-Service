@@ -39,7 +39,7 @@ def test_recaps_for_the_owner_only(client):
     mid = make_match("2026-11-10", [(a, "spy", True, 2, None)])
     r = client.get(f"{API}/bots/recaps", headers=ha).get_json()
     assert r["unseen"] == 1
-    assert r["recaps"] == [{"match_id": mid, "bot_id": a, "bot_name": "b0", "avatar": AV,
+    assert r["recaps"] == [{"match_id": mid, "bot_id": a, "bot_name": "B0", "avatar": AV,
                             "day": "2026-11-10", "lang": "en", "role": "spy", "won": True,
                             "accused": 2, "out_round": None, "quote": "hello 0", "seen": False}]
     assert client.get(f"{API}/bots/recaps", headers=hb).get_json() == {"recaps": [], "unseen": 0}
@@ -108,3 +108,39 @@ def test_get_recaps_does_not_touch_last_active(client):
 
 def test_mark_seen_requires_a_token(client):
     assert client.post(f"{API}/bots/recaps/seen").status_code == 401
+
+
+def test_mark_seen_is_idempotent(client):
+    h, (a,) = setup(client)
+    make_match("2026-11-10", [(a, "spy", True, 0, None)])
+    for _ in range(2):
+        assert client.post(f"{API}/bots/recaps/seen", headers=h).get_json() == {"ok": True}
+        assert client.get(f"{API}/bots/recaps", headers=h).get_json()["unseen"] == 0
+
+
+def test_equal_created_at_orders_by_match_id_desc(client):
+    h, (a,) = setup(client)
+    ids = [make_match(f"2026-10-{d:02d}", [(a, "spy", True, 0, None)], t=5000) for d in range(1, 5)]
+    got = [x["match_id"] for x in client.get(f"{API}/bots/recaps", headers=h).get_json()["recaps"]]
+    assert got == sorted(ids, reverse=True)
+
+
+def test_match_page_has_exactly_the_expected_keys(client):
+    h, (a,) = setup(client)
+    mid = make_match("2026-11-10", [(a, "spy", True, 0, None)])
+    body = client.get(f"{API}/arena/matches/{mid}").get_json()
+    assert set(body) == {"id", "day", "lang", "players", "rounds", "words", "winner"}
+    for p in body["players"]:
+        assert set(p) == {"seat", "name", "avatar", "bot_id", "role", "is_custom"}
+
+
+def test_recap_and_match_page_keep_the_match_time_name_and_avatar(client):
+    h, (a,) = setup(client)
+    mid = make_match("2026-11-10", [(a, "spy", True, 0, None)])
+    new_av = {"emoji": "🐱", "color": "#ffa94d"}
+    r = client.patch(f"{API}/bots/{a}", json={"name": "Renamed", "avatar": new_av}, headers=h)
+    assert r.status_code == 200
+    rc = client.get(f"{API}/bots/recaps", headers=h).get_json()["recaps"][0]
+    page = client.get(f"{API}/arena/matches/{mid}").get_json()["players"][0]
+    assert rc["bot_name"] == "B0" == page["name"]
+    assert rc["avatar"] == AV == page["avatar"]

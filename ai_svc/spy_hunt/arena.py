@@ -237,11 +237,21 @@ def make_groups(bots_: list, matches: int, rng: random.Random) -> List[list]:
 
 
 def build_seats(group: list, rng: random.Random) -> List[ArenaSeat]:
-    seats = [ArenaSeat(r["name"], r["id"], {"emoji": r["avatar_emoji"], "color": r["avatar_color"]},
+    used: set = set()
+    names_ = []
+    for r in group:
+        base, k, name = r["name"], 1, r["name"]
+        while name.strip().lower() in used:
+            k += 1
+            suffix = f" {k}"
+            name = base[:store.NAME_MAX - len(suffix)].rstrip() + suffix
+        used.add(name.strip().lower())
+        names_.append(name)
+    seats = [ArenaSeat(names_[i], r["id"], {"emoji": r["avatar_emoji"], "color": r["avatar_color"]},
                        {"voice": r["voice"], "style": r["style"], "quirk": r["quirk"],
-                        "rules": custombots.stored_rules(r)}, None) for r in group]
-    taken = {s.name for s in seats}
-    names = [n for n in BOT_NAMES if n not in taken]
+                        "rules": custombots.stored_rules(r)}, None) for i, r in enumerate(group)]
+    taken = {s.name.strip().lower() for s in seats}
+    names = [n for n in BOT_NAMES if n.strip().lower() not in taken]
     rng.shuffle(names)
     for n in names[:ARENA_SEATS - len(seats)]:
         seats.append(ArenaSeat(n, None, None, None, rng.choice(BOT_PERSONA_KEYS)))
@@ -306,7 +316,8 @@ def run_night(matches: int = ARENA_MATCHES_PER_DAY, rng: Optional[random.Random]
         result["skipped"] = len(eligible) - placed
         log(f"dry run: {len(groups)} matches planned, {result['skipped']} bots left out")
         return result
-    room_id = store.create_room("arena", "builder", "en")["id"]
+    row = conn.execute("SELECT id FROM rooms WHERE host_player_id='arena' ORDER BY created_at LIMIT 1").fetchone()
+    room_id = row["id"] if row else store.create_room("arena", "builder", "en")["id"]
     matched = 0
     streak = 0
     for i, group in enumerate(groups):
@@ -354,24 +365,29 @@ def _quote(log: Dict[str, Any], bot_id: str) -> Optional[str]:
     return None
 
 
+def _who(log: Dict[str, Any], bot_id: str) -> Dict[str, Any]:
+    return next(p for p in log["players"] if p.get("bot_id") == bot_id)
+
+
 def recaps_for(owner: str, limit: int = 10) -> Dict[str, Any]:
     conn = get_conn()
     rows = conn.execute(
         "SELECT e.match_id, e.bot_id, e.day, e.role, e.won, e.accused, e.out_round, e.seen,"
-        " b.name, b.avatar_emoji, b.avatar_color, m.lang, m.log_json"
+        " m.lang, m.log_json"
         " FROM arena_entries e JOIN custom_bots b ON b.id=e.bot_id"
         " JOIN arena_matches m ON m.id=e.match_id WHERE b.owner_player_id=?"
         " ORDER BY m.created_at DESC, e.match_id DESC LIMIT ?", (owner, limit)).fetchall()
     unseen = conn.execute(
         "SELECT COUNT(*) FROM arena_entries e JOIN custom_bots b ON b.id=e.bot_id"
         " WHERE b.owner_player_id=? AND COALESCE(e.seen,0)=0", (owner,)).fetchone()[0]
+    logs = [json.loads(r["log_json"]) for r in rows]
     return {"recaps": [{
-        "match_id": r["match_id"], "bot_id": r["bot_id"], "bot_name": r["name"],
-        "avatar": {"emoji": r["avatar_emoji"], "color": r["avatar_color"]},
+        "match_id": r["match_id"], "bot_id": r["bot_id"], "bot_name": _who(logs[i], r["bot_id"])["name"],
+        "avatar": _who(logs[i], r["bot_id"])["avatar"],
         "day": r["day"], "lang": r["lang"], "role": r["role"], "won": bool(r["won"]),
         "accused": r["accused"], "out_round": r["out_round"],
-        "quote": _quote(json.loads(r["log_json"]), r["bot_id"]), "seen": bool(r["seen"]),
-    } for r in rows], "unseen": unseen}
+        "quote": _quote(logs[i], r["bot_id"]), "seen": bool(r["seen"]),
+    } for i, r in enumerate(rows)], "unseen": unseen}
 
 
 def mark_seen(owner: str) -> None:

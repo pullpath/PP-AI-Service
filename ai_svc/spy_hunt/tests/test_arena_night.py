@@ -199,3 +199,77 @@ def test_statements_are_stripped_of_control_characters(temp_db):
     res = arena.play_match(room, PAIR, "en", seats(), random.Random(3))
     texts = [s["text"] for r in res["log"]["rounds"] for s in r["statements"]]
     assert texts and all(t == "hi there" for t in texts)
+
+
+def test_run_night_reuses_one_arena_room(temp_db):
+    seed_pair()
+    register()
+    for i in range(5):
+        new_bot(i)
+    q = "SELECT COUNT(*) FROM rooms WHERE host_player_id='arena'"
+    arena.run_night(1, random.Random(1), log=lambda *a: None, today=TODAY)
+    assert get_conn().execute(q).fetchone()[0] == 1
+    room_id = get_conn().execute("SELECT id FROM rooms WHERE host_player_id='arena'").fetchone()[0]
+    get_conn().execute("UPDATE rooms SET ai_calls=99 WHERE id=?", (room_id,))
+    get_conn().commit()
+    res = arena.run_night(1, random.Random(1), log=lambda *a: None, today="2026-11-11")
+    assert res["played"] == 1
+    assert get_conn().execute(q).fetchone()[0] == 1
+    assert get_conn().execute("SELECT id FROM rooms WHERE host_player_id='arena'").fetchone()[0] == room_id
+    assert get_conn().execute("SELECT ai_calls FROM rooms WHERE id=?", (room_id,)).fetchone()[0] < 99
+
+
+def test_dry_run_creates_no_room(temp_db):
+    for i in range(5):
+        new_bot(i)
+    arena.run_night(1, random.Random(1), log=lambda *a: None, today=TODAY, dry_run=True)
+    assert n("rooms") == 0
+
+
+def test_languages_alternate_by_match_index(temp_db):
+    seed_pair()
+    register()
+    for i in range(10):
+        new_bot(i)
+    res = arena.run_night(2, random.Random(1), log=lambda *a: None, today=TODAY)
+    assert res["played"] == 2
+    langs = [r[0] for r in get_conn().execute("SELECT lang FROM arena_matches ORDER BY created_at, rowid")]
+    assert sorted(langs) == ["en", "zh-Hans"]
+
+
+def test_skipped_is_eligible_minus_placed(temp_db):
+    seed_pair()
+    register()
+    for i in range(7):
+        new_bot(i)
+    res = arena.run_night(1, random.Random(1), log=lambda *a: None, today=TODAY)
+    assert res == {"played": 1, "discarded": 0, "skipped": 2}
+
+
+def _seat_group(names):
+    rows = []
+    for i, nm in enumerate(names):
+        bid = new_bot(i + 50)
+        get_conn().execute("UPDATE custom_bots SET name=? WHERE id=?", (nm, bid))
+        rows.append(bid)
+    get_conn().commit()
+    return [get_conn().execute("SELECT * FROM custom_bots WHERE id=?", (b,)).fetchone() for b in rows]
+
+
+def test_duplicate_custom_names_are_made_unique(temp_db):
+    group = _seat_group(["Mochi", "mochi ", "Mochi"])
+    seats = arena.build_seats(group, random.Random(1))
+    names = [s.name for s in seats]
+    assert len(names) == 5 and len({x.strip().lower() for x in names}) == 5
+    custom = sorted(s.name for s in seats if s.bot_id)
+    assert custom[0].lower() == "mochi" and custom[1:] == ["Mochi 2", "Mochi 3"] or \
+        sorted(x.lower() for x in custom) == ["mochi", "mochi 2", "mochi 3"]
+    assert sum(1 for x in custom if x.lower() == "mochi") == 1
+
+
+def test_duplicate_long_names_stay_within_16(temp_db):
+    long = "A" * 16
+    seats = arena.build_seats(_seat_group([long, long, long]), random.Random(1))
+    names = [s.name for s in seats]
+    assert all(len(x) <= 16 for x in names) and len(set(names)) == 5
+    assert long in names and "A" * 14 + " 2" in names and "A" * 14 + " 3" in names

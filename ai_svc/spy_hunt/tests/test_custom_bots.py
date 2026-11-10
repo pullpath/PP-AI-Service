@@ -396,3 +396,25 @@ def test_delete_removes_arena_entries(client, conn):
     client.delete(f"{API}/bots/{b['id']}", headers=h)
     assert conn.execute("SELECT COUNT(*) FROM arena_entries").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM arena_matches").fetchone()[0] == 1
+
+
+def test_top_ties_order_older_bot_first(client):
+    h, _ = guest(client)
+    a, b = _bot(client, h, "a"), _bot(client, h, "b")
+    _rank(a, 10, 7, 5, 4, created_at=2000)
+    _rank(b, 10, 7, 5, 4, created_at=1000)
+    assert [x["id"] for x in client.get(f"{API}/bots/top").get_json()["bots"]] == [b, a]
+    assert [x["id"] for x in client.get(f"{API}/bots/top?kind=spies").get_json()["bots"]] == [b, a]
+    _rank(a, 10, 7, 5, 4, created_at=500)
+    assert [x["id"] for x in client.get(f"{API}/bots/top").get_json()["bots"]] == [a, b]
+
+
+def test_patch_bumps_last_active(client, conn):
+    h, _ = guest(client)
+    b = mk(client, h).get_json()
+    q = "SELECT last_active FROM custom_bots WHERE id=?"
+    for body in ({"arena": False}, {"name": "Renamed"}):
+        conn.execute("UPDATE custom_bots SET last_active=0 WHERE id=?", (b["id"],))
+        conn.commit()
+        assert client.patch(f"{API}/bots/{b['id']}", json=body, headers=h).status_code == 200
+        assert conn.execute(q, (b["id"],)).fetchone()[0] > 0

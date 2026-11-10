@@ -18,4 +18,4 @@ def test_block_bot_script(client, capsys):
     assert _blocked(bid) == 1
     assert block_bot.main([bid, "--unblock"]) == 0
     assert _blocked(bid) == 0
-    assert block_bot.main(["nope"]) != 0
+    assert block_bot.main(["nope"]) == 1

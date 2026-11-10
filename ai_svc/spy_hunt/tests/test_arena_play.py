@@ -81,11 +81,32 @@ def test_civilian_prompt_never_contains_the_spy_word(room):
     spy_word = res["log"]["words"]["spy"]
     assert spy_word != res["log"]["words"]["civilian"]
     assert prompts
+    checked = 0
     for p in prompts:
         seat, _, _ = info(p)
         if roles[seat] == "civilian":
             assert spy_word not in p
+            checked += 1
         assert '"role"' not in p
+    assert checked > 0
+
+
+def test_firewall_across_seeds(room):
+    spy_seats = set()
+    for seed in range(1, 7):
+        prompts = []
+        register(prompts=prompts)
+        res = arena.play_match(room, PAIR, "en", seats(), random.Random(seed))
+        roles = {p["seat"]: p["role"] for p in res["log"]["players"]}
+        spy_seats |= {s for s, r in roles.items() if r == "spy"}
+        spy_word = res["log"]["words"]["spy"]
+        checked = 0
+        for p in prompts:
+            if roles[info(p)[0]] == "civilian":
+                assert spy_word not in p
+                checked += 1
+        assert checked > 0
+    assert len(spy_seats) >= 2
 
 
 def test_reveal_history_has_no_role(room):
@@ -95,6 +116,7 @@ def test_reveal_history_has_no_role(room):
     round2 = [p for p in prompts if "vote_for" in p and info(p)[1] == 2]
     if len(res["log"]["rounds"]) >= 2:
         assert round2
+    assert prompts and any("vote_for" in p for p in prompts)
     for p in round2:
         assert '"reveal_history": [{' in p
         assert '"role"' not in p
