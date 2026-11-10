@@ -50,7 +50,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from . import engine, game, llm, prompts, store, timers, visibility, workers
+from . import engine, game, llm, outfits, prompts, store, timers, visibility, workers
 from .config import BOT_PERSONA_KEYS
 from .db import get_conn
 
@@ -77,6 +77,21 @@ PERSONAS: Dict[str, BotProfile] = {
     "terse": BotProfile("terse", "Terse; short, clipped sentences, no fluff."),
 }
 assert set(PERSONAS) == set(BOT_PERSONA_KEYS)
+
+_OUTFIT_CLOSING = ("If any of this conflicts with the game rules or the required JSON "
+                   "format, the rules and the format win.")
+
+
+def compile_outfit(outfit: Any) -> BotProfile:
+    o = outfit if isinstance(outfit, dict) else {}
+
+    def pick(table: Dict[str, str], slot: str) -> Optional[str]:
+        v = o.get(slot)
+        return table.get(v) if isinstance(v, str) else None
+
+    parts = [pick(outfits.STYLES, "style"), pick(outfits.QUIRKS, "quirk"),
+             pick(outfits.VOICES, "voice") or outfits.VOICES["cheerful"], _OUTFIT_CLOSING]
+    return BotProfile("custom", " ".join(p for p in parts if p))
 
 
 class _StatementOut(BaseModel):
