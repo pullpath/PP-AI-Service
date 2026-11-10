@@ -6,17 +6,28 @@ Each bot sees the same firewalled view shape as `bots._public_view`: its own wor
 never a role and never another seat's word."""
 from __future__ import annotations
 
+import datetime
+import json
 import logging
 import random
+import secrets
+import sqlite3
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from . import bots, engine, game, llm, outfits, rules
-from .config import GameConfig
+from . import bots, custombots, engine, game, llm, outfits, rules, store, words
+from .config import BOT_NAMES, BOT_PERSONA_KEYS, LANGS, GameConfig
+from .db import get_conn
 
 log = logging.getLogger("spy_hunt.arena")
 
 MAX_FALLBACK_SHARE = 1 / 3
+ARENA_SEATS = 5
+ARENA_MATCHES_PER_DAY = 6
+ARENA_ACTIVE_DAYS = 14
+ARENA_KEEP_DAYS = 14
+ENTRY_MAX_FALLBACK_SHARE = 0.5
 
 
 @dataclass
@@ -98,7 +109,7 @@ class _Match:
         try:
             out = llm.call_json("bot", prompt, bots._StatementOut, self.room_id,
                                 bots.STATEMENT_MAX_TOKENS, llm.TASK_TIMEOUTS["bot"])
-            text = " ".join(out.statement.split())
+            text = game._clean_text(out.statement, self.max_chars)
         except Exception:
             log.info("arena describe fallback room_id=%s seat=%s", self.room_id, seat)
         self.actions[seat] += 1
@@ -207,3 +218,116 @@ def play_match(room_id: str, pair: game.Pair, lang: str, seats: List[ArenaSeat],
         },
         "entries": entries,
     }
+
+
+def eligible_bots(conn: sqlite3.Connection, day: str, now_ms: int) -> List[sqlite3.Row]:
+    cutoff = now_ms - ARENA_ACTIVE_DAYS * 86_400_000
+    return list(conn.execute(
+        "SELECT * FROM custom_bots WHERE COALESCE(arena, 1) != 0 AND COALESCE(blocked, 0) = 0"
+        " AND COALESCE(last_active, created_at) >= ?"
+        " AND id NOT IN (SELECT bot_id FROM arena_entries WHERE day=?) ORDER BY id",
+        (cutoff, day)))
+
+
+def make_groups(bots_: list, matches: int, rng: random.Random) -> List[list]:
+    pool = list(bots_)
+    rng.shuffle(pool)
+    groups = [pool[i:i + ARENA_SEATS] for i in range(0, len(pool), ARENA_SEATS)]
+    return groups[:max(matches, 0)]
+
+
+def build_seats(group: list, rng: random.Random) -> List[ArenaSeat]:
+    seats = [ArenaSeat(r["name"], r["id"], {"emoji": r["avatar_emoji"], "color": r["avatar_color"]},
+                       {"voice": r["voice"], "style": r["style"], "quirk": r["quirk"],
+                        "rules": custombots.stored_rules(r)}, None) for r in group]
+    taken = {s.name for s in seats}
+    names = [n for n in BOT_NAMES if n not in taken]
+    rng.shuffle(names)
+    for n in names[:ARENA_SEATS - len(seats)]:
+        seats.append(ArenaSeat(n, None, None, None, rng.choice(BOT_PERSONA_KEYS)))
+    rng.shuffle(seats)
+    return seats
+
+
+def store_match(conn: sqlite3.Connection, day: str, lang: str, pair_id: str, result: dict) -> str:
+    match_id = secrets.token_urlsafe(6)
+    now = int(time.time() * 1000)
+    with custombots._tx():
+        conn.execute("INSERT INTO arena_matches(id, day, lang, pair_id, log_json, created_at)"
+                     " VALUES(?,?,?,?,?,?)",
+                     (match_id, day, lang, pair_id, json.dumps(result["log"], ensure_ascii=False), now))
+        for e in result["entries"]:
+            if e["fallback_share"] >= ENTRY_MAX_FALLBACK_SHARE:
+                continue
+            spy = e["role"] == engine.SPY
+            won = bool(e["won"])
+            cur = conn.execute(
+                "UPDATE custom_bots SET arena_games=COALESCE(arena_games,0)+1,"
+                " arena_wins=COALESCE(arena_wins,0)+?, arena_spy_games=COALESCE(arena_spy_games,0)+?,"
+                " arena_spy_wins=COALESCE(arena_spy_wins,0)+? WHERE id=?",
+                (int(won), int(spy), int(spy and won), e["bot_id"]))
+            if cur.rowcount == 0:
+                continue
+            conn.execute("INSERT INTO arena_entries(match_id, bot_id, day, role, won, accused, out_round)"
+                         " VALUES(?,?,?,?,?,?,?)",
+                         (match_id, e["bot_id"], day, e["role"], int(won), e["accused"], e["out_round"]))
+    return match_id
+
+
+def prune(conn: sqlite3.Connection, today: str) -> int:
+    cutoff = (datetime.date.fromisoformat(today) - datetime.timedelta(days=ARENA_KEEP_DAYS)).isoformat()
+    with custombots._tx():
+        ids = [r[0] for r in conn.execute("SELECT id FROM arena_matches WHERE day < ?", (cutoff,))]
+        for i in ids:
+            conn.execute("DELETE FROM arena_entries WHERE match_id=?", (i,))
+            conn.execute("DELETE FROM arena_matches WHERE id=?", (i,))
+    return len(ids)
+
+
+def run_night(matches: int = ARENA_MATCHES_PER_DAY, rng: Optional[random.Random] = None,
+              log=print, today: Optional[str] = None, dry_run: bool = False) -> Dict[str, int]:
+    rng = rng or random.Random()
+    today = today or datetime.date.today().isoformat()
+    conn = get_conn()
+    eligible = eligible_bots(conn, today, int(time.time() * 1000))
+    result = {"played": 0, "discarded": 0, "skipped": 0}
+    if not eligible:
+        log("no eligible bots")
+        return result
+    groups = make_groups(eligible, matches, rng)
+    placed = sum(len(g) for g in groups)
+    if dry_run:
+        for i, g in enumerate(groups):
+            log(f"match {i + 1} ({LANGS[i % 2]}): {', '.join(r['name'] for r in g)}")
+        result["skipped"] = len(eligible) - placed
+        log(f"dry run: {len(groups)} matches planned, {result['skipped']} bots left out")
+        return result
+    room_id = store.create_room("arena", "builder", "en")["id"]
+    matched = 0
+    for i, group in enumerate(groups):
+        pool = list(conn.execute("SELECT * FROM pairs WHERE active=1"))
+        if not pool:
+            log("no active pairs")
+            break
+        pair = words._row_to_pair(rng.choice(pool))
+        lang = LANGS[i % 2]
+        conn.execute("UPDATE rooms SET ai_calls=0 WHERE id=?", (room_id,))
+        conn.commit()
+        res = play_match(room_id, pair, lang, build_seats(group, rng), rng)
+        if res is None:
+            result["discarded"] += 1
+            log(f"match {i + 1} ({lang}, {pair.id}): discarded")
+            continue
+        try:
+            store_match(conn, today, lang, pair.id, res)
+        except sqlite3.IntegrityError:
+            result["discarded"] += 1
+            log(f"match {i + 1} ({lang}, {pair.id}): not stored")
+            continue
+        result["played"] += 1
+        matched += len(group)
+        log(f"match {i + 1} ({lang}, {pair.id}): {res['log']['winner']} won")
+    result["skipped"] = len(eligible) - matched
+    prune(conn, today)
+    log(f"played {result['played']}, discarded {result['discarded']}, skipped {result['skipped']}")
+    return result
