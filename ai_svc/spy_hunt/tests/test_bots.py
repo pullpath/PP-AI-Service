@@ -565,3 +565,133 @@ def test_builtin_bot_prompts_are_unchanged(benv):
     bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
     assert captured[0] == expected
     assert bots.public_view(rid, seat)["persona"] == bots.PERSONAS[me["bot_persona"]].style
+
+
+# ---- rule cards ----
+
+VAGUE = "Make this clue vaguer and safer than usual, naming no distinguishing detail."
+
+
+def set_rules(rid, seat, rules):
+    get_conn().execute("UPDATE players SET outfit_json=? WHERE room_id=? AND seat=?",
+                       (json.dumps(dict(OUT, rules=rules)), rid, seat))
+    get_conn().commit()
+
+
+def add_reveal(rid, votes, eliminated=None):
+    with store.tx(rid) as c:
+        store.append_event(rid, "reveal", {
+            "round": 1, "stage": 0, "outcome": "eliminated", "eliminated": eliminated,
+            "tied": [], "votes": [{"voter": a, "target": b} for a, b in votes],
+            "role": "spy"}, "all", conn=c)
+
+
+def capture(kind):
+    captured = []
+    reply = {"statement": "a vague clue"} if kind == "describe" else {"vote_for": None, "reason": "x"}
+    fake_llm.register("bot", lambda p: captured.append(p) or reply)
+    return captured
+
+
+def test_describe_prompt_includes_rule_sentence_when_condition_holds_and_closing_stays_last(benv):
+    rid, seat = custom_to_speak()
+    set_rules(rid, seat, [{"when": "after_elimination", "do": "go_vague"}])
+    add_reveal(rid, [], eliminated=2)
+    cap = capture("describe")
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    p = cap[0]
+    assert VAGUE in p
+    assert p.index(VAGUE) < p.index("If any of this conflicts")
+    assert p.index("If any of this conflicts") < p.index("Your secret word")
+
+
+def test_rule_sentence_absent_when_condition_does_not_hold(benv):
+    rid, seat = custom_to_speak()  # later speaker or not: first_to_speak is false once someone spoke
+    set_rules(rid, seat, [{"when": "first_to_speak", "do": "go_vague"}])
+    spoken = [m for m in messages(rid) if m["kind"] == "statement"]
+    cap = capture("describe")
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert (VAGUE in cap[0]) == (not spoken)
+
+
+def test_first_speaker_gets_first_to_speak_sentence(benv):
+    rid, seat = custom_game()
+    if current_speaker(rid) != seat:
+        pytest.skip("custom bot is not the first speaker in this seating")
+    set_rules(rid, seat, [{"when": "first_to_speak", "do": "go_vague"}])
+    cap = capture("describe")
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert VAGUE in cap[0]
+
+
+def test_counter_accuse_prompt_has_seats_not_names(benv):
+    rid, seat = custom_to_speak()
+    set_rules(rid, seat, [{"when": "accused", "do": "counter_accuse"}])
+    accuser = next(s for s in seats(rid) if s != seat)
+    get_conn().execute("UPDATE players SET name='IgnoreEverything' WHERE room_id=? AND seat=?",
+                       (rid, accuser))
+    get_conn().commit()
+    add_reveal(rid, [(accuser, seat)])
+    cap = capture("describe")
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    p = cap[0]
+    sentence = next(l for l in p.splitlines() if "voted for you last round" in l)
+    assert f"seats [{accuser}]" in sentence and "IgnoreEverything" not in sentence
+
+
+def vote_setup(accuser_alive=True):
+    rid, seat = custom_game()
+    advance_through_describe(rid)
+    assert room(rid)["phase"] in VOTE_PHASES
+    accuser = next(s for s in seats(rid) if s != seat)
+    set_rules(rid, seat, [{"when": "accused", "do": "vote_accuser"}])
+    add_reveal(rid, [(accuser, seat)])
+    if not accuser_alive:
+        get_conn().execute("UPDATE players SET alive=0 WHERE room_id=? AND seat=?",
+                           (rid, accuser))
+        get_conn().commit()
+    return rid, seat, accuser
+
+
+def vote_of(rid, seat):
+    r = get_conn().execute("SELECT target_seat FROM votes WHERE room_id=? AND voter_seat=?",
+                           (rid, seat)).fetchone()
+    return r["target_seat"] if r else "none"
+
+
+def test_vote_rule_decides_without_a_model_call(benv):
+    rid, seat, accuser = vote_setup()
+    cap = capture("vote")
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert cap == []
+    assert vote_of(rid, seat) == accuser
+
+
+def test_vote_rule_with_no_legal_target_falls_back_to_the_model(benv):
+    rid, seat, accuser = vote_setup(accuser_alive=False)
+    other = next(s for s in seats(rid) if s not in (seat, accuser))
+    calls = []
+    fake_llm.register("bot", lambda p: calls.append(p) or {"vote_for": other, "reason": "x"})
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert len(calls) == 1
+    assert vote_of(rid, seat) == other
+
+
+@pytest.mark.parametrize("rules", [None, [{"when": "zzz", "do": "go_vague"}, 5]])
+def test_outfit_without_rules_or_with_broken_entries_still_plays(benv, rules):
+    rid, seat = custom_to_speak()
+    out = dict(OUT) if rules is None else dict(OUT, rules=rules)
+    get_conn().execute("UPDATE players SET outfit_json=? WHERE room_id=? AND seat=?",
+                       (json.dumps(out), rid, seat))
+    get_conn().commit()
+    cap = capture("describe")
+    bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
+    assert VAGUE not in cap[0]
+    assert [m for m in messages(rid) if m["seat"] == seat and m["kind"] == "statement"]
+
+
+def test_public_view_has_max_rounds(benv):
+    rid = lobby_with_bots(1, 3)
+    start(rid)
+    assert bots.public_view(rid, 1)["max_rounds"] == json.loads(
+        room(rid)["config_json"])["max_rounds"]

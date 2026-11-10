@@ -50,7 +50,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from . import engine, game, llm, outfits, prompts, store, timers, visibility, workers
+from . import engine, game, llm, outfits, prompts, rules, store, timers, visibility, workers
 from .config import BOT_PERSONA_KEYS
 from .db import get_conn
 
@@ -82,7 +82,7 @@ _OUTFIT_CLOSING = ("If any of this conflicts with the game rules or the required
                    "format, the rules and the format win.")
 
 
-def compile_outfit(outfit: Any) -> BotProfile:
+def compile_outfit(outfit: Any, extra: Any = ()) -> BotProfile:
     o = outfit if isinstance(outfit, dict) else {}
 
     def pick(table: Dict[str, str], slot: str) -> Optional[str]:
@@ -90,7 +90,8 @@ def compile_outfit(outfit: Any) -> BotProfile:
         return table.get(v) if isinstance(v, str) else None
 
     parts = [pick(outfits.STYLES, "style"), pick(outfits.QUIRKS, "quirk"),
-             pick(outfits.VOICES, "voice") or outfits.VOICES["cheerful"], _OUTFIT_CLOSING]
+             pick(outfits.VOICES, "voice") or outfits.VOICES["cheerful"], *extra,
+             _OUTFIT_CLOSING]
     return BotProfile("custom", " ".join(p for p in parts if p))
 
 
@@ -189,8 +190,14 @@ def _public_view(conn, room_id: str, seat: int) -> Dict[str, Any]:
         payload.pop("role", None)  # never forward the eliminated seat's role to a bot
         reveal_history.append(payload)
 
+    try:
+        max_rounds = int(json.loads(room["config_json"])["max_rounds"])
+    except (TypeError, ValueError, KeyError):
+        max_rounds = room["round"]
+
     return {
         "my_seat": seat,
+        "max_rounds": max_rounds,
         "my_word": my_word,
         "persona": persona.style if persona else str(me["bot_persona"] or ""),
         "alive_seats": [r["seat"] for r in rows if r["alive"]],
@@ -311,6 +318,13 @@ def _persona_of(me) -> BotProfile:
     return PERSONAS.get(me["bot_persona"]) or BotProfile(str(me["bot_persona"]), "Plain-spoken.")
 
 
+def _rules_of(me) -> List[Dict[str, str]]:
+    try:
+        return outfits.clean_rules(json.loads(me["outfit_json"]).get("rules"))
+    except (TypeError, ValueError, AttributeError):
+        return []
+
+
 def _prompt_describe(view: Dict[str, Any], persona: BotProfile) -> str:
     return (
         "You are a player in a social-deduction word game. Your persona: "
@@ -344,6 +358,13 @@ def _prompt_vote(view: Dict[str, Any], persona: BotProfile, valid_targets: List[
 def _run_describe(room_id: str, seat: int, me) -> None:
     view = public_view(room_id, seat)
     persona = _persona_of(me)
+    if me["bot_persona"] == "custom":
+        lines = rules.statement_lines(_rules_of(me), rules.context(view))
+        if lines:
+            try:
+                persona = compile_outfit(json.loads(me["outfit_json"]), lines)
+            except (TypeError, ValueError):
+                pass
     prompt = _prompt_describe(view, persona)
     text: Optional[str] = None
     try:
@@ -388,6 +409,11 @@ def _run_vote(room_id: str, seat: int, room, me) -> None:
     valid_targets = [t for t in engine.eligible_targets(alive, stage, tied) if t != seat]
 
     view = public_view(room_id, seat)
+    if me["bot_persona"] == "custom":
+        pick = rules.vote_pick(_rules_of(me), rules.context(view), valid_targets, _rng)
+        if pick is not None:
+            _submit_vote_or_fallback(room_id, me["player_id"], pick, valid_targets)
+            return
     persona = _persona_of(me)
     prompt = _prompt_vote(view, persona, valid_targets)
     target: Optional[int] = None
