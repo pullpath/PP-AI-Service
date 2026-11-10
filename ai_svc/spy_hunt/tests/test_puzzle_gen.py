@@ -459,3 +459,13 @@ def test_statement_prompt_names_the_language_once(room):
     build(room, origin="zh-Hans")
     assert prompts and all(p.count("Write the statement in Simplified Chinese.") == 1
                            and "must be written in" not in p for p in prompts)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), True, "7", None])
+def test_clean_scores_rejects_non_finite_or_non_numeric(bad):
+    assert puzzle_gen._clean_scores([10, 20, bad, 40, 50]) == []
+
+
+def test_clean_scores_keeps_valid_and_clamps():
+    assert puzzle_gen._clean_scores([10, 250.7, -3, 40, 50]) == [10, 100, 0, 40, 50]
+    assert puzzle_gen._clean_scores([1, 2, 3]) == []

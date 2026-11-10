@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -239,11 +240,16 @@ def solve(room_id: str, public: Dict[str, Any], rounds: Optional[int] = None
         return None
     if not 0 <= out.spy_seat < PLAYERS:
         return None
-    scores = [max(0, min(100, int(x))) for x in out.scores
-              if isinstance(x, (int, float)) and not isinstance(x, bool)]
-    if len(scores) != len(out.scores) or len(scores) != PLAYERS:
-        scores = []
-    return out.spy_seat, max(0, min(100, out.confidence)), scores
+    return out.spy_seat, max(0, min(100, out.confidence)), _clean_scores(out.scores)
+
+
+def _clean_scores(raw: List[Any]) -> List[int]:
+    if len(raw) != PLAYERS:
+        return []
+    for x in raw:
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x):
+            return []
+    return [max(0, min(100, int(x))) for x in raw]
 
 
 def difficulty_of(confidence: int) -> int:
