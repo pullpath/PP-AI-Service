@@ -103,3 +103,17 @@ def delete(owner: str, bot_id: str) -> None:
 def get_card(bot_id: str) -> Optional[Dict[str, Any]]:
     row = get_conn().execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone()
     return _card(row) if row else None
+
+
+def record_game(conn: sqlite3.Connection, rows, winner: Optional[str]) -> None:
+    if winner is None:
+        return
+    for r in rows:
+        if not r["bot_id"]:
+            continue
+        spy = r["role"] == "spy"
+        won = (spy and winner == "spies") or (r["role"] == "civilian" and winner == "civilians")
+        conn.execute(
+            "UPDATE custom_bots SET games = games + 1, wins = wins + ?, spy_games = spy_games + ?,"
+            " spy_wins = spy_wins + ? WHERE id=?",
+            (int(won), int(spy), int(spy and won), r["bot_id"]))

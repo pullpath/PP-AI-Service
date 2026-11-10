@@ -203,3 +203,102 @@ def test_old_players_table_is_migrated(tmp_path, monkeypatch):
     assert {"avatar_emoji", "avatar_color", "bot_id", "bot_owner_id", "outfit_json"} <= cols
     assert conn.execute("SELECT name FROM players").fetchone()["name"] == "Old"
     db.close_conn()
+
+
+# ---- records at game end ----
+
+def _record(client, bid):
+    return client.get(f"{API}/bots/{bid}").get_json()["record"]
+
+
+def _play(conn, rid, roles, winner):
+    """Put the room mid-game with `roles` (bot_id -> role; others civilian) and end it."""
+    from ai_svc.spy_hunt import store
+    conn.execute("UPDATE rooms SET status='playing' WHERE id=?", (rid,))
+    for p in conn.execute("SELECT seat, bot_id FROM players WHERE room_id=?", (rid,)).fetchall():
+        conn.execute("UPDATE players SET role=?, alive=1 WHERE room_id=? AND seat=?",
+                     (roles.get(p["bot_id"], "civilian"), rid, p["seat"]))
+    conn.commit()
+    with store.tx(rid) as c:
+        game._finish(c, rid, [], winner, [])
+
+
+def _bot_room(client, conn, n=1):
+    code, h, hs = room_with(client, n)
+    ids = []
+    for hh in hs:
+        bid = mk(client, hh)
+        assert bots(client, code, hh, action="add", bot_id=bid).status_code == 200
+        ids.append(bid)
+    return code, h, hs, ids, room_row(conn, code)["id"]
+
+
+def test_civilian_bot_in_a_civilian_win(client, conn):
+    code, h, hs, (bid,), rid = _bot_room(client, conn)
+    _play(conn, rid, {bid: "civilian"}, "civilians")
+    assert _record(client, bid) == {"games": 1, "wins": 1, "spy_games": 0, "spy_wins": 0}
+
+
+def test_spy_bot_in_a_spy_win(client, conn):
+    code, h, hs, (bid,), rid = _bot_room(client, conn)
+    _play(conn, rid, {bid: "spy"}, "spies")
+    assert _record(client, bid) == {"games": 1, "wins": 1, "spy_games": 1, "spy_wins": 1}
+    code, h, hs, (bid,), rid = _bot_room(client, conn)
+    _play(conn, rid, {bid: "spy"}, "civilians")
+    assert _record(client, bid) == {"games": 1, "wins": 0, "spy_games": 1, "spy_wins": 0}
+
+
+def test_voted_out_civilian_bot_still_wins_with_its_side(client, conn):
+    code, h, hs, (bid,), rid = _bot_room(client, conn)
+    _play(conn, rid, {bid: "civilian"}, "civilians")
+    conn.execute("UPDATE players SET alive=0 WHERE room_id=? AND bot_id=?", (rid, bid))
+    conn.commit()
+    rid2 = rid
+    conn.execute("UPDATE custom_bots SET games=0, wins=0 WHERE id=?", (bid,))
+    conn.commit()
+    from ai_svc.spy_hunt import store
+    with store.tx(rid2) as c:
+        game._finish(c, rid2, [], "civilians", [])
+    assert _record(client, bid)["wins"] == 1
+
+
+def test_two_spy_game_counts_both_spy_bots(client, conn):
+    code, h, hs, ids, rid = _bot_room(client, conn, 2)
+    _play(conn, rid, {ids[0]: "spy", ids[1]: "spy"}, "spies")
+    for bid in ids:
+        assert _record(client, bid) == {"games": 1, "wins": 1, "spy_games": 1, "spy_wins": 1}
+
+
+def test_closed_room_without_winner_counts_nothing(client, conn):
+    code, h, (h2,), (bid,), rid = _bot_room(client, conn)
+    conn.execute("UPDATE rooms SET status='playing' WHERE id=?", (rid,))
+    conn.commit()
+    client.post(f"{API}/rooms/{code}/leave", headers=h2)
+    client.post(f"{API}/rooms/{code}/leave", headers=h)
+    r = room_row(conn, code)
+    assert r["status"] == "finished" and r["winner"] is None
+    assert _record(client, bid) == {"games": 0, "wins": 0, "spy_games": 0, "spy_wins": 0}
+
+
+def test_deleted_bot_does_not_break_game_end(client, conn):
+    code, h, (h2,), (bid,), rid = _bot_room(client, conn)
+    client.delete(f"{API}/bots/{bid}", headers=h2)
+    _play(conn, rid, {bid: "spy"}, "spies")
+    assert room_row(conn, code)["status"] == "finished"
+
+
+def test_record_appears_on_the_public_card_and_in_my_list(client, conn):
+    code, h, (h2,), (bid,), rid = _bot_room(client, conn)
+    _play(conn, rid, {bid: "spy"}, "spies")
+    want = {"games": 1, "wins": 1, "spy_games": 1, "spy_wins": 1}
+    assert _record(client, bid) == want
+    mine = client.get(f"{API}/bots", headers=h2).get_json()["bots"]
+    assert mine[0]["record"] == want
+
+
+def test_rematch_then_second_game_adds_another_game(client, conn):
+    code, h, (h2,), (bid,), rid = _bot_room(client, conn)
+    _play(conn, rid, {bid: "spy"}, "spies")
+    assert client.post(f"{API}/rooms/{code}/rematch", headers=h).status_code == 200
+    _play(conn, rid, {bid: "civilian"}, "spies")
+    assert _record(client, bid) == {"games": 2, "wins": 1, "spy_games": 1, "spy_wins": 1}

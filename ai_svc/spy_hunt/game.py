@@ -259,6 +259,8 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
     words = visibility._pair_words(conn, room)
     conn.execute("UPDATE rooms SET status='finished', winner=? WHERE id=?", (winner, room_id))
     _set_phase(conn, room_id, pend, None, None)
+    from ai_svc.spy_hunt import custombots
+    custombots.record_game(conn, rows, winner)
     append_event(room_id, "game_over", {
         "winner": winner, "round": room["round"],
         "roles": [{"seat": r["seat"], "role": r["role"]} for r in rows],
