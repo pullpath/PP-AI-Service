@@ -109,3 +109,31 @@ Keep the queue topped up with cron (about 14 model calls per puzzle):
 ```
 0 3 * * * cd <repo> && venv/bin/python -m ai_svc.spy_hunt.scripts.build_puzzles --count 14
 ```
+
+## Custom bots
+
+A guest can make up to 3 bots (name, emoji avatar, colour, and three outfit slots:
+voice, clue style, quirk). All under `/api/spy-hunt`; a guest token is required except
+for the public card.
+
+| Route | Result |
+| --- | --- |
+| `GET /bots/catalog` | `{voices, styles, quirks, emojis, colors}` (ids/values only) |
+| `GET /bots` | `{bots: MyBot[]}`; `MyBot = {id, name, avatar, outfit, record}` |
+| `POST /bots` `{name, avatar, outfit}` | 201 `MyBot` |
+| `PATCH /bots/<id>` (any subset of `name`, `avatar`, `outfit`) | `MyBot`; `avatar` and `outfit` must be complete |
+| `DELETE /bots/<id>` | `{ok: true}`; the public card then 404s, running rooms keep their copy |
+| `GET /bots/<id>` (no token) | `{id, name, avatar, outfit, record: {games, wins, spy_games, spy_wins}}` |
+| `POST /rooms/<code>/bots` `{action: "add", bot_id?}` | adds your custom bot (or a random one without `bot_id`) |
+| `POST /rooms/<code>/bots` `{action: "remove", seat?}` | removes a bot; an owner may remove their own custom bot by `seat` |
+
+Errors: `400 bad_name | bad_avatar | bad_outfit | bad_request`, `404 not_found`,
+`409 bot_limit`; in rooms also `409 bot_in_room`, `403 not_allowed`.
+
+- At most 3 bots per guest; at most one custom bot per owner per room.
+- Outfits are prompt-only: the server compiles them into extra instruction text and
+  they carry no game state. Scaffold rules win, then clue style, quirk, voice.
+- A room copies the bot into the player row, so later edits never touch a running game.
+- Records count only games that end with a winner.
+- A database from before this change is migrated on start (new nullable columns).
+- The public card never shows an owner; public player data carries `avatar` and `bot_id` only, never the owner or outfit.
