@@ -150,6 +150,8 @@ def test_append_event_firewall_rejects_secrets_for_all():
         ("reveal", {"seat": 1, "role": "spy", "players": [{"seat": 0, "role": "civilian"}]}),
         ("reveal", {"seat": 1, "roles": {"0": "spy"}}),
         ("reveal", {"seat": 1, "my_word": "x"}),
+        ("player_joined", {"player": {"seat": 1, "bot_owner_id": "pid"}}),
+        ("player_joined", {"player": {"seat": 1, "outfit_json": "{}"}}),
     ):
         with pytest.raises(ValueError):
             store.append_event("r", ptype, payload, "all")

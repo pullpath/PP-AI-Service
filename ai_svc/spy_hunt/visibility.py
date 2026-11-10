@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, Optional
 from ai_svc.spy_hunt import engine
 from ai_svc.spy_hunt.db import get_conn
 
-SECRET_KEYS = frozenset({"role", "roles", "word", "words", "my_word"})
+SECRET_KEYS = frozenset({"role", "roles", "word", "words", "my_word", "bot_owner_id", "outfit_json"})
 DESCRIBE_PHASES = ("describe", "tiebreak_describe")
 STAGE1_PHASES = ("tiebreak_describe", "revote")
 _SEAT_AUDIENCE = re.compile(r"seat:([0-9]+)")  # strict ASCII; used with fullmatch
