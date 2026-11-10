@@ -53,7 +53,7 @@ def _fold(text: str) -> str:
     return "".join(out)
 
 
-def data_block(text: str) -> str:
+def data_block(text: str, limit: int = MAX_DATA_CHARS) -> str:
     if not isinstance(text, str):
         raise TypeError("data_block expects str")
     s = _fold(text)
@@ -63,6 +63,6 @@ def data_block(text: str) -> str:
         if t == s:
             break
         s = t
-    if len(s) > MAX_DATA_CHARS:
-        s = s[:MAX_DATA_CHARS] + TRUNCATED
+    if len(s) > limit:
+        s = s[:limit] + TRUNCATED
     return f"{_INTRO}\n{DATA_OPEN}\n{s}\n{DATA_CLOSE}"

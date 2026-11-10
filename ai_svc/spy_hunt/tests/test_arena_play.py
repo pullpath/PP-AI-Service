@@ -33,8 +33,7 @@ def seats(n=5, custom=None):
 def info(prompt):
     seat = int(re.search(r'"my_seat": (\d+)', prompt).group(1))
     m = re.search(r'"round": (\d+), "phase": "(\w+)"', prompt)
-    if m is None:  # late in long matches the view is truncated inside the data block
-        return seat, None, None
+    assert m is not None, "round and phase must always reach the model"
     return seat, int(m.group(1)), m.group(2)
 
 
