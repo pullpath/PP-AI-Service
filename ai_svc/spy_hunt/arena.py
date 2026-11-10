@@ -284,10 +284,14 @@ def prune(conn: sqlite3.Connection, today: str) -> int:
     return len(ids)
 
 
+def _utc_today() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+
 def run_night(matches: int = ARENA_MATCHES_PER_DAY, rng: Optional[random.Random] = None,
               log=print, today: Optional[str] = None, dry_run: bool = False) -> Dict[str, int]:
     rng = rng or random.Random()
-    today = today or datetime.date.today().isoformat()
+    today = today or _utc_today()
     conn = get_conn()
     eligible = eligible_bots(conn, today, int(time.time() * 1000))
     result = {"played": 0, "discarded": 0, "skipped": 0}
@@ -304,6 +308,7 @@ def run_night(matches: int = ARENA_MATCHES_PER_DAY, rng: Optional[random.Random]
         return result
     room_id = store.create_room("arena", "builder", "en")["id"]
     matched = 0
+    streak = 0
     for i, group in enumerate(groups):
         pool = list(conn.execute("SELECT * FROM pairs WHERE active=1"))
         if not pool:
@@ -317,7 +322,12 @@ def run_night(matches: int = ARENA_MATCHES_PER_DAY, rng: Optional[random.Random]
         if res is None:
             result["discarded"] += 1
             log(f"match {i + 1} ({lang}, {pair.id}): discarded")
+            streak += 1
+            if streak >= 2:
+                log("model down, stopping")
+                break
             continue
+        streak = 0
         try:
             store_match(conn, today, lang, pair.id, res)
         except sqlite3.IntegrityError:

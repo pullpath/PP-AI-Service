@@ -96,3 +96,15 @@ def test_unknown_or_pruned_match_is_404(client):
 def test_recaps_route_is_not_shadowed_by_bot_id(client):
     h, _ = guest(client)
     assert client.get(f"{API}/bots/recaps", headers=h).get_json() == {"recaps": [], "unseen": 0}
+
+
+def test_get_recaps_does_not_touch_last_active(client):
+    h, (a,) = setup(client)
+    get_conn().execute("UPDATE custom_bots SET last_active=123 WHERE id=?", (a,))
+    get_conn().commit()
+    client.get(f"{API}/bots/recaps", headers=h)
+    assert get_conn().execute("SELECT last_active FROM custom_bots WHERE id=?", (a,)).fetchone()[0] == 123
+
+
+def test_mark_seen_requires_a_token(client):
+    assert client.post(f"{API}/bots/recaps/seen").status_code == 401

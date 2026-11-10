@@ -129,6 +129,40 @@ def test_run_night_with_no_bots_and_with_model_down(temp_db):
     assert n("arena_matches") == 0 and n("arena_entries") == 0
 
 
+def test_night_stops_after_two_discards_in_a_row(temp_db):
+    seed_pair()
+    for i in range(15):
+        new_bot(i)
+    calls = []
+
+    def down(prompt):
+        calls.append(1)
+        raise LlmError("down")
+    fake_llm.register("bot", down)
+    out = []
+    res = arena.run_night(3, random.Random(1), log=out.append, today=TODAY)
+    assert res == {"played": 0, "discarded": 2, "skipped": 15}
+    assert "model down, stopping" in out
+
+
+def test_default_day_is_the_utc_date(temp_db, monkeypatch):
+    import datetime as real
+    import types
+
+    class FakeDT(real.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is real.timezone.utc
+            return cls(2030, 1, 2, 23, 59, tzinfo=tz)
+
+        @classmethod
+        def today(cls):
+            return cls(2030, 1, 3)
+    monkeypatch.setattr(arena, "datetime", types.SimpleNamespace(
+        datetime=FakeDT, date=real.date, timedelta=real.timedelta, timezone=real.timezone))
+    assert arena._utc_today() == "2030-01-02"
+
+
 def test_prune_keeps_totals(temp_db):
     a = new_bot(1)
     for day in ("2026-10-26", "2026-10-28"):
