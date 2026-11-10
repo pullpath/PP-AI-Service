@@ -196,6 +196,11 @@ def _process(message_id: int) -> None:
                                (room_id, msg["seat"])).fetchone()
     known = msg["kind"] == "host" or (speaker is not None and speaker["is_bot"])
     lang = msg["lang"] if known and msg["lang"] in LANGS else None
+    if lang is not None:
+        seen = detect_local(text)  # a bot or host may write in another language than its label
+        if seen is not None and seen != lang:
+            lang = seen
+            _set_lang(room_id, message_id, lang)
     if lang is None and not any(c.isalpha() for c in text):
         return  # digits/emoji/punctuation only: nothing to translate or detect
     if lang is None:

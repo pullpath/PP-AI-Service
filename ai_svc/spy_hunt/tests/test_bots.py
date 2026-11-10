@@ -561,10 +561,31 @@ def test_builtin_bot_prompts_are_unchanged(benv):
     me = seats(rid)[seat]
     captured = []
     fake_llm.register("bot", lambda p: captured.append(p) or {"statement": "a vague clue"})
-    expected = bots._prompt_describe(bots.public_view(rid, seat), bots.PERSONAS[me["bot_persona"]])
+    expected = bots._prompt_describe(bots.public_view(rid, seat), bots.PERSONAS[me["bot_persona"]],
+                                     me["lang"])
     bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
     assert captured[0] == expected
     assert bots.public_view(rid, seat)["persona"] == bots.PERSONAS[me["bot_persona"]].style
+
+
+# ---- the bot is told which language to write in ----
+
+@pytest.mark.parametrize("lang,name", [("en", "English"), ("zh-Hans", "Simplified Chinese")])
+def test_describe_prompt_names_the_language_the_bot_must_write_in(benv, lang, name):
+    rid = lobby_with_bots(1, 3)
+    start(rid)
+    seat = advance_to_bot_speaker(rid)
+    get_conn().execute("UPDATE players SET lang=? WHERE room_id=? AND seat=?", (lang, rid, seat))
+    get_conn().commit()
+    prompt = speaker_prompt(rid, seat)
+    assert f"Write the statement in {name}." in prompt
+
+
+def test_custom_bot_prompt_also_names_the_language(benv):
+    rid, seat = custom_to_speak()
+    get_conn().execute("UPDATE players SET lang='zh-Hans' WHERE room_id=? AND seat=?", (rid, seat))
+    get_conn().commit()
+    assert "Write the statement in Simplified Chinese." in speaker_prompt(rid, seat)
 
 
 # ---- rule cards ----

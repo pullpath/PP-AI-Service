@@ -174,6 +174,33 @@ def test_bot_message_no_detection_but_translates(env):
     assert len(f.prompts) == 1
 
 
+def test_bot_message_in_the_wrong_language_is_relabelled_and_translated(env):
+    # a zh-labelled bot that actually wrote English must still be translated for a zh reader
+    rid = mk_room(("zh-Hans",))
+    with store.tx(rid) as c:
+        c.execute("INSERT INTO players(room_id, player_id, seat, name, lang, is_bot, bot_persona,"
+                  " alive, connected, joined_at) VALUES(?,?,?,?,?,1,'dry',1,1,0)",
+                  (rid, "bot1", 5, "Milo", "zh-Hans"))
+    f = reg({"lang": "en", "translations": {"zh-Hans": "小而圆"}})
+    mid = add_msg(rid, "Small, round, and stuffs its cheeks.", "zh-Hans", seat=5)
+    translation.process_message(mid)
+    assert lang_of(mid) == "en"
+    assert trans(mid) == {"zh-Hans": "小而圆"}
+    assert len(f.prompts) == 1
+
+
+def test_bot_message_with_ambiguous_text_keeps_its_label(env):
+    rid = mk_room(("en", "zh-Hans"))
+    with store.tx(rid) as c:
+        c.execute("INSERT INTO players(room_id, player_id, seat, name, lang, is_bot, bot_persona,"
+                  " alive, connected, joined_at) VALUES(?,?,?,?,?,1,'dry',1,1,0)",
+                  (rid, "bot1", 5, "Milo", "en"))
+    f = reg({"lang": "en", "translations": {"zh-Hans": "好"}})
+    mid = add_msg(rid, "123 😀", "en", seat=5)
+    translation.process_message(mid)
+    assert lang_of(mid) == "en"
+
+
 def test_bots_do_not_create_targets(env):
     rid = mk_room(("en", "en"))
     with store.tx(rid) as c:
