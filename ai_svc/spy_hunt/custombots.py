@@ -1,0 +1,105 @@
+"""Custom bots owned by guests: CRUD and the public card."""
+from __future__ import annotations
+
+import secrets
+import sqlite3
+import time
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional
+
+from . import outfits
+from .db import get_conn
+from .store import StoreError, clean_name
+
+MAX_BOTS = 3
+
+
+@contextmanager
+def _tx() -> Iterator[sqlite3.Connection]:
+    conn = get_conn()
+    if conn.in_transaction:
+        yield conn
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()
+
+
+def _record(row: sqlite3.Row) -> Dict[str, int]:
+    return {k: row[k] or 0 for k in ("games", "wins", "spy_games", "spy_wins")}
+
+
+def _card(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"], "name": row["name"],
+        "avatar": {"emoji": row["avatar_emoji"], "color": row["avatar_color"]},
+        "outfit": {"voice": row["voice"], "style": row["style"], "quirk": row["quirk"]},
+        "record": _record(row),
+    }
+
+
+def get_owned(conn: sqlite3.Connection, owner: str, bot_id: str) -> Optional[sqlite3.Row]:
+    return conn.execute("SELECT * FROM custom_bots WHERE id=? AND owner_player_id=?",
+                        (bot_id, owner)).fetchone()
+
+
+def create(owner: str, name: Any, avatar: Any, outfit: Any) -> Dict[str, Any]:
+    name = clean_name(name)
+    av = outfits.check_avatar(avatar)
+    out = outfits.check_outfit(outfit)
+    with _tx() as c:
+        n = c.execute("SELECT COUNT(*) FROM custom_bots WHERE owner_player_id=?", (owner,)).fetchone()[0]
+        if n >= MAX_BOTS:
+            raise StoreError(409, "bot_limit", f"You can have at most {MAX_BOTS} bots.")
+        while True:
+            bot_id = secrets.token_urlsafe(6)
+            if not c.execute("SELECT 1 FROM custom_bots WHERE id=?", (bot_id,)).fetchone():
+                break
+        c.execute(
+            "INSERT INTO custom_bots(id, owner_player_id, name, avatar_emoji, avatar_color,"
+            " voice, style, quirk, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (bot_id, owner, name, av["emoji"], av["color"], out["voice"], out["style"],
+             out["quirk"], int(time.time() * 1000)))
+        return _card(c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
+
+
+def list_for(owner: str) -> List[Dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM custom_bots WHERE owner_player_id=? ORDER BY created_at, rowid", (owner,)).fetchall()
+    return [_card(r) for r in rows]
+
+
+def update(owner: str, bot_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    if not any(k in body for k in ("name", "avatar", "outfit")):
+        raise StoreError(400, "bad_request", "Nothing to update.")
+    sets: Dict[str, Any] = {}
+    if "name" in body:
+        sets["name"] = clean_name(body["name"])
+    if "avatar" in body:
+        av = outfits.check_avatar(body["avatar"])
+        sets["avatar_emoji"], sets["avatar_color"] = av["emoji"], av["color"]
+    if "outfit" in body:
+        sets.update(outfits.check_outfit(body["outfit"]))
+    with _tx() as c:
+        if get_owned(c, owner, bot_id) is None:
+            raise StoreError(404, "not_found", "No such bot.")
+        cols = ", ".join(f"{k}=?" for k in sets)
+        c.execute(f"UPDATE custom_bots SET {cols} WHERE id=?", (*sets.values(), bot_id))
+        return _card(c.execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone())
+
+
+def delete(owner: str, bot_id: str) -> None:
+    with _tx() as c:
+        if c.execute("DELETE FROM custom_bots WHERE id=? AND owner_player_id=?",
+                     (bot_id, owner)).rowcount == 0:
+            raise StoreError(404, "not_found", "No such bot.")
+
+
+def get_card(bot_id: str) -> Optional[Dict[str, Any]]:
+    row = get_conn().execute("SELECT * FROM custom_bots WHERE id=?", (bot_id,)).fetchone()
+    return _card(row) if row else None

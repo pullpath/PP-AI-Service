@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import auth, events, game, host, puzzles, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import auth, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -262,3 +262,57 @@ def room_events(code: str):
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
     })
+
+
+# ---- custom bots ----
+
+@spy_hunt_bp.route("/bots/catalog", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def bot_catalog():
+    return jsonify(outfits.catalog())
+
+
+@spy_hunt_bp.route("/bots", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def list_bots():
+    return jsonify({"bots": custombots.list_for(g.player_id)})
+
+
+@spy_hunt_bp.route("/bots", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def create_bot():
+    body = _json_body()
+    bot = custombots.create(g.player_id, body.get("name"), body.get("avatar"), body.get("outfit"))
+    return jsonify(bot), 201
+
+
+@spy_hunt_bp.route("/bots/<bot_id>", methods=["PATCH"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def update_bot(bot_id: str):
+    return jsonify(custombots.update(g.player_id, bot_id, _json_body()))
+
+
+@spy_hunt_bp.route("/bots/<bot_id>", methods=["DELETE"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def delete_bot(bot_id: str):
+    custombots.delete(g.player_id, bot_id)
+    return jsonify({"ok": True})
+
+
+@spy_hunt_bp.route("/bots/<bot_id>", methods=["GET"])
+@ratelimits.limit("flood")
+def get_bot_card(bot_id: str):
+    card = custombots.get_card(bot_id)
+    if card is None:
+        raise store.StoreError(404, "not_found", "No such bot.")
+    return jsonify(card)
