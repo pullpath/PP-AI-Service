@@ -118,7 +118,7 @@ for the public card.
 
 | Route | Result |
 | --- | --- |
-| `GET /bots/catalog` | `{voices, styles, quirks, emojis, colors}` (ids/values only) |
+| `GET /bots/catalog` | `{voices, styles, quirks, emojis, colors, triggers, actions, max_rules}` (ids/values only) |
 | `GET /bots` | `{bots: MyBot[]}`; `MyBot = {id, name, avatar, outfit, record}` |
 | `POST /bots` `{name, avatar, outfit}` | 201 `MyBot` |
 | `PATCH /bots/<id>` (any subset of `name`, `avatar`, `outfit`) | `MyBot`; `avatar` and `outfit` must be complete |
@@ -126,6 +126,15 @@ for the public card.
 | `GET /bots/<id>` (no token) | `{id, name, avatar, outfit, record: {games, wins, spy_games, spy_wins}}` |
 | `POST /rooms/<code>/bots` `{action: "add", bot_id?}` | adds your custom bot (or a random one without `bot_id`) |
 | `POST /rooms/<code>/bots` `{action: "remove", seat?}` | removes a bot; an owner may remove their own custom bot by `seat` |
+
+### Rule cards
+
+`outfit` also carries `rules: [{when, do}]` (max 3, no duplicate pair, missing means `[]`; violations are `400 bad_outfit`).
+Conditions (`when`) read public state only: `accused`, `first_to_speak`, `last_to_speak`, `after_elimination`, `late_game`.
+Actions (`do`): statement actions `counter_accuse`, `copy_previous`, `go_vague` add a sentence to the prompt;
+vote actions `vote_accuser`, `vote_leader` pick the target directly and skip the model call (if none applies, the normal model vote runs).
+Vote rules never choose an illegal target. Rule text names players by seat number only, never by name.
+A stored rule that is broken or unknown is ignored.
 
 Errors: `400 bad_name | bad_avatar | bad_outfit | bad_request`, `404 not_found`,
 `409 bot_limit`; in rooms also `409 bot_in_room`, `403 not_allowed`.
