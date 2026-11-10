@@ -397,3 +397,65 @@ def test_distractor_prompt_asks_for_five(room):
     fake_llm.register("puzzle_options", lambda p: (seen.append(p), distractors(*GOOD))[1])
     gen(room)
     assert "5 other" in seen[0]
+
+
+# ---- stricter gates ----
+
+def _public(room):
+    register_clean()
+    return build(room)["public"]
+
+
+def _solver(full, first):
+    def solve(prompt):
+        r = first if "Round 2" not in prompt else full
+        if isinstance(r, Exception):
+            raise r
+        return r
+    fake_llm.register("puzzle_solve", solve)
+
+
+def test_round_one_solver_error_rejects_the_candidate(room):
+    public = _public(room)
+    _solver({"spy_seat": 2, "confidence": 80, "scores": [10, 10, 80, 10, 10]}, LlmError("down"))
+    assert puzzle_gen._passes_gate(room, public, 2) is None
+
+
+def test_equal_scores_reject(room):
+    public = _public(room)
+    first = {"spy_seat": 2, "confidence": 50}
+    _solver({"spy_seat": 2, "confidence": 80, "scores": [50, 52, 51, 50, 49]}, first)
+    assert puzzle_gen._passes_gate(room, public, 2) is None
+    _solver({"spy_seat": 2, "confidence": 80, "scores": [20, 20, 80, 20, 20]}, first)
+    assert puzzle_gen._passes_gate(room, public, 2) == 2
+    _solver({"spy_seat": 2, "confidence": 80}, first)
+    assert puzzle_gen._passes_gate(room, public, 2) == 2
+
+
+def test_solve_returns_cleaned_scores(room):
+    public = _public(room)
+    fake_llm.register("puzzle_solve",
+                      lambda p: {"spy_seat": 1, "confidence": 70, "scores": [-5, 200, 30, 40, 50]})
+    assert puzzle_gen.solve(room, public) == (1, 70, [0, 100, 30, 40, 50])
+    fake_llm.register("puzzle_solve",
+                      lambda p: {"spy_seat": 1, "confidence": 70, "scores": [1, 2, 3]})
+    assert puzzle_gen.solve(room, public) == (1, 70, [])
+
+
+def test_mixed_language_statement_is_retried_then_rejected(room):
+    def run(text, origin="zh-Hans"):
+        fake_llm.register("puzzle_statement", lambda p: {"statement": text})
+        fake_llm.register("puzzle_translate", lambda p: {"translations": ["x"] * 10})
+        return build(room, origin=origin)
+
+    assert run("It is a 很 big 东西 thing") is None
+    assert run("12345 🎹") is not None
+    assert run("这是一个很大的东西") is not None
+
+
+def test_statement_prompt_names_the_language_once(room):
+    prompts = []
+    register_clean(prompts)
+    build(room, origin="zh-Hans")
+    assert prompts and all(p.count("Write the statement in Simplified Chinese.") == 1
+                           and "must be written in" not in p for p in prompts)
