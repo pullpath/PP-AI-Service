@@ -11,7 +11,8 @@ MAX_LINES = 3
 _DESCRIBE = ("describe", "tiebreak_describe")
 _STAGE1 = ("tiebreak_describe", "revote")
 
-_COPY = "Stay as close as possible in meaning to the previous speaker's clue."
+_COPY = ("Copy the previous speaker's clue: restate the same idea in your own words and add "
+         "no new detail of your own. This takes priority over any description style above.")
 _VAGUE = "Make this clue vaguer and safer than usual, naming no distinguishing detail."
 
 

@@ -671,7 +671,7 @@ def test_vote_only_rules_add_no_line_in_describe(benv):
     force_custom(rid, first, rules_)
     p = speaker_prompt(rid, first)
     assert bots.compile_outfit(OUT).style in p
-    assert VAGUE not in p and "voted for you" not in p and "Stay as close" not in p
+    assert VAGUE not in p and "voted for you" not in p and "Copy the previous speaker" not in p
 
 
 def test_counter_accuse_prompt_has_seats_not_names(benv):

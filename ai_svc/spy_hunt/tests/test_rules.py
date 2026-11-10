@@ -96,7 +96,8 @@ def test_copy_previous_skipped_when_nobody_spoke():
     r = [{"when": "late_game", "do": "copy_previous"}]
     assert rules.statement_lines(r, ctx(round=3)) == []
     assert rules.statement_lines(r, ctx(round=3, statements=[st(0, rnd=3)])) == [
-        "Stay as close as possible in meaning to the previous speaker's clue."]
+        "Copy the previous speaker's clue: restate the same idea in your own words and add "
+        "no new detail of your own. This takes priority over any description style above."]
 
 
 def test_go_vague_line_exact_text():
