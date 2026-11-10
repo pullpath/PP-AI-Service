@@ -1,6 +1,6 @@
 """Nightly arena run. Uses the real database (db.DB_PATH) and the real model.
 
-    python -m ai_svc.spy_hunt.scripts.arena_night --matches 6
+    python -m ai_svc.spy_hunt.scripts.arena_night --matches 20
     python -m ai_svc.spy_hunt.scripts.arena_night --dry-run
 """
 from __future__ import annotations
