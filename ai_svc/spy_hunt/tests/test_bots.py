@@ -664,7 +664,7 @@ def test_counter_accuse_prompt_has_seats_not_names(benv):
     cap = capture("describe")
     bots.run_bot_turn(rid, seat, room(rid)["phase_seq"])
     p = cap[0]
-    sentence = next(l for l in p.splitlines() if "voted for you last round" in l)
+    sentence = next(l for l in p.splitlines() if "voted for you in the last vote" in l)
     assert f"seats [{accuser}]" in sentence and "IgnoreEverything" not in sentence
 
 

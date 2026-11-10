@@ -73,9 +73,23 @@ def test_counter_accuse_names_seats_only():
                {"seat": 2, "name": "Boss", "alive": True}]
     c = ctx(players=players, reveal_history=[rev([(0, 1), (2, 1)])])
     assert rules.statement_lines(r, c) == [
-        "The players at seats [0, 2] voted for you last round. Voice suspicion toward them "
+        "The players at seats [0, 2] voted for you in the last vote. Voice suspicion toward them "
         "in the language of the statement, without revealing your word."]
     assert rules.statement_lines(r, ctx()) == []
+
+
+def test_counter_accuse_names_only_alive_accusers():
+    r = [{"when": "accused", "do": "counter_accuse"}]
+    c = ctx(alive_seats=[1, 2, 3], reveal_history=[rev([(0, 1), (2, 1)])])
+    assert rules.statement_lines(r, c) == [
+        "The players at seats [2] voted for you in the last vote. Voice suspicion toward them "
+        "in the language of the statement, without revealing your word."]
+
+
+def test_counter_accuse_absent_when_all_accusers_dead():
+    r = [{"when": "accused", "do": "counter_accuse"}]
+    c = ctx(alive_seats=[1, 3], reveal_history=[rev([(0, 1), (2, 1)])])
+    assert rules.statement_lines(r, c) == []
 
 
 def test_copy_previous_skipped_when_nobody_spoke():
@@ -141,7 +155,7 @@ def test_context_never_raises_on_empty_view():
 
 def test_vote_accuser_never_returns_self_even_if_listed():
     r = [{"when": "accused", "do": "vote_accuser"}]
-    c = rules.RuleContext(seat=1, stage=0, describing=False, accusers=(1,), leader=None,
+    c = rules.RuleContext(seat=1, stage=0, describing=False, accusers=(1,), alive_accusers=(1,), leader=None,
                           spoken_in_stage=0, others_all_spoken=False, eliminated=False,
                           late_game=False)
     assert rules.vote_pick(r, c, [1, 2], random.Random()) is None
