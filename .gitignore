@@ -174,4 +174,4 @@ OAI_CONFIG_LIST
 *.db-shm
 *.db-wal
 credentials/*
-!credentials/*.md
+!credentials/*.md.worktrees/
