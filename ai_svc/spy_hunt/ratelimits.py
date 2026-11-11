@@ -13,6 +13,7 @@ _SPECS = {
     "action": (30, "guest"),
     "read": (60, "guest"),
     "flood": (200, "ip"),
+    "login": (20, "ip"),
 }
 
 _LIMITERS = {n: RateLimiter(m, 60) for n, (m, _) in _SPECS.items()}

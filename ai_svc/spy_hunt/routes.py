@@ -71,6 +71,36 @@ def register():
     return jsonify(accounts.register(g.player_id, body.get("email"), body.get("password")))
 
 
+@spy_hunt_bp.route("/login", methods=["POST"])
+@ratelimits.limit("flood")
+@ratelimits.limit("login")
+def login():
+    body = _json_body()
+    return jsonify(accounts.login(body.get("email"), body.get("password")))
+
+
+@spy_hunt_bp.route("/logout", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def logout():
+    # Need the raw token to find the calling device's own sessions row, so
+    # re-parse it the same way auth.require_guest did rather than trusting
+    # only g.player_id (which doesn't identify a specific session).
+    _, _, cred = request.headers["Authorization"].partition(" ")
+    _, _, token = cred.partition(".")
+    accounts.logout(auth.hash_token(token))
+    return jsonify({"ok": True})
+
+
+@spy_hunt_bp.route("/me", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def me():
+    return jsonify(accounts.me(g.player_id))
+
+
 # Room routes: `flood` (per IP) runs first, before auth, so unauthenticated
 # floods are counted too. Per-guest limits sit BELOW @require_guest because
 # they need g.player_id.

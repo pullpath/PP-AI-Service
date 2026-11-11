@@ -1,10 +1,13 @@
 """Account/password logic: attaching an email+password to an existing guest."""
 from __future__ import annotations
 
-from typing import Any, Dict
+import secrets
+import time
+from typing import Any, Dict, Optional
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from ai_svc.spy_hunt import auth
 from ai_svc.spy_hunt.db import get_conn
 from ai_svc.spy_hunt.store import StoreError
 
@@ -48,3 +51,40 @@ def register(player_id: str, email: Any, password: Any) -> Dict[str, str]:
     )
     conn.commit()
     return {"email": email}
+
+
+def login(email: Any, password: Any) -> Dict[str, str]:
+    email = normalize_email(email)
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT player_id, password_hash FROM guests WHERE email=?", (email,)
+    ).fetchone()
+    # Never reveal whether the email or the password was wrong.
+    bad = (
+        row is None
+        or not isinstance(password, str)
+        or not check_password(password, row["password_hash"])
+    )
+    if bad:
+        raise StoreError(401, "unauthorized", "Invalid email or password.")
+    player_id = row["player_id"]
+    token = secrets.token_urlsafe(32)
+    conn.execute(
+        "INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,?)",
+        (auth.hash_token(token), player_id, int(time.time())),
+    )
+    conn.commit()
+    return {"player_id": player_id, "token": token, "email": email}
+
+
+def logout(token_hash: str) -> None:
+    conn = get_conn()
+    conn.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
+    conn.commit()
+
+
+def me(player_id: str) -> Dict[str, Optional[str]]:
+    row = get_conn().execute(
+        "SELECT email FROM guests WHERE player_id=?", (player_id,)
+    ).fetchone()
+    return {"email": row["email"] if row else None}
