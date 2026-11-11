@@ -4,7 +4,9 @@ from __future__ import annotations
 import re
 import secrets
 import sqlite3
+import threading
 import time
+from collections import defaultdict, deque
 from typing import Any, Dict, Optional
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -15,6 +17,37 @@ from ai_svc.spy_hunt.store import StoreError
 
 MIN_PASSWORD_LEN = 8
 MAX_PASSWORD_LEN = 1024
+# Registered accounts only: an unregistered guest's token is their sole way back, so it never expires.
+SESSION_TTL_SECONDS = 90 * 24 * 3600
+MAX_SESSIONS = 20
+# Failed-login budget per account, on top of the per-IP limit, so spreading attempts over many IPs doesn't help.
+# Checked *before* the password, so a correct guess after the budget is spent is refused too.
+# Trade-off: someone can lock a known email out of logging in for the window.
+ACCOUNT_FAIL_LIMIT = 10
+ACCOUNT_FAIL_WINDOW = 15 * 60
+_fails: Dict[str, deque] = defaultdict(deque)
+_fails_lock = threading.Lock()
+
+
+def _locked(email: str) -> bool:
+    with _fails_lock:
+        hits = _fails[email]
+        while hits and time.time() - hits[0] > ACCOUNT_FAIL_WINDOW:
+            hits.popleft()
+        if not hits:
+            _fails.pop(email, None)
+            return False
+        return len(hits) >= ACCOUNT_FAIL_LIMIT
+
+
+def _record_fail(email: str) -> None:
+    with _fails_lock:
+        _fails[email].append(time.time())
+
+
+def reset_login_fails() -> None:
+    with _fails_lock:
+        _fails.clear()
 MAX_EMAIL_LEN = 254
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # Checked against when the email is unknown, so a miss costs the same as a wrong password.
@@ -71,6 +104,8 @@ def register(player_id: str, email: Any, password: Any) -> Dict[str, str]:
 
 def login(email: Any, password: Any) -> Dict[str, str]:
     email = normalize_email(email)
+    if _locked(email):
+        raise StoreError(429, "rate_limited", "Too many attempts, try again later.")
     conn = get_conn()
     row = conn.execute(
         "SELECT player_id, password_hash FROM guests WHERE email=?", (email,)
@@ -80,15 +115,29 @@ def login(email: Any, password: Any) -> Dict[str, str]:
     ok = isinstance(password, str) and check_password(password, stored)
     bad = row is None or not row["password_hash"] or not ok
     if bad:
+        _record_fail(email)
         raise StoreError(401, "unauthorized", "Invalid email or password.")
     player_id = row["player_id"]
     token = secrets.token_urlsafe(32)
+    now = int(time.time())
     conn.execute(
         "INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,?)",
-        (auth.hash_token(token), player_id, int(time.time())),
+        (auth.hash_token(token), player_id, now),
     )
+    _prune_sessions(conn, player_id, now)
     conn.commit()
     return {"player_id": player_id, "token": token, "email": email}
+
+
+def _prune_sessions(conn, player_id: str, now: int) -> None:
+    # Only reached through a successful login, so the player has an account.
+    conn.execute("DELETE FROM sessions WHERE player_id=? AND created_at<?",
+                 (player_id, now - SESSION_TTL_SECONDS))
+    conn.execute(
+        "DELETE FROM sessions WHERE player_id=? AND token_hash NOT IN ("
+        " SELECT token_hash FROM sessions WHERE player_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?)",
+        (player_id, player_id, MAX_SESSIONS),
+    )
 
 
 def logout(token_hash: str) -> None:

@@ -138,9 +138,9 @@ def test_login_wrong_password_or_unknown_email_is_401(client):
 
 
 def test_login_rate_limit_is_by_ip(client):
-    for _ in range(20):
+    for i in range(20):  # a different email each time, so only the IP budget is in play
         r = client.post(
-            "/api/spy-hunt/login", json={"email": "nobody@b.com", "password": "whatever1"}
+            "/api/spy-hunt/login", json={"email": f"nobody{i}@b.com", "password": "whatever1"}
         )
         assert r.status_code == 401
     r = client.post(
@@ -272,3 +272,71 @@ def test_register_rejects_malformed_or_oversized_email(client, email):
 def test_register_rejects_an_oversized_password(client):
     r = _register(client, _make_guest(client), "a@b.com", password="x" * 1025)
     assert r.status_code == 400 and r.get_json()["error"] == "bad_password"
+
+
+def test_password_hash_round_trip():
+    from ai_svc.spy_hunt import accounts
+
+    h = accounts.hash_password("correct horse")
+    assert h != "correct horse"
+    assert accounts.check_password("correct horse", h) is True
+    assert accounts.check_password("wrong horse", h) is False
+
+
+def _registered(client):
+    guest = _make_guest(client)
+    assert _register(client, guest, "acct@x.com").status_code == 200
+    return guest
+
+
+def _login(client, password="longenough", ip="1.1.1.1", email="acct@x.com"):
+    return client.post("/api/spy-hunt/login", json={"email": email, "password": password},
+                       headers={"X-Real-IP": ip})
+
+
+def test_login_is_limited_per_account_across_ips(client):
+    _registered(client)
+    codes = [_login(client, "wrong-pass1", ip=f"10.0.0.{i}").status_code for i in range(12)]
+    assert codes[:10] == [401] * 10
+    assert 429 in codes[10:]
+    # other accounts and the right password from a fresh account bucket are unaffected
+    assert _login(client, "longenough", email="other@x.com", ip="10.9.9.9").status_code == 401
+
+
+def test_a_locked_account_rejects_even_the_correct_password(client):
+    _registered(client)
+    for i in range(10):
+        _login(client, "wrong-pass1", ip=f"10.1.0.{i}")
+    # the guess that would have been right must not get through once the budget is spent
+    assert _login(client, "longenough", ip="10.1.1.1").status_code == 429
+
+
+def test_login_keeps_only_the_newest_sessions(client, conn):
+    guest = _registered(client)
+    from ai_svc.spy_hunt import accounts
+    import time
+    recent = int(time.time()) - 3600
+    for i in range(accounts.MAX_SESSIONS + 5):
+        conn.execute("INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,?)",
+                     (f"old{i}", guest["player_id"], recent + i))
+    conn.commit()
+    assert _login(client).status_code == 200
+    n = conn.execute("SELECT COUNT(*) c FROM sessions WHERE player_id=?", (guest["player_id"],)).fetchone()["c"]
+    assert n == accounts.MAX_SESSIONS
+
+
+def test_login_drops_expired_sessions_of_registered_accounts_only(client, conn):
+    from ai_svc.spy_hunt import accounts
+    reg = _registered(client)
+    plain = _make_guest(client)
+    ancient = 1000
+    for pid in (reg["player_id"], plain["player_id"]):
+        conn.execute("INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,?)",
+                     (f"ancient-{pid}", pid, ancient))
+    conn.commit()
+    assert _login(client).status_code == 200
+    gone = conn.execute("SELECT 1 FROM sessions WHERE token_hash=?", (f"ancient-{reg['player_id']}",)).fetchone()
+    kept = conn.execute("SELECT 1 FROM sessions WHERE token_hash=?", (f"ancient-{plain['player_id']}",)).fetchone()
+    assert gone is None
+    assert kept is not None  # an unregistered guest's token is their only way back; it never expires
+    assert accounts.SESSION_TTL_SECONDS > 0

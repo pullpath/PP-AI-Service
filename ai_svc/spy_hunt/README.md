@@ -120,11 +120,11 @@ Keep the queue topped up with cron (about 14 model calls per puzzle):
 Registration is optional and never blocks guest play. Four routes:
 
 - `POST /register` (guest token required) sets an email and password on the caller's existing guest identity. There is no merge step: `player_id` never changes, so bots, remixes and history stay put. Email is trimmed and lowercased; the password must be at least 8 characters. An already-registered guest, or an email already in use, gets `409 conflict`. Hashing uses `werkzeug.security`.
-- `POST /login` (no token) checks email and password and mints a new token for that account's `player_id`. A wrong email or password gives the same `401`. It is rate limited per IP (20/min).
+- `POST /login` (no token) checks email and password and mints a new token for that account's `player_id`. A wrong email or password gives the same `401`. It is rate limited per IP (20/min) and per account (10 failed attempts per 15 minutes, after which even the right password is refused until the window passes). The per-IP limit reads `X-Real-IP`, so the reverse proxy must overwrite that header rather than pass a client-supplied one through.
 - `POST /logout` (guest token required) deletes only the token it was called with.
 - `GET /me` (guest token required) returns `{"email": ...}`, or `{"email": null}` for a plain guest.
 
-The `sessions` table holds many tokens per guest, so logging in on a second device does not sign out the first, and logout only affects the calling device. `init_db()` backfills tokens issued before this table existed, so old guests stay signed in. There is no email verification and no password reset in this version.
+The `sessions` table holds many tokens per guest (a registered account keeps its newest 20, and tokens older than 90 days are dropped at its next login; an unregistered guest's token never expires), so logging in on a second device does not sign out the first, and logout only affects the calling device. `init_db()` backfills tokens issued before this table existed, so old guests stay signed in. There is no email verification and no password reset in this version.
 
 `GET /daily`, `GET /daily/result` and `GET /daily/streak` return `streak`, `best` and `played_today`, computed from `puzzle_results` rather than client storage. A streak survives one unplayed day before it shows as 0.
 

@@ -33,6 +33,8 @@ def bucket_key(scope: str) -> str:
 
 
 def reset_all() -> None:
+    from ai_svc.spy_hunt import accounts
+    accounts.reset_login_fails()
     for lim in _LIMITERS.values():
         lim.reset()
 

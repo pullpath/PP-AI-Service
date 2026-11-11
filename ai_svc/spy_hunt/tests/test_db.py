@@ -49,3 +49,30 @@ def test_old_guest_tokens_are_backfilled_into_sessions(conn):
     db.init_db()
     row = conn.execute("SELECT player_id FROM sessions WHERE token_hash='h1'").fetchone()
     assert row["player_id"] == "p1"
+
+
+def test_a_real_pre_migration_database_keeps_its_guests_signed_in(tmp_path, monkeypatch):
+    """Build the old schema by hand (no sessions table, no email columns), then upgrade it."""
+    import sqlite3
+    from flask import Flask
+    from ai_svc.spy_hunt import auth, spy_hunt_bp
+
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE guests(player_id TEXT PRIMARY KEY, token_hash TEXT, created_at INTEGER)")
+    old.execute("INSERT INTO guests VALUES('legacy-pid', ?, 0)", (auth.hash_token("legacy-token"),))
+    old.commit()
+    old.close()
+
+    monkeypatch.setattr(db, "DB_PATH", path)
+    db.close_conn()
+    db.init_db()
+    try:
+        cols = {r[1] for r in db.get_conn().execute("PRAGMA table_info(guests)")}
+        assert {"email", "password_hash"} <= cols
+        app = Flask(__name__)
+        app.register_blueprint(spy_hunt_bp)
+        r = app.test_client().get("/api/spy-hunt/me", headers={"Authorization": "Bearer legacy-pid.legacy-token"})
+        assert r.status_code == 200 and r.get_json() == {"email": None}
+    finally:
+        db.close_conn()
