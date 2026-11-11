@@ -71,6 +71,21 @@ CREATE TABLE IF NOT EXISTS arena_entries(
   seen INTEGER DEFAULT 0, PRIMARY KEY(match_id, bot_id), UNIQUE(day, bot_id));
 CREATE TABLE IF NOT EXISTS remixes(
   source_id TEXT, owner_player_id TEXT, PRIMARY KEY(source_id, owner_player_id));
+CREATE TABLE IF NOT EXISTS clans(
+  id TEXT PRIMARY KEY, name TEXT, name_key TEXT UNIQUE, badge_emoji TEXT, badge_color TEXT,
+  code TEXT UNIQUE, leader_id TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS clan_members(
+  player_id TEXT PRIMARY KEY, clan_id TEXT, joined_at INTEGER);
+CREATE TABLE IF NOT EXISTS clan_points(
+  key TEXT PRIMARY KEY, clan_id TEXT, player_id TEXT, week TEXT, created_day TEXT,
+  points INTEGER, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS clan_weeks(
+  week TEXT, clan_id TEXT, rival_id TEXT, ghost INTEGER DEFAULT 0, own INTEGER,
+  rival_score INTEGER, result TEXT, PRIMARY KEY(week, clan_id));
+CREATE TABLE IF NOT EXISTS clan_meta(k TEXT PRIMARY KEY, v TEXT);
+CREATE INDEX IF NOT EXISTS idx_clan_members_clan ON clan_members(clan_id, joined_at);
+CREATE INDEX IF NOT EXISTS idx_clan_points_week ON clan_points(week, clan_id);
+CREATE INDEX IF NOT EXISTS idx_clan_points_day ON clan_points(player_id, created_day);
 CREATE INDEX IF NOT EXISTS idx_custom_bots_owner ON custom_bots(owner_player_id);
 CREATE INDEX IF NOT EXISTS idx_events_room_seq ON events(room_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id, id);
