@@ -75,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_custom_bots_owner ON custom_bots(owner_player_id)
 CREATE INDEX IF NOT EXISTS idx_events_room_seq ON events(room_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id, id);
 CREATE INDEX IF NOT EXISTS idx_rooms_status_active ON rooms(status, last_active);
+CREATE INDEX IF NOT EXISTS idx_puzzle_results_player ON puzzle_results(player_id, day);
 """
 
 

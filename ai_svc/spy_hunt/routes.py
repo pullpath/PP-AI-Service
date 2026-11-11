@@ -282,6 +282,14 @@ def daily_result():
     return jsonify(puzzles.result(g.player_id, puzzles.check_day(request.args.get("day"))))
 
 
+@spy_hunt_bp.route("/daily/streak", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def daily_streak():
+    return jsonify(puzzles.streak_for(g.player_id))
+
+
 # ---- SSE stream (impl spec §7.1) ----
 # No rate-limit decorator on purpose: reconnect storms must never 429. The
 # stream caps (events.acquire_slot) bound the cost instead. Auth is the

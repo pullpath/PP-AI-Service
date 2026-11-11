@@ -162,7 +162,7 @@ def get_today(player_id: str, day: Optional[str] = None) -> Dict[str, Any]:
             "INSERT OR IGNORE INTO puzzle_results(day, player_id, stage, tries, solved,"
             " started_at) VALUES(?,?,?,?,?,?)", (day, player_id, "spy", 0, 0, _now_ms()))
         att = _attempt(c, day, player_id)
-    return {"puzzle": public_payload(row), "me": _me(att)}
+    return {"puzzle": public_payload(row), "me": _me(att), **streak_for(player_id, day)}
 
 
 def guess_spy(player_id: str, spy_seat: Any, day: Optional[str] = None) -> Dict[str, Any]:
@@ -231,4 +231,41 @@ def result(player_id: str, day: Optional[str] = None) -> Dict[str, Any]:
         "answer": {"spy_seat": ans["spy_seat"], "spy_word": ans["spy_word"],
                    "civilian_word": ans["civilian_word"]},
         "stats": {"players": agg["n"], "solved_pct": round(100 * agg["s"] / agg["n"]) if agg["n"] else 0},
+        **streak_for(player_id, day),
     }
+
+
+# ---- streak ----
+
+def _shift_day(day: str, delta: int) -> str:
+    return (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=delta)).strftime("%Y-%m-%d")
+
+
+def streak_for(player_id: str, today: Optional[str] = None) -> Dict[str, Any]:
+    """Walk this player's finished daily puzzles (day ascending) and derive the
+    run of consecutive solved days ending "now". A loss or a gap (a day with no
+    finished attempt) resets the run to 0 starting fresh from the next win; the
+    reported `streak` stays at yesterday's run for one day before it drops to 0,
+    so a player who hasn't played yet today still sees their streak intact."""
+    today = today or utc_day()
+    rows = get_conn().execute(
+        "SELECT day, solved FROM puzzle_results WHERE player_id=? AND stage='done'"
+        " ORDER BY day ASC", (player_id,)).fetchall()
+    run_on: Dict[str, int] = {}
+    best = 0
+    prev_day: Optional[str] = None
+    run = 0
+    for row in rows:
+        day = row["day"]
+        if row["solved"] and prev_day is not None and day == _shift_day(prev_day, 1):
+            run += 1
+        elif row["solved"]:
+            run = 1
+        else:
+            run = 0
+        run_on[day] = run
+        best = max(best, run)
+        prev_day = day
+    played_today = today in run_on
+    streak = run_on[today] if played_today else run_on.get(_shift_day(today, -1), 0)
+    return {"streak": streak, "best": best, "played_today": played_today}

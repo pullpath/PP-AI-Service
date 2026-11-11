@@ -112,3 +112,54 @@ def test_bad_day_is_400(client, monkeypatch, bad):
     assert r.status_code == 400 and r.get_json()["error"] == "bad_day"
     r = client.get(f"/api/spy-hunt/daily/result?day={bad}", headers=h)
     assert r.status_code == 400
+
+
+def _finish(client, h, day1, day2, monkeypatch):
+    import calendar
+    clock = {"t": calendar.timegm((*day1, 12, 0, 0)) * 1000}
+    monkeypatch.setattr(puzzles, "_now_ms", lambda: clock["t"])
+    client.get("/api/spy-hunt/daily", headers=h)
+    client.post("/api/spy-hunt/daily/guess", json={"spy_seat": 2}, headers=h)
+    client.post("/api/spy-hunt/daily/word", json={"option": 0}, headers=h)
+    clock["t"] = calendar.timegm((*day2, 12, 0, 0)) * 1000
+
+
+def test_get_daily_includes_streak_fields(client, monkeypatch):
+    public, answer = sample_puzzle(2)
+    puzzles.insert_ready(public, answer, 2, "p-1")
+    public, answer = sample_puzzle(2)
+    puzzles.insert_ready(public, answer, 2, "p-2")
+    h = guest(client)
+    _finish(client, h, (2026, 11, 9), (2026, 11, 10), monkeypatch)
+    body = client.get("/api/spy-hunt/daily", headers=h).get_json()
+    assert body["streak"] == 1 and body["best"] == 1 and body["played_today"] is False
+    assert "puzzle" in body and "me" in body
+
+
+def test_daily_result_includes_streak_fields(client, monkeypatch):
+    seed()
+    h = guest(client)
+    client.get("/api/spy-hunt/daily", headers=h)
+    client.post("/api/spy-hunt/daily/guess", json={"spy_seat": 2}, headers=h)
+    client.post("/api/spy-hunt/daily/word", json={"option": 0}, headers=h)
+    body = client.get("/api/spy-hunt/daily/result", headers=h).get_json()
+    assert body["streak"] == 1 and body["best"] == 1 and body["played_today"] is True
+    assert "solved" in body and "answer" in body
+
+
+def test_played_today_is_true_only_after_finishing(client):
+    seed()
+    h = guest(client)
+    client.get("/api/spy-hunt/daily", headers=h)
+    r = client.get("/api/spy-hunt/daily/streak", headers=h)
+    assert r.status_code == 200 and r.get_json()["played_today"] is False
+    client.post("/api/spy-hunt/daily/guess", json={"spy_seat": 2}, headers=h)
+    client.post("/api/spy-hunt/daily/word", json={"option": 0}, headers=h)
+    r = client.get("/api/spy-hunt/daily/streak", headers=h)
+    assert r.status_code == 200 and r.get_json()["played_today"] is True
+
+
+def test_daily_streak_route_requires_guest(client):
+    seed()
+    r = client.get("/api/spy-hunt/daily/streak")
+    assert r.status_code == 401

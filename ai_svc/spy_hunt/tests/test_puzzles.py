@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import json
 import threading
 
@@ -16,6 +17,21 @@ def add(n=1):
         public, answer = sample_puzzle()
         ids.append(puzzles.insert_ready(public, answer, 2, f"p-{i}"))
     return ids
+
+
+def _ts(y, m, d):
+    return calendar.timegm((y, m, d, 12, 0, 0)) * 1000
+
+
+def _win(monkeypatch, player_id, y, m, d):
+    """Open, correctly solve and finish today's puzzle at noon UTC on the given
+    date; returns the resulting day string."""
+    ts = _ts(y, m, d)
+    monkeypatch.setattr(puzzles, "_now_ms", lambda: ts)
+    puzzles.get_today(player_id)
+    puzzles.guess_spy(player_id, 2)
+    puzzles.guess_word(player_id, 0)
+    return puzzles.utc_day(ts)
 
 
 def test_schema_has_puzzle_tables(temp_db):
@@ -70,6 +86,51 @@ def test_public_payload_has_no_answer(temp_db):
         assert key not in text
     assert payload["number"] == 1 and payload["day"] == "2026-11-10"
     assert payload["difficulty"] == 2 and len(payload["statements"]) == 10
+
+
+# ---- streak_for ----
+
+def test_streak_for_never_played(temp_db):
+    assert puzzles.streak_for("nobody") == {"streak": 0, "best": 0, "played_today": False}
+
+
+def test_streak_for_consecutive_days(temp_db, monkeypatch):
+    pid = "pid-consecutive"
+    add(3)
+    _win(monkeypatch, pid, 2026, 11, 9)
+    _win(monkeypatch, pid, 2026, 11, 10)
+    day3 = _win(monkeypatch, pid, 2026, 11, 11)
+    assert puzzles.streak_for(pid, today=day3) == {"streak": 3, "best": 3, "played_today": True}
+
+
+def test_streak_breaks_on_a_miss(temp_db, monkeypatch):
+    pid = "pid-miss"
+    add(2)
+    _win(monkeypatch, pid, 2026, 11, 9)
+    # day 2 (11-10) not played at all
+    day3 = _win(monkeypatch, pid, 2026, 11, 11)
+    assert puzzles.streak_for(pid, today=day3) == {"streak": 1, "best": 1, "played_today": True}
+
+
+def test_streak_survives_one_day_before_reset(temp_db, monkeypatch):
+    pid = "pid-survive"
+    add(1)
+    _win(monkeypatch, pid, 2026, 11, 9)
+    day2 = puzzles.utc_day(_ts(2026, 11, 10))
+    day3 = puzzles.utc_day(_ts(2026, 11, 11))
+    assert puzzles.streak_for(pid, today=day2) == {"streak": 1, "best": 1, "played_today": False}
+    assert puzzles.streak_for(pid, today=day3) == {"streak": 0, "best": 1, "played_today": False}
+
+
+def test_best_tracks_the_longest_ever_run(temp_db, monkeypatch):
+    pid = "pid-best"
+    add(4)
+    _win(monkeypatch, pid, 2026, 11, 9)
+    _win(monkeypatch, pid, 2026, 11, 10)
+    _win(monkeypatch, pid, 2026, 11, 11)
+    # day 4 (11-12) not played: run breaks
+    day5 = _win(monkeypatch, pid, 2026, 11, 13)
+    assert puzzles.streak_for(pid, today=day5) == {"streak": 1, "best": 3, "played_today": True}
 
 
 def test_concurrent_first_publish_assigns_one_puzzle(temp_db):
