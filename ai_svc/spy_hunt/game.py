@@ -185,6 +185,11 @@ def _alive(rows) -> List[int]:
     return [r["seat"] for r in rows if r["alive"]]
 
 
+def _public_all(rows, host_id: Optional[str]) -> List[Dict[str, Any]]:
+    badges = visibility.clan_badges(r["player_id"] for r in rows if not r["is_bot"])
+    return [visibility.public_player(r, host_id, badges) for r in rows]
+
+
 def _public(conn, room_id: str, host_id: Optional[str], seat: int) -> Dict[str, Any]:
     return visibility.public_player(store._player_row(conn, room_id, seat), host_id)
 
@@ -420,7 +425,7 @@ def start_game(room_id: str, by_player: str) -> None:
         words = visibility._pair_words(conn, room)
         rows = _players(conn, room_id)
         append_event(room_id, "roster", {
-            "players": [visibility.public_player(r, room["host_player_id"]) for r in rows]},
+            "players": _public_all(rows, room["host_player_id"])},
             "all", conn=conn)
         for r in rows:
             append_event(room_id, "game_started", {
@@ -677,6 +682,6 @@ def rematch(room_id: str, by_player: str) -> None:
         room = _room(conn, room_id)
         append_event(room_id, "rematch", {
             "game_no": room["game_no"],
-            "players": [visibility.public_player(r, room["host_player_id"])
-                        for r in _players(conn, room_id)]}, "all", conn=conn)
+            "players": _public_all(_players(conn, room_id), room["host_player_id"])},
+            "all", conn=conn)
     _notify(pend)

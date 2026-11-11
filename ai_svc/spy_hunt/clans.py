@@ -364,3 +364,14 @@ def season(player_id: str, now_ms: Optional[int] = None) -> Optional[Dict[str, A
                           "ghost": bool(wk is not None and wk["ghost"]),
                           "ends_at": _week_start_ms(cur) + _WEEK_MS},
             "streak": streak, "history": history, "members": members}
+
+
+def mine(player_id: str) -> Dict[str, Any]:
+    m = membership(player_id)
+    if m is None:
+        return {"clan": None}
+    conn = get_conn()
+    return {"clan": {"id": m["clan_id"], "name": m["name"], "badge": m["badge"], "code": m["code"],
+                     "members": _member_count(conn, m["clan_id"]),
+                     "is_leader": m["leader_id"] == player_id},
+            "season": season(player_id)}

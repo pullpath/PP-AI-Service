@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import accounts, arena, auth, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import accounts, arena, auth, clans, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -406,3 +406,52 @@ def get_bot_card(bot_id: str):
     if card is None:
         raise store.StoreError(404, "not_found", "No such bot.")
     return jsonify(card)
+
+
+# ---- clans (registered accounts; reads of the open list work for any guest) ----
+
+@spy_hunt_bp.route("/clans/badges", methods=["GET"])
+@ratelimits.limit("flood")
+def clan_badges():
+    return jsonify({"badges": clans.BADGES})
+
+
+@spy_hunt_bp.route("/clans", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def create_clan():
+    body = _json_body()
+    return jsonify(clans.create(g.player_id, body.get("name"), body.get("badge"))), 201
+
+
+@spy_hunt_bp.route("/clans/join", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def join_clan():
+    return jsonify(clans.join(g.player_id, _json_body().get("code")))
+
+
+@spy_hunt_bp.route("/clans/leave", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def leave_clan():
+    return jsonify(clans.leave(g.player_id))
+
+
+@spy_hunt_bp.route("/clans/open", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def open_clans():
+    return jsonify({"clans": clans.list_open()})
+
+
+@spy_hunt_bp.route("/clans/mine", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def my_clan():
+    return jsonify(clans.mine(g.player_id))

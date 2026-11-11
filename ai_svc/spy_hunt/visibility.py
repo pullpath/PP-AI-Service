@@ -78,8 +78,29 @@ def check_event_payload(type: str, payload: Dict[str, Any], audience: str) -> No
 
 # ---- players ----
 
-def public_player(row: sqlite3.Row, host_player_id: Optional[str]) -> Dict[str, Any]:
-    """The public view of a player row: no role, no player_id."""
+def clan_badges(player_ids: Iterable[str]) -> Dict[str, Dict[str, str]]:
+    """player_id -> {name, emoji, color} for those in a clan, in one query."""
+    ids = list(player_ids)
+    if not ids:
+        return {}
+    rows = get_conn().execute(
+        "SELECT m.player_id, c.name, c.badge_emoji, c.badge_color FROM clan_members m"
+        " JOIN clans c ON c.id=m.clan_id WHERE m.player_id IN (%s)" % ",".join("?" * len(ids)),
+        ids).fetchall()
+    return {r["player_id"]: {"name": r["name"], "emoji": r["badge_emoji"], "color": r["badge_color"]}
+            for r in rows}
+
+
+def public_player(row: sqlite3.Row, host_player_id: Optional[str],
+                  clans: Optional[Dict[str, Dict[str, str]]] = None) -> Dict[str, Any]:
+    """The public view of a player row: no role, no player_id. `clans` is a
+    prefetched clan_badges() map; without it the badge is looked up for this row."""
+    if row["is_bot"]:
+        clan = None
+    elif clans is not None:
+        clan = clans.get(row["player_id"])
+    else:
+        clan = clan_badges([row["player_id"]]).get(row["player_id"])
     return {
         "seat": row["seat"],
         "name": row["name"],
@@ -91,6 +112,7 @@ def public_player(row: sqlite3.Row, host_player_id: Optional[str]) -> Dict[str, 
                    if row["avatar_emoji"] is not None else None),
         "bot_id": row["bot_id"],
         "is_host": row["player_id"] == host_player_id,
+        "clan": clan,
     }
 
 
@@ -170,8 +192,9 @@ def _build_snapshot(conn: sqlite3.Connection, room_id: str, player_id: str) -> D
     host_seat = next((r["seat"] for r in rows if r["player_id"] == room["host_player_id"]), None)
 
     players = []
+    badges = clan_badges(r["player_id"] for r in rows if not r["is_bot"])
     for r in rows:
-        p = public_player(r, room["host_player_id"])
+        p = public_player(r, room["host_player_id"], badges)
         if r["role"]:
             if finished:
                 p["role"] = r["role"]
