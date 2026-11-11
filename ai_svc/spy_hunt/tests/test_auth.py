@@ -107,6 +107,25 @@ def test_per_guest_limit_without_auth_fails_loudly(client):
     assert r.status_code == 500
 
 
+def test_require_guest_works_after_migration(client, conn):
+    c = _protected_client(client)
+    body = _make_guest(client)
+    ok = c.get("/_t/me", headers={
+        "Authorization": f"Bearer {body['player_id']}.{body['token']}"})
+    assert ok.status_code == 200 and ok.get_json()["pid"] == body["player_id"]
+
+    # a token minted directly into sessions, with no corresponding guests row,
+    # still authenticates: the lookup is against sessions, not guests.
+    token_hash = auth.hash_token("direct-token")
+    conn.execute(
+        "INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,0)",
+        (token_hash, "p-direct"),
+    )
+    conn.commit()
+    r = c.get("/_t/me", headers={"Authorization": "Bearer p-direct.direct-token"})
+    assert r.status_code == 200 and r.get_json()["pid"] == "p-direct"
+
+
 def test_bucket_keys_are_scoped(client):
     app = client.application
     with app.test_request_context("/", headers={"X-Real-IP": "abc"}):

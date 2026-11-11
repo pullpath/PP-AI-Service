@@ -14,6 +14,8 @@ _local = threading.local()
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS guests(
   player_id TEXT PRIMARY KEY, token_hash TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS sessions(
+  token_hash TEXT PRIMARY KEY, player_id TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS rooms(
   id TEXT PRIMARY KEY, code TEXT UNIQUE, host_player_id TEXT, main_lang TEXT,
   config_json TEXT, status TEXT,
@@ -118,6 +120,18 @@ def init_db() -> None:
                       ("arena_spy_games", "INTEGER DEFAULT 0"), ("arena_spy_wins", "INTEGER DEFAULT 0")):
         if col not in have:
             conn.execute(f"ALTER TABLE custom_bots ADD COLUMN {col} {decl}")
+    have = {r[1] for r in conn.execute("PRAGMA table_info(guests)")}
+    for col in ("email", "password_hash"):
+        if col not in have:
+            conn.execute(f"ALTER TABLE guests ADD COLUMN {col} TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_email ON guests(email)"
+        " WHERE email IS NOT NULL"
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO sessions(token_hash, player_id, created_at)"
+        " SELECT token_hash, player_id, created_at FROM guests WHERE token_hash IS NOT NULL"
+    )
     conn.commit()
     _load_seed(conn)
 

@@ -32,3 +32,20 @@ def test_row_factory_and_per_thread(conn):
     t = threading.Thread(target=lambda: other.append(db.get_conn()))
     t.start(); t.join()
     assert other[0] is not conn
+
+
+def test_sessions_table_and_guest_columns_exist(conn):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
+    assert cols == {"token_hash", "player_id", "created_at"}
+    guest_cols = {r["name"] for r in conn.execute("PRAGMA table_info(guests)")}
+    assert {"email", "password_hash"} <= guest_cols
+
+
+def test_old_guest_tokens_are_backfilled_into_sessions(conn):
+    conn.execute(
+        "INSERT INTO guests(player_id, token_hash, created_at) VALUES('p1','h1',0)"
+    )
+    conn.commit()
+    db.init_db()
+    row = conn.execute("SELECT player_id FROM sessions WHERE token_hash='h1'").fetchone()
+    assert row["player_id"] == "p1"

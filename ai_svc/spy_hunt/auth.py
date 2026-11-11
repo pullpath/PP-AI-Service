@@ -18,10 +18,16 @@ def hash_token(token: str) -> str:
 def create_guest() -> tuple[str, str]:
     player_id = secrets.token_urlsafe(9)
     token = secrets.token_urlsafe(32)
+    token_hash = hash_token(token)
+    created_at = int(time.time())
     conn = get_conn()
     conn.execute(
         "INSERT INTO guests(player_id, token_hash, created_at) VALUES(?,?,?)",
-        (player_id, hash_token(token), int(time.time())),
+        (player_id, token_hash, created_at),
+    )
+    conn.execute(
+        "INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,?)",
+        (token_hash, player_id, created_at),
     )
     conn.commit()
     return player_id, token
@@ -41,12 +47,13 @@ def require_guest(fn):
         player_id, _, token = cred.partition(".")
         if not player_id or not token:
             return _unauthorized()
+        token_hash = hash_token(token)
         row = get_conn().execute(
-            "SELECT token_hash FROM guests WHERE player_id=?", (player_id,)
+            "SELECT player_id, token_hash FROM sessions WHERE token_hash=?", (token_hash,)
         ).fetchone()
         stored = row["token_hash"] if row else hash_token("")
-        ok = hmac.compare_digest(stored, hash_token(token))
-        if row is None or not ok:
+        ok = hmac.compare_digest(stored, token_hash)
+        if row is None or not ok or row["player_id"] != player_id:
             return _unauthorized()
         g.player_id = player_id
         return fn(*args, **kwargs)

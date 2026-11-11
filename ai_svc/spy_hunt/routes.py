@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import arena, auth, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import accounts, arena, auth, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -60,6 +60,15 @@ def health():
 def create_guest():
     player_id, token = auth.create_guest()
     return jsonify({"player_id": player_id, "token": token})
+
+
+@spy_hunt_bp.route("/register", methods=["POST"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def register():
+    body = _json_body()
+    return jsonify(accounts.register(g.player_id, body.get("email"), body.get("password")))
 
 
 # Room routes: `flood` (per IP) runs first, before auth, so unauthenticated
