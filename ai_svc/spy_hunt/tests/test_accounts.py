@@ -198,3 +198,13 @@ def test_me_reports_email_or_null(client):
     r2 = client.get("/api/spy-hunt/me", headers=_auth_header(guest))
     assert r2.status_code == 200
     assert r2.get_json() == {"email": "a@b.com"}
+
+
+def test_logged_out_token_stays_dead_after_init_db(client, conn):
+    from ai_svc.spy_hunt import db
+
+    guest = _make_guest(client)
+    assert client.post("/api/spy-hunt/logout", headers=_auth_header(guest)).status_code == 200
+    assert client.get("/api/spy-hunt/me", headers=_auth_header(guest)).status_code == 401
+    db.init_db()  # runs on every process start and from the cron scripts
+    assert client.get("/api/spy-hunt/me", headers=_auth_header(guest)).status_code == 401

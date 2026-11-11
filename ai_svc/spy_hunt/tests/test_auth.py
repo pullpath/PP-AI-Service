@@ -19,7 +19,7 @@ def test_create_guest_returns_ids(client):
 def test_token_not_stored_plain(client, conn):
     body = _make_guest(client)
     row = conn.execute(
-        "SELECT token_hash FROM guests WHERE player_id=?", (body["player_id"],)
+        "SELECT token_hash FROM sessions WHERE player_id=?", (body["player_id"],)
     ).fetchone()
     assert row["token_hash"] != body["token"]
     assert len(row["token_hash"]) == 64

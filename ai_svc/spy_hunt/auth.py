@@ -22,8 +22,8 @@ def create_guest() -> tuple[str, str]:
     created_at = int(time.time())
     conn = get_conn()
     conn.execute(
-        "INSERT INTO guests(player_id, token_hash, created_at) VALUES(?,?,?)",
-        (player_id, token_hash, created_at),
+        "INSERT INTO guests(player_id, created_at) VALUES(?,?)",
+        (player_id, created_at),
     )
     conn.execute(
         "INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,?)",

@@ -133,6 +133,9 @@ def init_db() -> None:
         "INSERT OR IGNORE INTO sessions(token_hash, player_id, created_at)"
         " SELECT token_hash, player_id, created_at FROM guests WHERE token_hash IS NOT NULL"
     )
+    # Move, don't copy: once a legacy token lives in sessions, a later logout must not be
+    # undone by the next init_db() re-copying it.
+    conn.execute("UPDATE guests SET token_hash=NULL WHERE token_hash IS NOT NULL")
     conn.commit()
     _load_seed(conn)
 
