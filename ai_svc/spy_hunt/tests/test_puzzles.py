@@ -149,3 +149,32 @@ def test_concurrent_first_publish_assigns_one_puzzle(temp_db):
     assert not errs and len(set(out)) == 1
     assert get_conn().execute(
         "SELECT COUNT(*) c FROM puzzles WHERE day='2026-11-10'").fetchone()["c"] == 1
+
+
+def _lose(monkeypatch, player_id, y, m, d):
+    """Open today's puzzle and burn every try on wrong seats (answer seat is 2)."""
+    ts = _ts(y, m, d)
+    monkeypatch.setattr(puzzles, "_now_ms", lambda: ts)
+    puzzles.get_today(player_id)
+    for seat in (0, 1, 3, 4):
+        if puzzles.guess_spy(player_id, seat)["stage"] == "done":
+            break
+    return puzzles.utc_day(ts)
+
+
+def test_a_loss_resets_the_run(temp_db, monkeypatch):
+    pid = "pid-loss"
+    add(4)
+    _win(monkeypatch, pid, 2026, 11, 8)
+    _win(monkeypatch, pid, 2026, 11, 9)
+    _lose(monkeypatch, pid, 2026, 11, 10)
+    day4 = _win(monkeypatch, pid, 2026, 11, 11)
+    assert puzzles.streak_for(pid, today=day4) == {"streak": 1, "best": 2, "played_today": True}
+
+
+def test_a_loss_today_shows_zero_streak_but_played(temp_db, monkeypatch):
+    pid = "pid-loss-today"
+    add(2)
+    _win(monkeypatch, pid, 2026, 11, 9)
+    day2 = _lose(monkeypatch, pid, 2026, 11, 10)
+    assert puzzles.streak_for(pid, today=day2) == {"streak": 0, "best": 1, "played_today": True}
