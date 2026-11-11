@@ -208,3 +208,67 @@ def test_logged_out_token_stays_dead_after_init_db(client, conn):
     assert client.get("/api/spy-hunt/me", headers=_auth_header(guest)).status_code == 401
     db.init_db()  # runs on every process start and from the cron scripts
     assert client.get("/api/spy-hunt/me", headers=_auth_header(guest)).status_code == 401
+
+
+def _register(client, guest, email, password="longenough"):
+    return client.post("/api/spy-hunt/register", json={"email": email, "password": password},
+                       headers=_auth_header(guest))
+
+
+def test_register_does_not_overwrite_when_the_same_guest_registers_concurrently(client, conn, monkeypatch):
+    from ai_svc.spy_hunt import accounts
+
+    guest = _make_guest(client)
+    real = accounts.hash_password
+
+    def hash_then_lose_the_race(pw):
+        # a second tab's request lands between our check and our write
+        conn.execute("UPDATE guests SET email='first@x.com', password_hash='h' WHERE player_id=?",
+                     (guest["player_id"],))
+        conn.commit()
+        return real(pw)
+
+    monkeypatch.setattr(accounts, "hash_password", hash_then_lose_the_race)
+    assert _register(client, guest, "second@x.com").status_code == 409
+    row = conn.execute("SELECT email FROM guests WHERE player_id=?", (guest["player_id"],)).fetchone()
+    assert row["email"] == "first@x.com"
+
+
+def test_register_concurrent_duplicate_email_is_409_not_500(client, conn, monkeypatch):
+    from ai_svc.spy_hunt import accounts
+
+    me, other = _make_guest(client), _make_guest(client)
+    real = accounts.hash_password
+
+    def hash_then_lose_the_race(pw):
+        conn.execute("UPDATE guests SET email='dup@x.com', password_hash='h' WHERE player_id=?",
+                     (other["player_id"],))
+        conn.commit()
+        return real(pw)
+
+    monkeypatch.setattr(accounts, "hash_password", hash_then_lose_the_race)
+    assert _register(client, me, "dup@x.com").status_code == 409
+
+
+def test_login_checks_a_hash_even_for_an_unknown_email(client, monkeypatch):
+    from ai_svc.spy_hunt import accounts
+
+    calls = []
+    real = accounts.check_password
+    monkeypatch.setattr(accounts, "check_password", lambda pw, h: calls.append(h) or real(pw, h))
+    r = client.post("/api/spy-hunt/login", json={"email": "nobody@x.com", "password": "whatever1"})
+    assert r.status_code == 401
+    assert len(calls) == 1
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("email", ["@", "a@", "@b.com", "a b@c.com", "a@@b.com", "a" * 250 + "@b.com"])
+def test_register_rejects_malformed_or_oversized_email(client, email):
+    assert _register(client, _make_guest(client), email).get_json()["error"] == "bad_email"
+
+
+def test_register_rejects_an_oversized_password(client):
+    r = _register(client, _make_guest(client), "a@b.com", password="x" * 1025)
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_password"

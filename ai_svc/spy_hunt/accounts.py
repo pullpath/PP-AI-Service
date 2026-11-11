@@ -1,7 +1,9 @@
 """Account/password logic: attaching an email+password to an existing guest."""
 from __future__ import annotations
 
+import re
 import secrets
+import sqlite3
 import time
 from typing import Any, Dict, Optional
 
@@ -12,6 +14,11 @@ from ai_svc.spy_hunt.db import get_conn
 from ai_svc.spy_hunt.store import StoreError
 
 MIN_PASSWORD_LEN = 8
+MAX_PASSWORD_LEN = 1024
+MAX_EMAIL_LEN = 254
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Checked against when the email is unknown, so a miss costs the same as a wrong password.
+_DUMMY_HASH = generate_password_hash("not-a-real-password")
 
 
 def hash_password(password: str) -> str:
@@ -26,16 +33,17 @@ def normalize_email(email: Any) -> str:
     if not isinstance(email, str):
         raise StoreError(400, "bad_email", "Email must be a string.")
     cleaned = email.strip().lower()
-    if not cleaned or "@" not in cleaned:
+    if len(cleaned) > MAX_EMAIL_LEN or not _EMAIL_RE.match(cleaned):
         raise StoreError(400, "bad_email", "Email must be a valid address.")
     return cleaned
 
 
 def register(player_id: str, email: Any, password: Any) -> Dict[str, str]:
     email = normalize_email(email)
-    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LEN:
+    if (not isinstance(password, str) or len(password) < MIN_PASSWORD_LEN
+            or len(password) > MAX_PASSWORD_LEN):
         raise StoreError(400, "bad_password",
-                         f"Password must be at least {MIN_PASSWORD_LEN} characters.")
+                         f"Password must be {MIN_PASSWORD_LEN} to {MAX_PASSWORD_LEN} characters.")
     conn = get_conn()
     rows = conn.execute(
         "SELECT player_id, email FROM guests WHERE player_id=? OR email=?",
@@ -45,11 +53,19 @@ def register(player_id: str, email: Any, password: Any) -> Dict[str, str]:
     taken_by_other = any(r["player_id"] != player_id and r["email"] == email for r in rows)
     if (own is not None and own["email"] is not None) or taken_by_other:
         raise StoreError(409, "conflict", "This guest or email is already registered.")
-    conn.execute(
-        "UPDATE guests SET email=?, password_hash=? WHERE player_id=?",
-        (email, hash_password(password), player_id),
-    )
-    conn.commit()
+    conflict = StoreError(409, "conflict", "This guest or email is already registered.")
+    try:
+        # email IS NULL makes the write itself the check, so a concurrent request can't overwrite
+        cur = conn.execute(
+            "UPDATE guests SET email=?, password_hash=? WHERE player_id=? AND email IS NULL",
+            (email, hash_password(password), player_id),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        raise conflict
+    if cur.rowcount != 1:
+        raise conflict
     return {"email": email}
 
 
@@ -60,11 +76,9 @@ def login(email: Any, password: Any) -> Dict[str, str]:
         "SELECT player_id, password_hash FROM guests WHERE email=?", (email,)
     ).fetchone()
     # Never reveal whether the email or the password was wrong.
-    bad = (
-        row is None
-        or not isinstance(password, str)
-        or not check_password(password, row["password_hash"])
-    )
+    stored = row["password_hash"] if row is not None and row["password_hash"] else _DUMMY_HASH
+    ok = isinstance(password, str) and check_password(password, stored)
+    bad = row is None or not row["password_hash"] or not ok
     if bad:
         raise StoreError(401, "unauthorized", "Invalid email or password.")
     player_id = row["player_id"]
