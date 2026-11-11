@@ -53,6 +53,8 @@ def require_guest(fn):
         ).fetchone()
         stored = row["token_hash"] if row else hash_token("")
         ok = hmac.compare_digest(stored, token_hash)
+        # token_hash is unique, but a client can still lie about player_id in the
+        # header - reject if the row's true owner doesn't match what was claimed.
         if row is None or not ok or row["player_id"] != player_id:
             return _unauthorized()
         g.player_id = player_id
