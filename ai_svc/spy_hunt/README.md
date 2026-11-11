@@ -128,6 +128,23 @@ The `sessions` table holds many tokens per guest (a registered account keeps its
 
 `GET /daily`, `GET /daily/result` and `GET /daily/streak` return `streak`, `best` and `played_today`, computed from `puzzle_results` rather than client storage. A streak survives one unplayed day before it shows as 0.
 
+## Clans
+
+Registered accounts only (a plain guest gets `403 register_required`); one clan per account, up to 30 members.
+
+| Route | Result |
+| --- | --- |
+| `GET /clans/badges` (no token) | `{badges: [{emoji, color}]}`; `badge` below is an index into this list |
+| `POST /clans` `{name, badge}` | 201 `{id, name, badge, code, members}`; name 3-20 chars, unique ignoring case (`409 name_taken`) |
+| `POST /clans/join` `{code}` | the clan; `404 no_clan`, `409 clan_full`, `409 already_in_clan` |
+| `POST /clans/leave` | `{ok: true}`; the earliest-joined member becomes leader, and the last one out deletes the clan |
+| `GET /clans/open` | `{clans: [...]}`: up to 20 clans with room, newest first |
+| `GET /clans/mine` | `{clan: null}` or `{clan: {id, name, badge, code, members, is_leader}, season: {this_week, streak, history, members}}` |
+
+Points (`clans.award_game` from `game._finish`, `clans.award_daily` when a daily puzzle finishes): a game with 2+ humans and a winner gives each human 10, plus 10 for the winning side. The daily puzzle gives 10, plus 10 if the spy was found. Each player is capped at 100 points per UTC day. Points go to the player's clan at the time and stay there if they leave. Awards are idempotent per game and per day, and never fail the game.
+
+Seasons run Monday to Sunday, UTC. There's no scheduler: `roll_weeks` runs on the first award or `/clans/mine` of a new week, closes every unclosed week, and pairs clans that have 3+ members and scored last week, by member count. The odd one out faces a practice rival whose score is the average of the other paired clans, floored at 50. A draw keeps the win streak, and a loss resets it. Room snapshots and events carry `clan: {name, emoji, color} | null` per human player.
+
 ## Custom bots
 
 A guest can make up to 3 bots (name, emoji avatar, colour, and three outfit slots:
