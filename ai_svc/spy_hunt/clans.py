@@ -215,6 +215,7 @@ def _safely(fn, *args) -> None:
 
 
 def _award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> None:
+    roll_weeks()
     if winner not in ("spies", "civilians"):
         return
     humans = [r for r in rows if not r["is_bot"]]
@@ -232,8 +233,134 @@ def award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) ->
 
 
 def _award_daily(conn, player_id: str, day: str, solved: bool) -> None:
+    roll_weeks()
     _add(conn, f"d:{day}:{player_id}", player_id, DAILY_DONE + (DAILY_SOLVED if solved else 0), _now_ms())
 
 
 def award_daily(conn, player_id: str, day: str, solved: bool) -> None:
     _safely(_award_daily, conn, player_id, day, solved)
+
+
+# ---- seasons ----
+
+MIN_RIVAL_MEMBERS = 3
+GHOST_FLOOR = 50
+HISTORY_MAX = 8
+_WEEK_MS = 7 * 24 * 3600 * 1000
+
+
+def _shift_week(week: str, n: int) -> str:
+    from datetime import date, timedelta
+    return (date.fromisoformat(week) + timedelta(days=7 * n)).isoformat()
+
+
+def _week_start_ms(week: str) -> int:
+    from datetime import datetime, timezone
+    return int(datetime.fromisoformat(week).replace(tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def _score(conn, clan_id: str, week: str) -> int:
+    return conn.execute("SELECT COALESCE(SUM(points), 0) FROM clan_points WHERE clan_id=? AND week=?",
+                        (clan_id, week)).fetchone()[0]
+
+
+def _ghost_score(conn, clan_id: str, week: str) -> int:
+    others = [r["clan_id"] for r in conn.execute(
+        "SELECT clan_id FROM clan_weeks WHERE week=? AND clan_id<>?", (week, clan_id))]
+    if not others:
+        return GHOST_FLOOR
+    avg = sum(_score(conn, o, week) for o in others) / len(others)
+    return max(GHOST_FLOOR, int(round(avg)))
+
+
+def _close(conn, week: str) -> None:
+    for r in conn.execute("SELECT * FROM clan_weeks WHERE week=? AND result IS NULL", (week,)).fetchall():
+        own = _score(conn, r["clan_id"], week)
+        if r["ghost"]:
+            theirs = _ghost_score(conn, r["clan_id"], week)
+            name = None
+        else:
+            theirs = _score(conn, r["rival_id"], week)
+            live = conn.execute("SELECT name FROM clans WHERE id=?", (r["rival_id"],)).fetchone()
+            name = live["name"] if live else r["rival_name"]
+        result = "won" if own > theirs else "lost" if own < theirs else "draw"
+        conn.execute("UPDATE clan_weeks SET own=?, rival_score=?, rival_name=?, result=?"
+                     " WHERE week=? AND clan_id=?", (own, theirs, name, result, week, r["clan_id"]))
+
+
+def _pair(conn, week: str) -> None:
+    import hashlib
+    prev = _shift_week(week, -1)
+    rows = conn.execute(
+        "SELECT c.id, c.name, c.name_key, (SELECT COUNT(*) FROM clan_members m WHERE m.clan_id=c.id) n"
+        " FROM clans c WHERE EXISTS (SELECT 1 FROM clan_points p WHERE p.clan_id=c.id AND p.week=?)",
+        (prev,)).fetchall()
+    eligible = sorted((r for r in rows if r["n"] >= MIN_RIVAL_MEMBERS),
+                      key=lambda r: (r["n"], hashlib.sha1((r["name_key"] + week).encode()).hexdigest()))
+    ins = ("INSERT OR IGNORE INTO clan_weeks(week, clan_id, rival_id, rival_name, ghost)"
+           " VALUES (?,?,?,?,?)")
+    for i in range(0, len(eligible) - 1, 2):
+        a, b = eligible[i], eligible[i + 1]
+        conn.execute(ins, (week, a["id"], b["id"], b["name"], 0))
+        conn.execute(ins, (week, b["id"], a["id"], a["name"], 0))
+    if len(eligible) % 2:
+        conn.execute(ins, (week, eligible[-1]["id"], None, None, 1))
+
+
+def roll_weeks(now_ms: Optional[int] = None) -> None:
+    """Close every week that has ended, then pair the current week. Idempotent."""
+    cur = week_of(_now_ms() if now_ms is None else now_ms)
+    with _tx() as c:
+        done = c.execute("SELECT v FROM clan_meta WHERE k='paired_week'").fetchone()
+        if done is not None and done["v"] >= cur:
+            return
+        for w in [r["week"] for r in c.execute(
+                "SELECT DISTINCT week FROM clan_weeks WHERE result IS NULL AND week<? ORDER BY week",
+                (cur,))]:
+            _close(c, w)
+        _pair(c, cur)
+        c.execute("INSERT INTO clan_meta(k, v) VALUES ('paired_week', ?)"
+                  " ON CONFLICT(k) DO UPDATE SET v=excluded.v", (cur,))
+
+
+def _display_name(conn, player_id: str) -> str:
+    r = conn.execute("SELECT name FROM players WHERE player_id=? AND is_bot=0"
+                     " ORDER BY joined_at DESC, rowid DESC LIMIT 1", (player_id,)).fetchone()
+    return r["name"] if r and r["name"] else "Player"
+
+
+def season(player_id: str, now_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    now = _now_ms() if now_ms is None else now_ms
+    conn = get_conn()
+    m = membership(player_id, conn)
+    if m is None:
+        return None
+    roll_weeks(now)
+    clan_id, cur = m["clan_id"], week_of(now)
+    wk = conn.execute("SELECT * FROM clan_weeks WHERE week=? AND clan_id=?", (cur, clan_id)).fetchone()
+    rival = None
+    if wk is not None and wk["ghost"]:
+        rival = {"name": None, "badge": None, "score": _ghost_score(conn, clan_id, cur)}
+    elif wk is not None:
+        live = conn.execute("SELECT * FROM clans WHERE id=?", (wk["rival_id"],)).fetchone()
+        rival = {"name": live["name"] if live else wk["rival_name"],
+                 "badge": _badge(live) if live else None, "score": _score(conn, wk["rival_id"], cur)}
+    closed = conn.execute("SELECT * FROM clan_weeks WHERE clan_id=? AND result IS NOT NULL"
+                          " ORDER BY week", (clan_id,)).fetchall()
+    streak = 0
+    for r in closed:
+        streak = streak + 1 if r["result"] == "won" else 0 if r["result"] == "lost" else streak
+    history = [{"week": r["week"], "result": r["result"], "own": r["own"],
+                "rival_score": r["rival_score"], "rival_name": r["rival_name"],
+                "ghost": bool(r["ghost"])} for r in reversed(closed[-HISTORY_MAX:])]
+    mem = conn.execute(
+        "SELECT m.player_id, m.joined_at, (SELECT COALESCE(SUM(points), 0) FROM clan_points p"
+        " WHERE p.clan_id=m.clan_id AND p.player_id=m.player_id AND p.week=?) pts"
+        " FROM clan_members m WHERE m.clan_id=? ORDER BY pts DESC, m.joined_at, m.rowid",
+        (cur, clan_id)).fetchall()
+    members = [{"name": _display_name(conn, r["player_id"]), "points": r["pts"],
+                "is_leader": r["player_id"] == m["leader_id"]} for r in mem]
+    return {"this_week": {"week": cur, "own": _score(conn, clan_id, cur), "rival": rival,
+                          "ghost": bool(wk is not None and wk["ghost"]),
+                          "ends_at": _week_start_ms(cur) + _WEEK_MS},
+            "streak": streak, "history": history, "members": members}
