@@ -158,3 +158,82 @@ def membership(player_id: str, conn: Optional[sqlite3.Connection] = None) -> Opt
         return None
     return {"clan_id": r["id"], "name": r["name"], "badge": _badge(r), "code": r["code"],
             "leader_id": r["leader_id"], "joined_at": r["joined_at"]}
+
+
+# ---- points ----
+
+GAME_PLAY, GAME_WIN = 10, 10
+DAILY_DONE, DAILY_SOLVED = 10, 10
+DAILY_CAP = 100
+MIN_HUMANS = 2
+
+
+def week_of(ts_ms: int) -> str:
+    """ISO date of the UTC Monday that starts the week containing ts_ms."""
+    from datetime import datetime, timedelta, timezone
+    d = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).date()
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def _utc_day(ts_ms: int) -> str:
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def _add(conn, key: str, player_id: str, points: int, now: int) -> None:
+    m = membership(player_id, conn)
+    if m is None or points <= 0:
+        return
+    if conn.execute("SELECT 1 FROM clan_points WHERE key=?", (key,)).fetchone():
+        return
+    day = _utc_day(now)
+    used = conn.execute("SELECT COALESCE(SUM(points), 0) FROM clan_points"
+                        " WHERE player_id=? AND created_day=?", (player_id, day)).fetchone()[0]
+    points = min(points, DAILY_CAP - used)
+    if points <= 0:
+        return
+    conn.execute("INSERT OR IGNORE INTO clan_points(key, clan_id, player_id, week, created_day,"
+                 " points, created_at) VALUES (?,?,?,?,?,?,?)",
+                 (key, m["clan_id"], player_id, week_of(now), day, points, now))
+
+
+def _safely(fn, *args) -> None:
+    # Clan points are a side effect of play; they must never break the game or the puzzle.
+    import logging
+    conn = args[0]
+    try:
+        conn.execute("SAVEPOINT clan_award")
+        fn(*args)
+        conn.execute("RELEASE clan_award")
+    except Exception:
+        logging.getLogger(__name__).exception("clan award failed")
+        try:
+            conn.execute("ROLLBACK TO clan_award")
+            conn.execute("RELEASE clan_award")
+        except sqlite3.Error:
+            pass
+
+
+def _award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> None:
+    if winner not in ("spies", "civilians"):
+        return
+    humans = [r for r in rows if not r["is_bot"]]
+    if len(humans) < MIN_HUMANS:
+        return
+    now = _now_ms()
+    for r in humans:
+        won = (r["role"] == "spy") == (winner == "spies")
+        _add(conn, f"g:{room_id}:{game_no}:{r['player_id']}", r["player_id"],
+             GAME_PLAY + (GAME_WIN if won else 0), now)
+
+
+def award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> None:
+    _safely(_award_game, conn, room_id, game_no, rows, winner)
+
+
+def _award_daily(conn, player_id: str, day: str, solved: bool) -> None:
+    _add(conn, f"d:{day}:{player_id}", player_id, DAILY_DONE + (DAILY_SOLVED if solved else 0), _now_ms())
+
+
+def award_daily(conn, player_id: str, day: str, solved: bool) -> None:
+    _safely(_award_daily, conn, player_id, day, solved)

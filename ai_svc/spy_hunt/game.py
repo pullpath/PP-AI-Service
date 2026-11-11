@@ -261,6 +261,8 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
     _set_phase(conn, room_id, pend, None, None)
     from ai_svc.spy_hunt import custombots
     custombots.record_game(conn, rows, winner)
+    from ai_svc.spy_hunt import clans
+    clans.award_game(conn, room_id, room["game_no"], rows, winner)
     append_event(room_id, "game_over", {
         "winner": winner, "round": room["round"],
         "roles": [{"seat": r["seat"], "role": r["role"]} for r in rows],
