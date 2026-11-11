@@ -30,6 +30,11 @@ All routes except `/health` and `/guests` need `Authorization: Bearer <player_id
 | POST | `/daily/guess` | `{spy_seat}` (0 to 4), two tries |
 | POST | `/daily/word` | `{option}` (0 to 3, or `null` to skip) |
 | GET | `/daily/result` | score, answer and day stats, once finished |
+| GET | `/daily/streak` | `{streak, best, played_today}` computed from your finished daily puzzles |
+| POST | `/register` | `{email, password}`; attaches credentials to your current guest (guest token required) |
+| POST | `/login` | `{email, password}`; no token needed, returns `{player_id, token, email}` |
+| POST | `/logout` | removes only the calling device's token (guest token required) |
+| GET | `/me` | `{email}`, `null` when the guest has no account |
 
 ## Events (SSE: `id: <seq>`, `event: <type>`, `data: <json>`)
 
@@ -109,6 +114,19 @@ Keep the queue topped up with cron (about 14 model calls per puzzle):
 ```
 0 3 * * * cd <repo> && venv/bin/python -m ai_svc.spy_hunt.scripts.build_puzzles --count 14
 ```
+
+## Accounts
+
+Registration is optional and never blocks guest play. Four routes:
+
+- `POST /register` (guest token required) sets an email and password on the caller's existing guest identity. There is no merge step: `player_id` never changes, so bots, remixes and history stay put. Email is trimmed and lowercased; the password must be at least 8 characters. An already-registered guest, or an email already in use, gets `409 conflict`. Hashing uses `werkzeug.security`.
+- `POST /login` (no token) checks email and password and mints a new token for that account's `player_id`. A wrong email or password gives the same `401`. It is rate limited per IP (20/min).
+- `POST /logout` (guest token required) deletes only the token it was called with.
+- `GET /me` (guest token required) returns `{"email": ...}`, or `{"email": null}` for a plain guest.
+
+The `sessions` table holds many tokens per guest, so logging in on a second device does not sign out the first, and logout only affects the calling device. `init_db()` backfills tokens issued before this table existed, so old guests stay signed in. There is no email verification and no password reset in this version.
+
+`GET /daily`, `GET /daily/result` and `GET /daily/streak` return `streak`, `best` and `played_today`, computed from `puzzle_results` rather than client storage. A streak survives one unplayed day before it shows as 0.
 
 ## Custom bots
 
