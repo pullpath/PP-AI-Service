@@ -92,3 +92,26 @@ def test_flag_cleared_when_fill_queue_raises(temp_db, token, monkeypatch):
     monkeypatch.setattr(admin.puzzle_gen, "fill_queue", boom)
     admin.start_refill()
     assert admin.admin_status()["refilling"] is False
+
+
+HDR = {"X-Admin-Token": "secret-xyz"}
+
+
+def test_status_route_requires_token(client, token):
+    assert client.get("/api/spy-hunt/admin/status").status_code == 401
+
+
+def test_status_route_returns_counts(client, token):
+    _seed(1)
+    r = client.get("/api/spy-hunt/admin/status", headers=HDR)
+    assert r.status_code == 200 and r.get_json()["ready_count"] == 1
+
+
+def test_refill_route_starts(client, token, monkeypatch):
+    monkeypatch.setattr(admin.puzzle_gen, "fill_queue", lambda **k: 0)
+    r = client.post("/api/spy-hunt/admin/refill", headers=HDR)
+    assert r.status_code == 200 and r.get_json() == {"started": True}
+
+
+def test_refill_route_requires_token(client, token):
+    assert client.post("/api/spy-hunt/admin/refill").status_code == 401
