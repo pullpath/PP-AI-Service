@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 from flask import Flask
 
-from ai_svc.spy_hunt import admin
+from ai_svc.spy_hunt import admin, puzzles
+from ai_svc.spy_hunt.tests.puzzle_fixtures import sample_puzzle
+
+
+def _seed(n):
+    for i in range(n):
+        puzzles.insert_ready(*sample_puzzle(), 2, f"p-{i}")
 
 
 @pytest.fixture
@@ -38,3 +46,49 @@ def test_require_admin_allows_correct_token(temp_db, token):
     app = _app_with(lambda: ("ok", 200))
     r = app.test_client().get("/x", headers={"X-Admin-Token": "secret-xyz"})
     assert r.status_code == 200 and r.get_data(as_text=True) == "ok"
+
+
+def test_status_reports_counts(temp_db, token):
+    _seed(2)
+    out = admin.admin_status()
+    assert out == {"ready_count": 2, "total_count": 2, "refilling": False}
+
+
+def test_start_refill_runs_fill_queue(temp_db, token, monkeypatch):
+    calls = {"n": 0}
+    monkeypatch.setattr(admin.puzzle_gen, "fill_queue",
+                        lambda **k: calls.__setitem__("n", calls["n"] + 1) or 1)
+    assert admin.start_refill() == {"started": True}
+    assert calls["n"] == 1           # ran inline (workers synchronous in tests)
+    assert admin.admin_status()["refilling"] is False  # flag cleared after
+
+
+def test_double_refill_does_not_double_run(temp_db, token, monkeypatch):
+    # fill_queue blocks until released; with the pool async, the flag is
+    # observably set when the 2nd call lands.
+    started, release = threading.Event(), threading.Event()
+
+    def slow(**k):
+        started.set()
+        release.wait(2)
+        return 0
+
+    monkeypatch.setattr(admin.puzzle_gen, "fill_queue", slow)
+    admin.workers.set_synchronous(False)  # real background thread
+    try:
+        r1 = admin.start_refill()
+        assert started.wait(2)
+        r2 = admin.start_refill()
+    finally:
+        release.set()
+    assert r1 == {"started": True}
+    assert r2 == {"started": False, "refilling": True}
+
+
+def test_flag_cleared_when_fill_queue_raises(temp_db, token, monkeypatch):
+    def boom(**k):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(admin.puzzle_gen, "fill_queue", boom)
+    admin.start_refill()
+    assert admin.admin_status()["refilling"] is False
