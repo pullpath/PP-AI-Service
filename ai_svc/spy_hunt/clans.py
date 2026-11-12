@@ -310,6 +310,12 @@ def _pair(conn, week: str) -> None:
 def roll_weeks(now_ms: Optional[int] = None) -> None:
     """Close every week that has ended, then pair the current week. Idempotent."""
     cur = week_of(_now_ms() if now_ms is None else now_ms)
+    conn = get_conn()
+    if not conn.in_transaction:
+        # cheap read first, so viewing a clan page doesn't queue for the write lock
+        seen = conn.execute("SELECT v FROM clan_meta WHERE k='paired_week'").fetchone()
+        if seen is not None and seen["v"] >= cur:
+            return
     with _tx() as c:
         done = c.execute("SELECT v FROM clan_meta WHERE k='paired_week'").fetchone()
         if done is not None and done["v"] >= cur:
@@ -355,7 +361,8 @@ def season(player_id: str, now_ms: Optional[int] = None) -> Optional[Dict[str, A
                 "ghost": bool(r["ghost"])} for r in reversed(closed[-HISTORY_MAX:])]
     mem = conn.execute(
         "SELECT m.player_id, m.joined_at, (SELECT COALESCE(SUM(points), 0) FROM clan_points p"
-        " WHERE p.clan_id=m.clan_id AND p.player_id=m.player_id AND p.week=?) pts"
+        " WHERE p.clan_id=m.clan_id AND p.player_id=m.player_id AND p.week=?"
+        " AND p.created_at >= m.joined_at) pts"
         " FROM clan_members m WHERE m.clan_id=? ORDER BY pts DESC, m.joined_at, m.rowid",
         (cur, clan_id)).fetchall()
     members = [{"name": _display_name(conn, r["player_id"]), "points": r["pts"],

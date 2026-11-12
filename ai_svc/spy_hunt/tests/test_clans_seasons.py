@@ -223,3 +223,37 @@ def test_season_exposes_no_email_or_player_id(temp_db):
 
 def test_season_for_non_member_is_none(temp_db):
     assert clans.season(member()) is None
+
+
+def test_rejoining_member_gets_no_points_back_in_member_list(temp_db, conn):
+    c, ids = mk_clan("Trio", 3)
+    b = ids[1]
+    give(c["id"], b, 60, at(1))
+    clans.leave(b)
+    clans.join(b, c["code"])
+    conn.execute("UPDATE clan_members SET joined_at=? WHERE player_id=?", (at(1, 3), b))
+    conn.commit()
+    s = clans.season(ids[0], now_ms=at(1, 4))
+    assert [m["points"] for m in s["members"]] == [0, 0, 0]
+    assert s["this_week"]["own"] == 60  # the clan keeps what b earned
+
+
+def test_display_name_lookup_uses_an_index(temp_db, conn):
+    plan = " ".join(r[3] for r in conn.execute(
+        "EXPLAIN QUERY PLAN SELECT name FROM players WHERE player_id=? AND is_bot=0"
+        " ORDER BY joined_at DESC, rowid DESC LIMIT 1", ("x",)))
+    assert "SCAN players" not in plan
+
+
+def test_viewing_a_season_does_not_take_the_write_lock(temp_db, conn):
+    import sqlite3
+    c, ids = mk_clan("Trio", 3)
+    clans.season(ids[0])  # rolls once, meta now current
+    other = sqlite3.connect(temp_db, timeout=0.1)
+    other.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("PRAGMA busy_timeout=100")
+        assert clans.season(ids[0]) is not None
+    finally:
+        other.rollback()
+        other.close()

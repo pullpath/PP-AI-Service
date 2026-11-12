@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS clan_weeks(
   week TEXT, clan_id TEXT, rival_id TEXT, ghost INTEGER DEFAULT 0, own INTEGER,
   rival_score INTEGER, rival_name TEXT, result TEXT, PRIMARY KEY(week, clan_id));
 CREATE TABLE IF NOT EXISTS clan_meta(k TEXT PRIMARY KEY, v TEXT);
+CREATE INDEX IF NOT EXISTS idx_players_player ON players(player_id, joined_at);
 CREATE INDEX IF NOT EXISTS idx_clan_members_clan ON clan_members(clan_id, joined_at);
 CREATE INDEX IF NOT EXISTS idx_clan_points_week ON clan_points(week, clan_id);
 CREATE INDEX IF NOT EXISTS idx_clan_points_day ON clan_points(player_id, created_day);
