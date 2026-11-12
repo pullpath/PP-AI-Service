@@ -42,6 +42,13 @@ def test_require_admin_rejects_empty_token(temp_db, token):
     assert app.test_client().get("/x", headers={"X-Admin-Token": ""}).status_code == 401
 
 
+def test_require_admin_rejects_non_ascii_token(temp_db, token):
+    # Werkzeug decodes header values as latin-1, so a client can send a non-ASCII
+    # byte. hmac.compare_digest on str raises on non-ASCII; must 401, not 500.
+    app = _app_with(lambda: ("ok", 200))
+    assert app.test_client().get("/x", headers={"X-Admin-Token": "\xe9"}).status_code == 401
+
+
 def test_require_admin_allows_correct_token(temp_db, token):
     app = _app_with(lambda: ("ok", 200))
     r = app.test_client().get("/x", headers={"X-Admin-Token": "secret-xyz"})

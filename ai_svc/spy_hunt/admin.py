@@ -25,8 +25,8 @@ _refilling = False
 def require_admin(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        provided = request.headers.get("X-Admin-Token", "")
-        if not hmac.compare_digest(provided, get_admin_token()):
+        provided = request.headers.get("X-Admin-Token", "").encode("utf-8")
+        if not hmac.compare_digest(provided, get_admin_token().encode("utf-8")):
             return jsonify({"error": "unauthorized"}), 401
         return fn(*args, **kwargs)
     return wrapper
