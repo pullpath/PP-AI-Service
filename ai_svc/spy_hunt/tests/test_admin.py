@@ -70,6 +70,29 @@ def test_start_refill_runs_fill_queue(temp_db, token, monkeypatch):
     assert admin.admin_status()["refilling"] is False  # flag cleared after
 
 
+def test_start_refill_count_targets_current_ready_plus_count(temp_db, token, monkeypatch):
+    # "Generate N new": target = current ready_count + count, so exactly N
+    # fresh puzzles are produced on top of whatever is already queued.
+    _seed(2)
+    got = {}
+    monkeypatch.setattr(admin.puzzle_gen, "fill_queue", lambda **k: got.update(k) or 0)
+    admin.start_refill(count=3)
+    assert got["target"] == 5
+
+
+def test_start_refill_defaults_to_three(temp_db, token, monkeypatch):
+    got = {}
+    monkeypatch.setattr(admin.puzzle_gen, "fill_queue", lambda **k: got.update(k) or 0)
+    admin.start_refill()
+    assert got["target"] == 3
+
+
+def test_start_refill_rejects_bad_count(temp_db, token):
+    for bad in (0, -1, 51, "x", 2.5):
+        with pytest.raises(ValueError):
+            admin.start_refill(count=bad)
+
+
 def test_double_refill_does_not_double_run(temp_db, token, monkeypatch):
     # fill_queue blocks until released; with the pool async, the flag is
     # observably set when the 2nd call lands.
@@ -118,6 +141,20 @@ def test_refill_route_starts(client, token, monkeypatch):
     monkeypatch.setattr(admin.puzzle_gen, "fill_queue", lambda **k: 0)
     r = client.post("/api/spy-hunt/admin/refill", headers=HDR)
     assert r.status_code == 200 and r.get_json() == {"started": True}
+
+
+def test_refill_route_passes_count(client, token, monkeypatch):
+    _seed(2)
+    got = {}
+    monkeypatch.setattr(admin.puzzle_gen, "fill_queue", lambda **k: got.update(k) or 0)
+    r = client.post("/api/spy-hunt/admin/refill", headers=HDR, json={"count": 4})
+    assert r.status_code == 200 and r.get_json() == {"started": True}
+    assert got["target"] == 6
+
+
+def test_refill_route_rejects_bad_count(client, token):
+    r = client.post("/api/spy-hunt/admin/refill", headers=HDR, json={"count": 0})
+    assert r.status_code == 400
 
 
 def test_refill_route_requires_token(client, token):

@@ -301,7 +301,12 @@ def admin_status():
 @spy_hunt_bp.route("/admin/refill", methods=["POST"])
 @admin.require_admin
 def admin_refill():
-    return jsonify(admin.start_refill())
+    body = request.get_json(silent=True) or {}
+    count = body.get("count", admin.DEFAULT_REFILL)
+    try:
+        return jsonify(admin.start_refill(count))
+    except ValueError as e:
+        return jsonify({"error": "bad_count", "message": str(e)}), 400
 
 
 # ---- SSE stream (impl spec §7.1) ----

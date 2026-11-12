@@ -18,6 +18,9 @@ from ai_svc.spy_hunt import puzzle_gen, puzzles, workers
 
 log = logging.getLogger("spy_hunt.admin")
 
+MAX_REFILL = 50
+DEFAULT_REFILL = 3
+
 _lock = threading.Lock()
 _refilling = False
 
@@ -39,20 +42,23 @@ def admin_status() -> dict:
             "total_count": puzzles.total_count(), "refilling": refilling}
 
 
-def _run_fill() -> None:
+def _run_fill(target: int) -> None:
     global _refilling
     try:
-        puzzle_gen.fill_queue(log=log.info)
+        puzzle_gen.fill_queue(target=target, log=log.info)
     finally:
         with _lock:
             _refilling = False
 
 
-def start_refill() -> dict:
+def start_refill(count: int = DEFAULT_REFILL) -> dict:
     global _refilling
+    if type(count) is not int or not 1 <= count <= MAX_REFILL:
+        raise ValueError(f"count must be an integer from 1 to {MAX_REFILL}")
     with _lock:
         if _refilling:
             return {"started": False, "refilling": True}
         _refilling = True
-    workers.submit(_run_fill)
+    target = puzzles.ready_count() + count
+    workers.submit(_run_fill, target)
     return {"started": True}
