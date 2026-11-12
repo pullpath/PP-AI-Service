@@ -165,8 +165,11 @@ def test_gap_of_three_weeks_closes_each_missed_week_once(temp_db):
     clans.roll_weeks(at(4))  # weeks 2 and 3 had no traffic
     clans.roll_weeks(at(4, 3))
     assert row(1, a["id"])["result"] == "lost"
+    # week 2 still gets its pairing (both scored in week 1) and closes as a 0-0 draw;
+    # nobody scored in weeks 2 or 3, so weeks 3 and 4 have no pairing
+    assert row(2, a["id"])["result"] == "draw" and row(2, a["id"])["rival_id"] == b["id"]
     assert get_conn().execute("SELECT COUNT(*) FROM clan_weeks WHERE result IS NULL").fetchone()[0] == 0
-    assert get_conn().execute("SELECT COUNT(*) FROM clan_weeks").fetchone()[0] == 2
+    assert get_conn().execute("SELECT COUNT(*) FROM clan_weeks").fetchone()[0] == 4
 
 
 def test_small_clan_has_no_rival_and_still_scores(temp_db):
@@ -257,3 +260,14 @@ def test_viewing_a_season_does_not_take_the_write_lock(temp_db, conn):
     finally:
         other.rollback()
         other.close()
+
+
+def test_quiet_week_against_the_practice_rival_still_counts_as_a_loss(temp_db):
+    c, ids = mk_clan("Solo", 3)
+    give(c["id"], ids[0], 10, at(0))
+    clans.roll_weeks(at(1))
+    give(c["id"], ids[0], 80, at(1))  # beats the floor of 50
+    # nobody touches anything during week 2; the first request is in week 3
+    s = clans.season(ids[0], now_ms=at(3))
+    assert [h["result"] for h in s["history"]] == ["lost", "won"]
+    assert s["streak"] == 0

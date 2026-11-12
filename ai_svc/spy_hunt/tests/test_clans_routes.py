@@ -84,3 +84,28 @@ def test_room_snapshot_players_carry_clan_badge(client):
     assert by["Ann"]["clan"] == {"name": "Foxes", **clan["badge"]}
     assert by["Host"]["clan"] is None
     assert "player_id" not in by["Ann"]
+
+
+def test_joining_or_leaving_a_clan_refreshes_the_badge_in_open_rooms(client, conn):
+    h, pid, snap = create(client)
+    code = snap["code"]
+    a = registered(client)
+    join(client, code, name="Ann", h=a)
+    clan = client.post(f"{API}/clans", json={"name": "Foxes", "badge": 0}, headers=a).get_json()
+    rid = conn.execute("SELECT id FROM rooms WHERE code=?", (code,)).fetchone()["id"]
+
+    def last_update():
+        rows = conn.execute("SELECT payload_json FROM events WHERE room_id=? AND type='player_updated'"
+                            " ORDER BY seq DESC LIMIT 1", (rid,)).fetchall()
+        import json
+        return json.loads(rows[0]["payload_json"])["player"] if rows else None
+
+    assert last_update()["clan"] == {"name": "Foxes", **clan["badge"]}
+    client.post(f"{API}/clans/leave", headers=a)
+    assert last_update()["clan"] is None
+    # finished rooms are left alone
+    conn.execute("UPDATE rooms SET status='finished' WHERE id=?", (rid,))
+    conn.commit()
+    n = conn.execute("SELECT COUNT(*) FROM events WHERE room_id=?", (rid,)).fetchone()[0]
+    client.post(f"{API}/clans", json={"name": "Wolves", "badge": 0}, headers=a)
+    assert conn.execute("SELECT COUNT(*) FROM events WHERE room_id=?", (rid,)).fetchone()[0] == n

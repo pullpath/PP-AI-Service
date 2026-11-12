@@ -130,3 +130,15 @@ def test_list_open_excludes_full_and_caps_20_newest_first(temp_db, conn):
     assert listed[0]["name"] == "Clan 20"
     assert all(x["name"] != "Clan 21" for x in listed)
     assert {"id", "name", "badge", "members", "code"} <= set(listed[0])
+
+
+def test_invisible_characters_do_not_dodge_name_uniqueness(temp_db):
+    clans.create(member(), "Foxes", 0)
+    for sneaky in ("Fo\u200bxes", "Foxes\u200d", "\u2060Foxes", "Fox\x07es"):
+        assert _err(clans.create, member(), sneaky, 0).code == "name_taken"
+
+
+def test_invisible_characters_are_stripped_from_the_name(temp_db):
+    c = clans.create(member(), "Wo\u200blves", 0)
+    assert c["name"] == "Wolves"
+    assert _err(clans.create, member(), "\u200b\u200bab", 0).code == "bad_name"

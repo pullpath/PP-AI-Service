@@ -58,8 +58,12 @@ def _badge(row) -> Dict[str, str]:
 
 
 def _check_name(name: Any) -> str:
+    import unicodedata
     if not isinstance(name, str):
         raise StoreError(400, "bad_name", f"Clan name must be {NAME_MIN} to {NAME_MAX} characters.")
+    # drop invisible format/control characters so "Fo\u200bxes" can't pass as a new name
+    name = "".join(ch for ch in unicodedata.normalize("NFKC", name)
+                   if unicodedata.category(ch) not in ("Cf", "Cc") or ch in " \t\n")
     name = " ".join(name.split())
     if not NAME_MIN <= len(name) <= NAME_MAX:
         raise StoreError(400, "bad_name", f"Clan name must be {NAME_MIN} to {NAME_MAX} characters.")
@@ -77,6 +81,29 @@ def _clan_dict(conn, row) -> Dict[str, Any]:
 
 def _in_clan(conn, player_id: str) -> bool:
     return conn.execute("SELECT 1 FROM clan_members WHERE player_id=?", (player_id,)).fetchone() is not None
+
+
+def _refresh_badge(player_id: str) -> None:
+    """After a membership change commits: re-announce this player in rooms that aren't
+    finished, each under its own room lock, so other players see the new badge now."""
+    from ai_svc.spy_hunt import store
+    rooms = get_conn().execute(
+        "SELECT DISTINCT p.room_id FROM players p JOIN rooms r ON r.id=p.room_id"
+        " WHERE p.player_id=? AND p.is_bot=0 AND r.status IN ('lobby', 'playing')",
+        (player_id,)).fetchall()
+    for (room_id,) in rooms:
+        try:
+            with store.tx(room_id) as conn:
+                room = conn.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
+                seat = conn.execute("SELECT seat FROM players WHERE room_id=? AND player_id=? AND is_bot=0",
+                                    (room_id, player_id)).fetchone()
+                if room is None or seat is None or room["status"] == "finished":
+                    continue
+                store._bump(conn, room_id)
+                store._emit_player(conn, dict(room), seat["seat"], "player_updated")
+        except Exception:  # a stale badge must never fail the clan change itself
+            import logging
+            logging.getLogger(__name__).exception("clan badge refresh failed for room %s", room_id)
 
 
 def create(player_id: str, name: Any, badge_index: Any) -> Dict[str, Any]:
@@ -104,7 +131,9 @@ def create(player_id: str, name: Any, badge_index: Any) -> Dict[str, Any]:
                   (clan_id, name, name.casefold(), badge["emoji"], badge["color"], code, player_id, now))
         c.execute("INSERT INTO clan_members(player_id, clan_id, joined_at) VALUES (?,?,?)",
                   (player_id, clan_id, now))
-        return _clan_dict(c, c.execute("SELECT * FROM clans WHERE id=?", (clan_id,)).fetchone())
+        out = _clan_dict(c, c.execute("SELECT * FROM clans WHERE id=?", (clan_id,)).fetchone())
+    _refresh_badge(player_id)
+    return out
 
 
 def join(player_id: str, code: Any) -> Dict[str, Any]:
@@ -120,7 +149,9 @@ def join(player_id: str, code: Any) -> Dict[str, Any]:
             raise StoreError(409, "clan_full", "That clan is full.")
         c.execute("INSERT INTO clan_members(player_id, clan_id, joined_at) VALUES (?,?,?)",
                   (player_id, row["id"], _now_ms()))
-        return _clan_dict(c, row)
+        out = _clan_dict(c, row)
+    _refresh_badge(player_id)
+    return out
 
 
 def leave(player_id: str) -> Dict[str, Any]:
@@ -137,7 +168,8 @@ def leave(player_id: str) -> Dict[str, Any]:
         else:
             c.execute("UPDATE clans SET leader_id=? WHERE id=? AND leader_id=?",
                       (heir["player_id"], clan_id, player_id))
-        return {"ok": True}
+    _refresh_badge(player_id)
+    return {"ok": True}
 
 
 def list_open(limit: int = OPEN_LIST_MAX) -> List[Dict[str, Any]]:
@@ -320,11 +352,16 @@ def roll_weeks(now_ms: Optional[int] = None) -> None:
         done = c.execute("SELECT v FROM clan_meta WHERE k='paired_week'").fetchone()
         if done is not None and done["v"] >= cur:
             return
-        for w in [r["week"] for r in c.execute(
-                "SELECT DISTINCT week FROM clan_weeks WHERE result IS NULL AND week<? ORDER BY week",
-                (cur,))]:
-            _close(c, w)
-        _pair(c, cur)
+        # Walk every week since the last roll, so a week nobody touched is still paired
+        # (from the week before it) and closed, in order.
+        w = cur if done is None else _shift_week(done["v"], 1)
+        while w <= cur:
+            for prev in [r["week"] for r in c.execute(
+                    "SELECT DISTINCT week FROM clan_weeks WHERE result IS NULL AND week<? ORDER BY week",
+                    (w,))]:
+                _close(c, prev)
+            _pair(c, w)
+            w = _shift_week(w, 1)
         c.execute("INSERT INTO clan_meta(k, v) VALUES ('paired_week', ?)"
                   " ON CONFLICT(k) DO UPDATE SET v=excluded.v", (cur,))
 
