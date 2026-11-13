@@ -187,7 +187,8 @@ def _alive(rows) -> List[int]:
 
 def _public_all(rows, host_id: Optional[str]) -> List[Dict[str, Any]]:
     badges = visibility.clan_badges(r["player_id"] for r in rows if not r["is_bot"])
-    return [visibility.public_player(r, host_id, badges) for r in rows]
+    ranks = visibility.credit_ranks(r["player_id"] for r in rows if not r["is_bot"])
+    return [visibility.public_player(r, host_id, badges, ranks) for r in rows]
 
 
 def _public(conn, room_id: str, host_id: Optional[str], seat: int) -> Dict[str, Any]:
@@ -266,12 +267,15 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
     _set_phase(conn, room_id, pend, None, None)
     from ai_svc.spy_hunt import custombots
     custombots.record_game(conn, rows, winner)
-    from ai_svc.spy_hunt import clans
+    from ai_svc.spy_hunt import clans, credits
     clans.award_game(conn, room_id, room["game_no"], rows, winner)
+    deltas = credits.award_game(conn, room_id, room["game_no"], rows, winner)
+    seat_of = {r["player_id"]: r["seat"] for r in rows}
+    deltas = {seat_of[pid]: d for pid, d in deltas.items() if pid in seat_of}
     append_event(room_id, "game_over", {
         "winner": winner, "round": room["round"],
         "roles": [{"seat": r["seat"], "role": r["role"]} for r in rows],
-        "words": words}, "all", conn=conn)
+        "words": words, "credits": deltas}, "all", conn=conn)
     if room["pair_id"]:
         from ai_svc.spy_hunt import words as words_mod
         words_mod.record_outcome(room["pair_id"], winner == "spies", conn)

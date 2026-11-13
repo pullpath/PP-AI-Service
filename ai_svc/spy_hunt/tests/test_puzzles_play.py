@@ -5,7 +5,8 @@ import threading
 
 import pytest
 
-from ai_svc.spy_hunt import puzzles
+from ai_svc.spy_hunt import credits, puzzles
+from ai_svc.spy_hunt.db import get_conn
 from ai_svc.spy_hunt.store import StoreError
 from ai_svc.spy_hunt.tests.puzzle_fixtures import sample_puzzle
 
@@ -45,8 +46,21 @@ def test_get_today_creates_attempt_and_hides_answer(temp_db, clock):
     clock["t"] += 50_000
     puzzles.get_today("g1", DAY)
     from ai_svc.spy_hunt.db import get_conn
+    # opening the puzzle must not start the clock: it stays unset until the first guess
     row = get_conn().execute("SELECT started_at FROM puzzle_results WHERE player_id='g1'").fetchone()
-    assert row["started_at"] == 1_000_000
+    assert row["started_at"] is None
+
+
+def test_clock_starts_on_first_guess_not_on_open(temp_db, clock):
+    add()
+    puzzles.get_today("g1", DAY)
+    clock["t"] += 600_000  # peeked, then wandered off for ten minutes
+    puzzles.guess_spy("g1", 0, DAY)  # first guess starts the clock
+    clock["t"] += 30_000
+    puzzles.guess_spy("g1", 2, DAY)
+    puzzles.guess_word("g1", None, DAY)
+    r = puzzles.result("g1", DAY)
+    assert r["elapsed_ms"] == 30_000
 
 
 def test_get_today_no_puzzle_is_503(temp_db, clock):
@@ -105,8 +119,8 @@ def test_word_guess_wrong_adds_nothing(temp_db, clock):
 def test_elapsed_is_server_measured(temp_db, clock):
     add()
     puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 2, DAY)  # first guess starts the server clock
     clock["t"] += 90_000
-    puzzles.guess_spy("g1", 2, DAY)
     puzzles.guess_word("g1", None, DAY)
     r = puzzles.result("g1", DAY)
     assert r["elapsed_ms"] == 90_000 and r["score"] == 100 + 15
@@ -235,3 +249,18 @@ def test_check_day_accepts_today_and_yesterday_only(temp_db, clock):
         with pytest.raises(StoreError) as e:
             puzzles.check_day(bad)
         assert e.value.status == 400 and e.value.code == "bad_day"
+
+
+def test_daily_solved_awards_credits_and_reports_them(temp_db, clock):
+    add(); puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 2, DAY)            # found
+    puzzles.guess_word("g1", 0, DAY)           # word right
+    r = puzzles.result("g1", DAY)
+    assert r["credits_earned"] >= 20           # base+solved (+streak bonus)
+    assert r["credits_earned"] == credits.total(get_conn(), "g1")
+
+
+def test_daily_missed_awards_base_only(temp_db, clock):
+    add(); puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 0, DAY); puzzles.guess_spy("g1", 1, DAY)   # two wrong -> done
+    assert puzzles.result("g1", DAY)["credits_earned"] == 10

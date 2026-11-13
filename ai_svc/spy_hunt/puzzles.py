@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
 from .db import get_conn
-from . import clans
+from . import clans, credits
 from .store import StoreError
 
 MAX_TRIES = 2
@@ -160,8 +160,8 @@ def get_today(player_id: str, day: Optional[str] = None) -> Dict[str, Any]:
         raise StoreError(503, "no_puzzle", "Today's puzzle is not ready yet.")
     with _tx() as c:
         c.execute(
-            "INSERT OR IGNORE INTO puzzle_results(day, player_id, stage, tries, solved,"
-            " started_at) VALUES(?,?,?,?,?,?)", (day, player_id, "spy", 0, 0, _now_ms()))
+            "INSERT OR IGNORE INTO puzzle_results(day, player_id, stage, tries, solved)"
+            " VALUES(?,?,?,?,?)", (day, player_id, "spy", 0, 0))
         att = _attempt(c, day, player_id)
     return {"puzzle": public_payload(row), "me": _me(att), **streak_for(player_id, day)}
 
@@ -179,6 +179,10 @@ def guess_spy(player_id: str, spy_seat: Any, day: Optional[str] = None) -> Dict[
         wrong = json.loads(att["wrong_json"] or "[]")
         if spy_seat in wrong:
             raise StoreError(409, "already_tried", "You already ruled that player out.")
+        # the clock starts on the first guess, not when the puzzle is opened
+        if att["started_at"] is None:
+            c.execute("UPDATE puzzle_results SET started_at=? WHERE day=? AND player_id=?",
+                      (_now_ms(), day, player_id))
         tries = att["tries"] + 1
         if spy_seat == _answer(c, day)["spy_seat"]:
             c.execute("UPDATE puzzle_results SET tries=?, solved=1, stage='word'"
@@ -190,6 +194,10 @@ def guess_spy(player_id: str, spy_seat: Any, day: Optional[str] = None) -> Dict[
                       " score=0, wrong_json=? WHERE day=? AND player_id=?",
                       (tries, _now_ms(), json.dumps(wrong + [spy_seat]), day, player_id))
             clans.award_daily(c, player_id, day, False)
+            earned = credits.award_daily(c, player_id, day, False,
+                                         streak=streak_for(player_id, day)["streak"])
+            c.execute("UPDATE puzzle_results SET credits_earned=? WHERE day=? AND player_id=?",
+                      (earned, day, player_id))
             return {"correct": False, "stage": "done", "tries": tries, "tries_left": 0}
         c.execute("UPDATE puzzle_results SET tries=?, wrong_json=? WHERE day=? AND player_id=?",
                   (tries, json.dumps(wrong + [spy_seat]), day, player_id))
@@ -214,6 +222,10 @@ def guess_word(player_id: str, option: Any, day: Optional[str] = None) -> Dict[s
                   " word_correct=? WHERE day=? AND player_id=?",
                   (now, total, None if correct is None else int(correct), day, player_id))
         clans.award_daily(c, player_id, day, bool(att["solved"]))
+        earned = credits.award_daily(c, player_id, day, bool(att["solved"]),
+                                     streak=streak_for(player_id, day)["streak"])
+        c.execute("UPDATE puzzle_results SET credits_earned=? WHERE day=? AND player_id=?",
+                  (earned, day, player_id))
         return {"correct": correct, "stage": "done"}
 
 
@@ -230,7 +242,8 @@ def result(player_id: str, day: Optional[str] = None) -> Dict[str, Any]:
     return {
         "solved": bool(att["solved"]), "tries": att["tries"],
         "word_correct": None if wc is None else bool(wc),
-        "elapsed_ms": att["finished_at"] - att["started_at"], "score": att["score"],
+        "elapsed_ms": att["finished_at"] - (att["started_at"] or att["finished_at"]), "score": att["score"],
+        "credits_earned": att["credits_earned"] or 0,
         "answer": {"spy_seat": ans["spy_seat"], "spy_word": ans["spy_word"],
                    "civilian_word": ans["civilian_word"]},
         "stats": {"players": agg["n"], "solved_pct": round(100 * agg["s"] / agg["n"]) if agg["n"] else 0},

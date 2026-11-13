@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS puzzles(
   pair_id TEXT, difficulty INTEGER, public_json TEXT, answer_json TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS puzzle_results(
   day TEXT, player_id TEXT, stage TEXT, tries INTEGER, solved INTEGER, word_correct INTEGER,
-  started_at INTEGER, finished_at INTEGER, score INTEGER, wrong_json TEXT,
+  started_at INTEGER, finished_at INTEGER, score INTEGER, wrong_json TEXT, credits_earned INTEGER,
   PRIMARY KEY(day, player_id));
 CREATE TABLE IF NOT EXISTS custom_bots(
   id TEXT PRIMARY KEY, owner_player_id TEXT, name TEXT, avatar_emoji TEXT, avatar_color TEXT,
@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS clan_members(
 CREATE TABLE IF NOT EXISTS clan_points(
   key TEXT PRIMARY KEY, clan_id TEXT, player_id TEXT, week TEXT, created_day TEXT,
   points INTEGER, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS player_credits(
+  key TEXT PRIMARY KEY, player_id TEXT, credits INTEGER, created_day TEXT,
+  created_at INTEGER);
+CREATE TABLE IF NOT EXISTS player_total_credits(
+  player_id TEXT PRIMARY KEY, credits INTEGER DEFAULT 0, updated_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_player_credits_player ON player_credits(player_id);
+CREATE INDEX IF NOT EXISTS idx_player_credits_day ON player_credits(player_id, created_day);
 CREATE TABLE IF NOT EXISTS clan_weeks(
   week TEXT, clan_id TEXT, rival_id TEXT, ghost INTEGER DEFAULT 0, own INTEGER,
   rival_score INTEGER, rival_name TEXT, result TEXT, PRIMARY KEY(week, clan_id));
@@ -137,6 +144,9 @@ def init_db() -> None:
                       ("arena_spy_games", "INTEGER DEFAULT 0"), ("arena_spy_wins", "INTEGER DEFAULT 0")):
         if col not in have:
             conn.execute(f"ALTER TABLE custom_bots ADD COLUMN {col} {decl}")
+    have = {r[1] for r in conn.execute("PRAGMA table_info(puzzle_results)")}
+    if "credits_earned" not in have:
+        conn.execute("ALTER TABLE puzzle_results ADD COLUMN credits_earned INTEGER")
     have = {r[1] for r in conn.execute("PRAGMA table_info(guests)")}
     for col in ("email", "password_hash"):
         if col not in have:
