@@ -102,6 +102,13 @@ CREATE INDEX IF NOT EXISTS idx_events_room_seq ON events(room_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id, id);
 CREATE INDEX IF NOT EXISTS idx_rooms_status_active ON rooms(status, last_active);
 CREATE INDEX IF NOT EXISTS idx_puzzle_results_player ON puzzle_results(player_id, day);
+CREATE TABLE IF NOT EXISTS room_results(
+  room_id TEXT, game_no INTEGER, finished_at INTEGER, winner TEXT, lang TEXT,
+  roles_json TEXT, words_json TEXT, PRIMARY KEY(room_id, game_no));
+CREATE TABLE IF NOT EXISTS room_result_players(
+  room_id TEXT, game_no INTEGER, player_id TEXT, seat INTEGER, role TEXT, won INTEGER,
+  credits_earned INTEGER, credit_parts TEXT, PRIMARY KEY(room_id, game_no, player_id));
+CREATE INDEX IF NOT EXISTS idx_room_result_players_player ON room_result_players(player_id);
 """
 
 
@@ -153,7 +160,7 @@ def init_db() -> None:
     if "credit_parts" not in have:
         conn.execute("ALTER TABLE puzzle_results ADD COLUMN credit_parts TEXT")
     have = {r[1] for r in conn.execute("PRAGMA table_info(guests)")}
-    for col in ("email", "password_hash"):
+    for col in ("email", "password_hash", "preferred_lang"):
         if col not in have:
             conn.execute(f"ALTER TABLE guests ADD COLUMN {col} TEXT")
     conn.execute(
