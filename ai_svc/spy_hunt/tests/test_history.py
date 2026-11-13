@@ -101,3 +101,25 @@ def test_game_detail_words_is_an_object_when_the_room_had_no_pair(conn):
     finish(rid, "civilians")
     detail = history.game_detail("a", rid, _game_no(conn, rid))
     assert detail["words"] == {}
+
+
+def test_a_failed_history_write_leaves_no_partial_rows(conn, monkeypatch):
+    real = history.json.dumps
+    calls = {"n": 0}
+
+    def flaky(obj, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 3:  # roles, words ok; first player's credit_parts fails
+            raise RuntimeError("boom")
+        return real(obj, *a, **k)
+    monkeypatch.setattr(history.json, "dumps", flaky)
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    assert conn.execute("SELECT status FROM rooms WHERE id=?", (rid,)).fetchone()[0] == "finished"
+    assert conn.execute("SELECT COUNT(*) FROM room_results WHERE room_id=?", (rid,)).fetchone()[0] == 0
+
+
+def test_game_detail_route_404s_for_an_oversized_game_no(client):
+    guest = _make_guest(client)
+    r = client.get("/api/spy-hunt/me/games/x/99999999999999999999", headers=_auth_header(guest))
+    assert r.status_code == 404

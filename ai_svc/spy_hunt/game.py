@@ -271,10 +271,14 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
     clans.award_game(conn, room_id, room["game_no"], rows, winner)
     parts = credits.award_game_parts(conn, room_id, room["game_no"], rows, winner)
     from ai_svc.spy_hunt import history
+    conn.execute("SAVEPOINT history")
     try:
         history.record_game(conn, room, rows, winner, words, parts)
+        conn.execute("RELEASE history")
     except Exception:
-        pass
+        conn.execute("ROLLBACK TO history")
+        conn.execute("RELEASE history")
+        logging.getLogger(__name__).exception("game history write failed for %s", room_id)
     seat_of = {r["player_id"]: r["seat"] for r in rows}
     parts = {seat_of[pid]: p for pid, p in parts.items() if pid in seat_of}
     deltas = {seat: sum(x["n"] for x in p) for seat, p in parts.items()}

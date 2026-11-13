@@ -44,6 +44,8 @@ def games_for(player_id: str, limit: int = 20) -> List[Dict[str, Any]]:
 def game_detail(player_id: str, room_id: str, game_no: int) -> Optional[Dict[str, Any]]:
     from ai_svc.spy_hunt.db import get_conn
     conn = get_conn()
+    if not 0 <= game_no <= 2**62:
+        return None
     if conn.execute("SELECT 1 FROM room_result_players WHERE room_id=? AND game_no=? AND player_id=?",
                     (room_id, game_no, player_id)).fetchone() is None:
         return None
