@@ -15,7 +15,8 @@ def test_credits_endpoint_shape(client, conn):
     r = client.get(f"{API}/credits", headers=h)
     assert r.status_code == 200
     body = r.get_json()
-    assert set(body) == {"credits", "today", "rank", "next"}
+    assert set(body) == {"credits", "today", "rank", "next", "rules"}
+    assert body["rules"]["game"]["played"] == credits.GAME_PLAY and body["rules"]["daily_cap"] == credits.CREDITS_DAILY_CAP
     assert body["credits"] == 5000
     assert body["rank"] == credits.rank_for(5000)
     assert client.get(f"{API}/credits").status_code == 401

@@ -258,9 +258,13 @@ def test_daily_solved_awards_credits_and_reports_them(temp_db, clock):
     r = puzzles.result("g1", DAY)
     assert r["credits_earned"] >= 20           # base+solved (+streak bonus)
     assert r["credits_earned"] == credits.total(get_conn(), "g1")
+    assert [p["kind"] for p in r["credit_parts"]][:2] == ["daily", "found"]
+    assert sum(p["n"] for p in r["credit_parts"]) == r["credits_earned"]
 
 
 def test_daily_missed_awards_base_only(temp_db, clock):
     add(); puzzles.get_today("g1", DAY)
     puzzles.guess_spy("g1", 0, DAY); puzzles.guess_spy("g1", 1, DAY)   # two wrong -> done
-    assert puzzles.result("g1", DAY)["credits_earned"] == 10
+    r = puzzles.result("g1", DAY)
+    assert r["credits_earned"] == 10
+    assert r["credit_parts"] == [{"kind": "daily", "n": 10}]
