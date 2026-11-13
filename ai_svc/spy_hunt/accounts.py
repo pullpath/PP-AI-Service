@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from ai_svc.spy_hunt import auth
+from ai_svc.spy_hunt import auth, store
 from ai_svc.spy_hunt.db import get_conn
 from ai_svc.spy_hunt.store import StoreError
 
@@ -108,7 +108,7 @@ def login(email: Any, password: Any) -> Dict[str, str]:
         raise StoreError(429, "rate_limited", "Too many attempts, try again later.")
     conn = get_conn()
     row = conn.execute(
-        "SELECT player_id, password_hash FROM guests WHERE email=?", (email,)
+        "SELECT player_id, password_hash, preferred_lang FROM guests WHERE email=?", (email,)
     ).fetchone()
     # Never reveal whether the email or the password was wrong.
     stored = row["password_hash"] if row is not None and row["password_hash"] else _DUMMY_HASH
@@ -126,7 +126,8 @@ def login(email: Any, password: Any) -> Dict[str, str]:
     )
     _prune_sessions(conn, player_id, now)
     conn.commit()
-    return {"player_id": player_id, "token": token, "email": email}
+    return {"player_id": player_id, "token": token, "email": email,
+            "preferred_lang": row["preferred_lang"]}
 
 
 def _prune_sessions(conn, player_id: str, now: int) -> None:
@@ -148,6 +149,14 @@ def logout(token_hash: str) -> None:
 
 def me(player_id: str) -> Dict[str, Optional[str]]:
     row = get_conn().execute(
-        "SELECT email FROM guests WHERE player_id=?", (player_id,)
+        "SELECT email, preferred_lang FROM guests WHERE player_id=?", (player_id,)
     ).fetchone()
-    return {"email": row["email"] if row else None}
+    return {"email": row["email"] if row else None,
+            "preferred_lang": row["preferred_lang"] if row else None}
+
+
+def update_me(player_id: str, lang: Any) -> Dict[str, str]:
+    lang = store.check_lang(lang)
+    get_conn().execute("UPDATE guests SET preferred_lang=? WHERE player_id=?", (lang, player_id))
+    get_conn().commit()
+    return {"preferred_lang": lang}

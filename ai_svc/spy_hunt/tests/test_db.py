@@ -92,6 +92,6 @@ def test_a_real_pre_migration_database_keeps_its_guests_signed_in(tmp_path, monk
         app = Flask(__name__)
         app.register_blueprint(spy_hunt_bp)
         r = app.test_client().get("/api/spy-hunt/me", headers={"Authorization": "Bearer legacy-pid.legacy-token"})
-        assert r.status_code == 200 and r.get_json() == {"email": None}
+        assert r.status_code == 200 and r.get_json() == {"email": None, "preferred_lang": None}
     finally:
         db.close_conn()

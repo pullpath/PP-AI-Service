@@ -189,7 +189,7 @@ def test_me_reports_email_or_null(client):
     guest = _make_guest(client)
     r = client.get("/api/spy-hunt/me", headers=_auth_header(guest))
     assert r.status_code == 200
-    assert r.get_json() == {"email": None}
+    assert r.get_json() == {"email": None, "preferred_lang": None}
     client.post(
         "/api/spy-hunt/register",
         json={"email": "a@b.com", "password": "longenough"},
@@ -197,7 +197,43 @@ def test_me_reports_email_or_null(client):
     )
     r2 = client.get("/api/spy-hunt/me", headers=_auth_header(guest))
     assert r2.status_code == 200
-    assert r2.get_json() == {"email": "a@b.com"}
+    assert r2.get_json() == {"email": "a@b.com", "preferred_lang": None}
+
+
+def test_me_reports_preferred_lang_or_null(client):
+    guest = _make_guest(client, json={"lang": "zh-Hans"})
+    r = client.get("/api/spy-hunt/me", headers=_auth_header(guest))
+    assert r.get_json() == {"email": None, "preferred_lang": "zh-Hans"}
+
+
+def test_patch_me_requires_guest_token(client):
+    r = client.patch("/api/spy-hunt/me", json={"lang": "en"})
+    assert r.status_code == 401
+
+
+def test_patch_me_sets_preferred_lang(client, conn):
+    guest = _make_guest(client)
+    r = client.patch("/api/spy-hunt/me", json={"lang": "zh-Hans"}, headers=_auth_header(guest))
+    assert r.status_code == 200
+    assert r.get_json() == {"preferred_lang": "zh-Hans"}
+    row = conn.execute("SELECT preferred_lang FROM guests WHERE player_id=?",
+                        (guest["player_id"],)).fetchone()
+    assert row["preferred_lang"] == "zh-Hans"
+
+
+def test_patch_me_rejects_an_invalid_lang(client):
+    guest = _make_guest(client)
+    r = client.patch("/api/spy-hunt/me", json={"lang": "klingon"}, headers=_auth_header(guest))
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "bad_lang"
+
+
+def test_login_returns_preferred_lang(client):
+    guest = _make_guest(client, json={"lang": "zh-Hans"})
+    client.post("/api/spy-hunt/register", json={"email": "a@b.com", "password": "longenough"},
+                headers=_auth_header(guest))
+    r = client.post("/api/spy-hunt/login", json={"email": "a@b.com", "password": "longenough"})
+    assert r.get_json()["preferred_lang"] == "zh-Hans"
 
 
 def test_logged_out_token_stays_dead_after_init_db(client, conn):

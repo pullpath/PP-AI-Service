@@ -9,21 +9,25 @@ from functools import wraps
 from flask import g, jsonify, request
 
 from ai_svc.spy_hunt.db import get_conn
+from ai_svc.spy_hunt.store import LANGS
 
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_guest() -> tuple[str, str]:
+def create_guest(lang: str | None = None) -> tuple[str, str]:
+    # A bad lang hint must never block guest creation: fall back to None instead of raising.
+    if not isinstance(lang, str) or lang not in LANGS:
+        lang = None
     player_id = secrets.token_urlsafe(9)
     token = secrets.token_urlsafe(32)
     token_hash = hash_token(token)
     created_at = int(time.time())
     conn = get_conn()
     conn.execute(
-        "INSERT INTO guests(player_id, created_at) VALUES(?,?)",
-        (player_id, created_at),
+        "INSERT INTO guests(player_id, created_at, preferred_lang) VALUES(?,?,?)",
+        (player_id, created_at, lang),
     )
     conn.execute(
         "INSERT INTO sessions(token_hash, player_id, created_at) VALUES(?,?,?)",

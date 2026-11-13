@@ -58,7 +58,8 @@ def health():
 @spy_hunt_bp.route("/guests", methods=["POST"])
 @ratelimits.limit("guest_create")
 def create_guest():
-    player_id, token = auth.create_guest()
+    body = request.get_json(silent=True) or {}
+    player_id, token = auth.create_guest(lang=body.get("lang"))
     return jsonify({"player_id": player_id, "token": token})
 
 
@@ -99,6 +100,15 @@ def logout():
 @ratelimits.limit("read")
 def me():
     return jsonify(accounts.me(g.player_id))
+
+
+@spy_hunt_bp.route("/me", methods=["PATCH"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def patch_me():
+    body = _json_body()
+    return jsonify(accounts.update_me(g.player_id, body.get("lang")))
 
 
 # Room routes: `flood` (per IP) runs first, before auth, so unauthenticated
