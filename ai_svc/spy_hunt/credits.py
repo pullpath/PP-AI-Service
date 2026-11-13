@@ -13,6 +13,10 @@ from typing import Any, Dict, Iterator, List, Optional
 from ai_svc.spy_hunt.db import get_conn
 
 CREDITS_DAILY_CAP = 500
+GAME_PLAY, GAME_WIN = 10, 10
+DAILY_DONE, DAILY_SOLVED = 10, 10
+MIN_HUMANS = 2
+STREAK_STEP, STREAK_MAX = 5, 50
 
 RANKS: List[Dict[str, Any]] = [
     {"key": "rookie", "min": 0, "hero": "🐣"},
@@ -67,6 +71,64 @@ def _add(conn, key: str, player_id: str, credits: int, now: int) -> int:
                  " ON CONFLICT(player_id) DO UPDATE SET credits = credits + excluded.credits,"
                  " updated_at = excluded.updated_at", (player_id, credits, now))
     return credits
+
+
+def _safely(fn, *args):
+    """Run fn(*args) in a savepoint; return its result, or 0 if it raised (rolled back).
+
+    Credits are a side effect of play and must never break the game or puzzle.
+    """
+    import logging
+    conn = args[0]
+    try:
+        conn.execute("SAVEPOINT credit_award")
+        result = fn(*args)
+        conn.execute("RELEASE credit_award")
+        return result
+    except Exception:
+        logging.getLogger(__name__).exception("credit award failed")
+        try:
+            conn.execute("ROLLBACK TO credit_award")
+            conn.execute("RELEASE credit_award")
+        except sqlite3.Error:
+            pass
+        return 0
+
+
+def _award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> Dict[str, int]:
+    if winner not in ("spies", "civilians"):
+        return {}
+    humans = [r for r in rows if not r["is_bot"]]
+    if len(humans) < MIN_HUMANS:
+        return {}
+    now = _now_ms()
+    out: Dict[str, int] = {}
+    for r in humans:
+        pid = r["player_id"]
+        key = f"g:{room_id}:{game_no}:{pid}"
+        won = (r["role"] == "spy") == (winner == "spies")
+        out[pid] = _add(conn, key, pid, GAME_PLAY + (GAME_WIN if won else 0), now)
+    return out
+
+
+def award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> Dict[str, int]:
+    """Per-human {player_id: delta actually added}; {} if ineligible or on error."""
+    res = _safely(_award_game, conn, room_id, game_no, rows, winner)
+    return res if isinstance(res, dict) else {}
+
+
+def _award_daily(conn, player_id: str, day: str, solved: bool, streak: int) -> int:
+    now = _now_ms()
+    got = _add(conn, f"d:{day}:{player_id}", player_id,
+               DAILY_DONE + (DAILY_SOLVED if solved else 0), now)
+    if solved:
+        got += _add(conn, f"ds:{day}:{player_id}", player_id,
+                    min(STREAK_STEP * max(streak, 0), STREAK_MAX), now)
+    return got
+
+
+def award_daily(conn, player_id: str, day: str, solved: bool, streak: int) -> int:
+    return int(_safely(_award_daily, conn, player_id, day, solved, streak))
 
 
 def total(conn, player_id: str) -> int:

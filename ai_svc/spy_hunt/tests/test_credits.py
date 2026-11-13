@@ -50,3 +50,34 @@ def test_summary_shape(temp_db):
     s = credits.summary("g1")
     assert s["credits"] == 300 and s["rank"]["key"] == "sleuth"
     assert s["next"]["key"] == "hunter" and s["next"]["remaining"] == 450
+
+
+def test_award_game_returns_per_player_delta(temp_db):
+    rows = [{"player_id": "a", "is_bot": 0, "role": "spy"},
+            {"player_id": "b", "is_bot": 0, "role": "civilian"},
+            {"player_id": "z", "is_bot": 1, "role": "civilian"}]
+    with get_conn() as c:
+        d = credits.award_game(c, "r1", 1, rows, "spies")
+    assert d == {"a": 20, "b": 10}   # spy won (+10+10), civ played (+10), bot excluded
+
+
+def test_award_game_needs_two_humans(temp_db):
+    rows = [{"player_id": "a", "is_bot": 0, "role": "spy"}, {"player_id": "z", "is_bot": 1, "role": "civilian"}]
+    with get_conn() as c:
+        assert credits.award_game(c, "r1", 1, rows, "spies") == {}
+
+
+def test_award_daily_solved_adds_streak_bonus(temp_db):
+    with get_conn() as c:
+        assert credits.award_daily(c, "g1", "2026-11-13", True, streak=4) == 10 + 10 + 20
+
+
+def test_award_daily_missed_has_no_streak_bonus(temp_db):
+    with get_conn() as c:
+        assert credits.award_daily(c, "g1", "2026-11-13", False, streak=9) == 10
+
+
+def test_award_daily_replay_is_zero(temp_db):
+    with get_conn() as c:
+        credits.award_daily(c, "g1", "2026-11-13", True, streak=4)
+        assert credits.award_daily(c, "g1", "2026-11-13", True, streak=4) == 0
