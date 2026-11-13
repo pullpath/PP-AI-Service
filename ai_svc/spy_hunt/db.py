@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS players(
   bot_persona TEXT, role TEXT,
   alive INTEGER, connected INTEGER, joined_at INTEGER,
   avatar_emoji TEXT, avatar_color TEXT, bot_id TEXT, bot_owner_id TEXT, outfit_json TEXT,
+  avatar_frame TEXT,
   PRIMARY KEY(room_id, seat));
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT, game_no INTEGER, round INTEGER,
@@ -90,6 +91,8 @@ CREATE TABLE IF NOT EXISTS clan_weeks(
   week TEXT, clan_id TEXT, rival_id TEXT, ghost INTEGER DEFAULT 0, own INTEGER,
   rival_score INTEGER, rival_name TEXT, result TEXT, PRIMARY KEY(week, clan_id));
 CREATE TABLE IF NOT EXISTS clan_meta(k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS player_looks(
+  player_id TEXT PRIMARY KEY, emoji TEXT, color TEXT, frame TEXT, updated_at INTEGER);
 CREATE INDEX IF NOT EXISTS idx_players_player ON players(player_id, joined_at);
 CREATE INDEX IF NOT EXISTS idx_clan_members_clan ON clan_members(clan_id, joined_at);
 CREATE INDEX IF NOT EXISTS idx_clan_points_week ON clan_points(week, clan_id);
@@ -131,7 +134,7 @@ def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
     have = {r[1] for r in conn.execute("PRAGMA table_info(players)")}
-    for col in ("avatar_emoji", "avatar_color", "bot_id", "bot_owner_id", "outfit_json"):
+    for col in ("avatar_emoji", "avatar_color", "bot_id", "bot_owner_id", "outfit_json", "avatar_frame"):
         if col not in have:
             conn.execute(f"ALTER TABLE players ADD COLUMN {col} TEXT")
     have = {r[1] for r in conn.execute("PRAGMA table_info(custom_bots)")}

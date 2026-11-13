@@ -102,6 +102,16 @@ def credit_ranks(player_ids: Iterable[str]) -> Dict[str, int]:
     return {r["player_id"]: credits.rank_for(r["credits"])["index"] for r in rows}
 
 
+def _avatar(row: sqlite3.Row) -> Optional[Dict[str, str]]:
+    if row["avatar_emoji"] is None:
+        return None
+    out = {"emoji": row["avatar_emoji"], "color": row["avatar_color"]}
+    frame = row["avatar_frame"] if "avatar_frame" in row.keys() else None
+    if frame is not None:
+        out["frame"] = frame
+    return out
+
+
 def public_player(row: sqlite3.Row, host_player_id: Optional[str],
                   clans: Optional[Dict[str, Dict[str, str]]] = None,
                   ranks: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
@@ -126,8 +136,7 @@ def public_player(row: sqlite3.Row, host_player_id: Optional[str],
         "is_bot": bool(row["is_bot"]),
         "alive": bool(row["alive"]),
         "connected": bool(row["connected"]),
-        "avatar": ({"emoji": row["avatar_emoji"], "color": row["avatar_color"]}
-                   if row["avatar_emoji"] is not None else None),
+        "avatar": _avatar(row),
         "bot_id": row["bot_id"],
         "is_host": row["player_id"] == host_player_id,
         "clan": clan,
