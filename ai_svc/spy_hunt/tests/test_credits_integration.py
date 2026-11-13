@@ -17,6 +17,10 @@ def test_game_over_event_carries_credits_and_totals_increase(temp_db):
         "SELECT payload_json FROM events WHERE room_id=? AND type='game_over'", (rid,)).fetchone()
     payload = json.loads(row[0])
     assert payload["credits"]
-    assert set(payload["credits"]) == {a, b}
+    seats = {r[0]: r[1] for r in get_conn().execute(
+        "SELECT player_id, seat FROM players WHERE room_id=?", (rid,))}
+    assert set(payload["credits"]) == {str(seats[a]), str(seats[b])}
+    assert a not in payload["credits"] and b not in payload["credits"]
+    assert all(v > 0 for v in payload["credits"].values())
     assert "winner" in payload and "roles" in payload and "words" in payload
     assert credits.total(get_conn(), a) > before

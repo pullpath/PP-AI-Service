@@ -270,6 +270,8 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
     from ai_svc.spy_hunt import clans, credits
     clans.award_game(conn, room_id, room["game_no"], rows, winner)
     deltas = credits.award_game(conn, room_id, room["game_no"], rows, winner)
+    seat_of = {r["player_id"]: r["seat"] for r in rows}
+    deltas = {seat_of[pid]: d for pid, d in deltas.items() if pid in seat_of}
     append_event(room_id, "game_over", {
         "winner": winner, "round": room["round"],
         "roles": [{"seat": r["seat"], "role": r["role"]} for r in rows],
