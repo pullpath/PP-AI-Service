@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS clan_members(
 CREATE TABLE IF NOT EXISTS clan_points(
   key TEXT PRIMARY KEY, clan_id TEXT, player_id TEXT, week TEXT, created_day TEXT,
   points INTEGER, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS player_credits(
+  key TEXT PRIMARY KEY, player_id TEXT, credits INTEGER, created_day TEXT,
+  created_at INTEGER);
+CREATE TABLE IF NOT EXISTS player_total_credits(
+  player_id TEXT PRIMARY KEY, credits INTEGER DEFAULT 0, updated_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_player_credits_player ON player_credits(player_id);
+CREATE INDEX IF NOT EXISTS idx_player_credits_day ON player_credits(player_id, created_day);
 CREATE TABLE IF NOT EXISTS clan_weeks(
   week TEXT, clan_id TEXT, rival_id TEXT, ghost INTEGER DEFAULT 0, own INTEGER,
   rival_score INTEGER, rival_name TEXT, result TEXT, PRIMARY KEY(week, clan_id));
