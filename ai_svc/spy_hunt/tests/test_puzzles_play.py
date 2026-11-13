@@ -45,8 +45,21 @@ def test_get_today_creates_attempt_and_hides_answer(temp_db, clock):
     clock["t"] += 50_000
     puzzles.get_today("g1", DAY)
     from ai_svc.spy_hunt.db import get_conn
+    # opening the puzzle must not start the clock: it stays unset until the first guess
     row = get_conn().execute("SELECT started_at FROM puzzle_results WHERE player_id='g1'").fetchone()
-    assert row["started_at"] == 1_000_000
+    assert row["started_at"] is None
+
+
+def test_clock_starts_on_first_guess_not_on_open(temp_db, clock):
+    add()
+    puzzles.get_today("g1", DAY)
+    clock["t"] += 600_000  # peeked, then wandered off for ten minutes
+    puzzles.guess_spy("g1", 0, DAY)  # first guess starts the clock
+    clock["t"] += 30_000
+    puzzles.guess_spy("g1", 2, DAY)
+    puzzles.guess_word("g1", None, DAY)
+    r = puzzles.result("g1", DAY)
+    assert r["elapsed_ms"] == 30_000
 
 
 def test_get_today_no_puzzle_is_503(temp_db, clock):
@@ -105,8 +118,8 @@ def test_word_guess_wrong_adds_nothing(temp_db, clock):
 def test_elapsed_is_server_measured(temp_db, clock):
     add()
     puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 2, DAY)  # first guess starts the server clock
     clock["t"] += 90_000
-    puzzles.guess_spy("g1", 2, DAY)
     puzzles.guess_word("g1", None, DAY)
     r = puzzles.result("g1", DAY)
     assert r["elapsed_ms"] == 90_000 and r["score"] == 100 + 15
