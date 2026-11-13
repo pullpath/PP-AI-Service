@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import accounts, admin, arena, auth, clans, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import accounts, admin, arena, auth, clans, credits, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -288,6 +288,14 @@ def daily_result():
 @ratelimits.limit("read")
 def daily_streak():
     return jsonify(puzzles.streak_for(g.player_id))
+
+
+@spy_hunt_bp.route("/credits", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def my_credits():
+    return jsonify(credits.summary(g.player_id))
 
 
 # ---- admin (superadmin panel: hidden, X-Admin-Token gated) ----

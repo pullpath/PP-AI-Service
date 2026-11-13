@@ -11,7 +11,7 @@ import sqlite3
 import time
 from typing import Any, Dict, Iterable, Optional
 
-from ai_svc.spy_hunt import engine
+from ai_svc.spy_hunt import credits, engine
 from ai_svc.spy_hunt.db import get_conn
 
 SECRET_KEYS = frozenset({"role", "roles", "word", "words", "my_word", "bot_owner_id", "outfit_json"})
@@ -91,8 +91,20 @@ def clan_badges(player_ids: Iterable[str]) -> Dict[str, Dict[str, str]]:
             for r in rows}
 
 
+def credit_ranks(player_ids: Iterable[str]) -> Dict[str, int]:
+    """player_id -> rank index, in one query; absent players are rank 0."""
+    ids = list(player_ids)
+    if not ids:
+        return {}
+    rows = get_conn().execute(
+        "SELECT player_id, credits FROM player_total_credits WHERE player_id IN (%s)"
+        % ",".join("?" * len(ids)), ids).fetchall()
+    return {r["player_id"]: credits.rank_for(r["credits"])["index"] for r in rows}
+
+
 def public_player(row: sqlite3.Row, host_player_id: Optional[str],
-                  clans: Optional[Dict[str, Dict[str, str]]] = None) -> Dict[str, Any]:
+                  clans: Optional[Dict[str, Dict[str, str]]] = None,
+                  ranks: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     """The public view of a player row: no role, no player_id. `clans` is a
     prefetched clan_badges() map; without it the badge is looked up for this row."""
     if row["is_bot"]:
@@ -101,6 +113,12 @@ def public_player(row: sqlite3.Row, host_player_id: Optional[str],
         clan = clans.get(row["player_id"])
     else:
         clan = clan_badges([row["player_id"]]).get(row["player_id"])
+    if row["is_bot"]:
+        rank = None
+    elif ranks is not None:
+        rank = ranks.get(row["player_id"], 0)
+    else:
+        rank = credit_ranks([row["player_id"]]).get(row["player_id"], 0)
     return {
         "seat": row["seat"],
         "name": row["name"],
@@ -113,6 +131,7 @@ def public_player(row: sqlite3.Row, host_player_id: Optional[str],
         "bot_id": row["bot_id"],
         "is_host": row["player_id"] == host_player_id,
         "clan": clan,
+        "rank": rank,
     }
 
 
@@ -193,8 +212,9 @@ def _build_snapshot(conn: sqlite3.Connection, room_id: str, player_id: str) -> D
 
     players = []
     badges = clan_badges(r["player_id"] for r in rows if not r["is_bot"])
+    ranks = credit_ranks(r["player_id"] for r in rows if not r["is_bot"])
     for r in rows:
-        p = public_player(r, room["host_player_id"], badges)
+        p = public_player(r, room["host_player_id"], badges, ranks)
         if r["role"]:
             if finished:
                 p["role"] = r["role"]

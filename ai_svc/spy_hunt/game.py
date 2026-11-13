@@ -187,7 +187,8 @@ def _alive(rows) -> List[int]:
 
 def _public_all(rows, host_id: Optional[str]) -> List[Dict[str, Any]]:
     badges = visibility.clan_badges(r["player_id"] for r in rows if not r["is_bot"])
-    return [visibility.public_player(r, host_id, badges) for r in rows]
+    ranks = visibility.credit_ranks(r["player_id"] for r in rows if not r["is_bot"])
+    return [visibility.public_player(r, host_id, badges, ranks) for r in rows]
 
 
 def _public(conn, room_id: str, host_id: Optional[str], seat: int) -> Dict[str, Any]:
