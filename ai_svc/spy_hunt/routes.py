@@ -58,8 +58,9 @@ def health():
 @spy_hunt_bp.route("/guests", methods=["POST"])
 @ratelimits.limit("guest_create")
 def create_guest():
-    body = request.get_json(silent=True) or {}
-    player_id, token = auth.create_guest(lang=body.get("lang"))
+    body = request.get_json(silent=True)
+    lang = body.get("lang") if isinstance(body, dict) else None
+    player_id, token = auth.create_guest(lang=lang)
     return jsonify({"player_id": player_id, "token": token})
 
 

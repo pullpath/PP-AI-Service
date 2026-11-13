@@ -206,6 +206,12 @@ def test_me_reports_preferred_lang_or_null(client):
     assert r.get_json() == {"email": None, "preferred_lang": "zh-Hans"}
 
 
+def test_guest_creation_survives_a_non_object_json_body(client):
+    r = client.post("/api/spy-hunt/guests", json=["x"])
+    assert r.status_code == 200
+    assert r.get_json()["token"]
+
+
 def test_patch_me_requires_guest_token(client):
     r = client.patch("/api/spy-hunt/me", json={"lang": "en"})
     assert r.status_code == 401
