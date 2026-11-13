@@ -42,3 +42,55 @@ def test_finish_still_succeeds_when_record_game_raises(conn, monkeypatch):
     rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
     finish(rid, "civilians")
     assert conn.execute("SELECT status FROM rooms WHERE id=?", (rid,)).fetchone()[0] == "finished"
+
+
+from ai_svc.spy_hunt.tests.test_accounts import _auth_header, _make_guest
+
+
+def test_games_for_lists_most_recent_first(conn, monkeypatch):
+    import itertools
+    clock = itertools.count(1000, 10)
+    monkeypatch.setattr(history.time, "time", lambda: next(clock) / 1000)
+    rid1 = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid1, "civilians")
+    rid2 = make_room([("a", False, "spy"), ("b", False, "civilian")])
+    finish(rid2, "spies")
+    games = history.games_for("a")
+    assert [g["room_id"] for g in games] == [rid2, rid1]
+    assert games[0]["your_role"] == "spy" and games[0]["won"] is True
+
+
+def test_games_for_only_includes_the_requested_player(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    assert history.games_for("nobody") == []
+
+
+def _game_no(conn, rid):
+    return conn.execute("SELECT game_no FROM room_results WHERE room_id=?", (rid,)).fetchone()[0]
+
+
+def test_game_detail_marks_the_viewer_and_hides_other_player_ids(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    detail = history.game_detail("a", rid, _game_no(conn, rid))
+    you = next(r for r in detail["roles"] if r["is_you"])
+    other = next(r for r in detail["roles"] if not r["is_you"])
+    assert you["role"] == "civilian"
+    assert "player_id" not in you and "player_id" not in other
+
+
+def test_game_detail_returns_none_for_a_non_participant(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    assert history.game_detail("stranger", rid, _game_no(conn, rid)) is None
+
+
+def test_my_games_route_requires_auth(client):
+    assert client.get("/api/spy-hunt/me/games").status_code == 401
+
+
+def test_my_game_detail_route_404s_for_a_foreign_game(client):
+    guest = _make_guest(client)
+    r = client.get("/api/spy-hunt/me/games/no-such-room/1", headers=_auth_header(guest))
+    assert r.status_code == 404
