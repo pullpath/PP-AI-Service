@@ -5,7 +5,8 @@ import threading
 
 import pytest
 
-from ai_svc.spy_hunt import puzzles
+from ai_svc.spy_hunt import credits, puzzles
+from ai_svc.spy_hunt.db import get_conn
 from ai_svc.spy_hunt.store import StoreError
 from ai_svc.spy_hunt.tests.puzzle_fixtures import sample_puzzle
 
@@ -248,3 +249,18 @@ def test_check_day_accepts_today_and_yesterday_only(temp_db, clock):
         with pytest.raises(StoreError) as e:
             puzzles.check_day(bad)
         assert e.value.status == 400 and e.value.code == "bad_day"
+
+
+def test_daily_solved_awards_credits_and_reports_them(temp_db, clock):
+    add(); puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 2, DAY)            # found
+    puzzles.guess_word("g1", 0, DAY)           # word right
+    r = puzzles.result("g1", DAY)
+    assert r["credits_earned"] >= 20           # base+solved (+streak bonus)
+    assert r["credits_earned"] == credits.total(get_conn(), "g1")
+
+
+def test_daily_missed_awards_base_only(temp_db, clock):
+    add(); puzzles.get_today("g1", DAY)
+    puzzles.guess_spy("g1", 0, DAY); puzzles.guess_spy("g1", 1, DAY)   # two wrong -> done
+    assert puzzles.result("g1", DAY)["credits_earned"] == 10

@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
 from .db import get_conn
-from . import clans
+from . import clans, credits
 from .store import StoreError
 
 MAX_TRIES = 2
@@ -194,6 +194,10 @@ def guess_spy(player_id: str, spy_seat: Any, day: Optional[str] = None) -> Dict[
                       " score=0, wrong_json=? WHERE day=? AND player_id=?",
                       (tries, _now_ms(), json.dumps(wrong + [spy_seat]), day, player_id))
             clans.award_daily(c, player_id, day, False)
+            earned = credits.award_daily(c, player_id, day, False,
+                                         streak=streak_for(player_id, day)["streak"])
+            c.execute("UPDATE puzzle_results SET credits_earned=? WHERE day=? AND player_id=?",
+                      (earned, day, player_id))
             return {"correct": False, "stage": "done", "tries": tries, "tries_left": 0}
         c.execute("UPDATE puzzle_results SET tries=?, wrong_json=? WHERE day=? AND player_id=?",
                   (tries, json.dumps(wrong + [spy_seat]), day, player_id))
@@ -218,6 +222,10 @@ def guess_word(player_id: str, option: Any, day: Optional[str] = None) -> Dict[s
                   " word_correct=? WHERE day=? AND player_id=?",
                   (now, total, None if correct is None else int(correct), day, player_id))
         clans.award_daily(c, player_id, day, bool(att["solved"]))
+        earned = credits.award_daily(c, player_id, day, bool(att["solved"]),
+                                     streak=streak_for(player_id, day)["streak"])
+        c.execute("UPDATE puzzle_results SET credits_earned=? WHERE day=? AND player_id=?",
+                  (earned, day, player_id))
         return {"correct": correct, "stage": "done"}
 
 
@@ -235,6 +243,7 @@ def result(player_id: str, day: Optional[str] = None) -> Dict[str, Any]:
         "solved": bool(att["solved"]), "tries": att["tries"],
         "word_correct": None if wc is None else bool(wc),
         "elapsed_ms": att["finished_at"] - (att["started_at"] or att["finished_at"]), "score": att["score"],
+        "credits_earned": att["credits_earned"] or 0,
         "answer": {"spy_seat": ans["spy_seat"], "spy_word": ans["spy_word"],
                    "civilian_word": ans["civilian_word"]},
         "stats": {"players": agg["n"], "solved_pct": round(100 * agg["s"] / agg["n"]) if agg["n"] else 0},

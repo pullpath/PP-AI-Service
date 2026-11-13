@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS puzzles(
   pair_id TEXT, difficulty INTEGER, public_json TEXT, answer_json TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS puzzle_results(
   day TEXT, player_id TEXT, stage TEXT, tries INTEGER, solved INTEGER, word_correct INTEGER,
-  started_at INTEGER, finished_at INTEGER, score INTEGER, wrong_json TEXT,
+  started_at INTEGER, finished_at INTEGER, score INTEGER, wrong_json TEXT, credits_earned INTEGER,
   PRIMARY KEY(day, player_id));
 CREATE TABLE IF NOT EXISTS custom_bots(
   id TEXT PRIMARY KEY, owner_player_id TEXT, name TEXT, avatar_emoji TEXT, avatar_color TEXT,
@@ -144,6 +144,9 @@ def init_db() -> None:
                       ("arena_spy_games", "INTEGER DEFAULT 0"), ("arena_spy_wins", "INTEGER DEFAULT 0")):
         if col not in have:
             conn.execute(f"ALTER TABLE custom_bots ADD COLUMN {col} {decl}")
+    have = {r[1] for r in conn.execute("PRAGMA table_info(puzzle_results)")}
+    if "credits_earned" not in have:
+        conn.execute("ALTER TABLE puzzle_results ADD COLUMN credits_earned INTEGER")
     have = {r[1] for r in conn.execute("PRAGMA table_info(guests)")}
     for col in ("email", "password_hash"):
         if col not in have:
