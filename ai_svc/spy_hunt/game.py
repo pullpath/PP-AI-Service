@@ -269,13 +269,14 @@ def _finish(conn, room_id: str, pend: List[tuple], winner: Optional[str],
     custombots.record_game(conn, rows, winner)
     from ai_svc.spy_hunt import clans, credits
     clans.award_game(conn, room_id, room["game_no"], rows, winner)
-    deltas = credits.award_game(conn, room_id, room["game_no"], rows, winner)
+    parts = credits.award_game_parts(conn, room_id, room["game_no"], rows, winner)
     seat_of = {r["player_id"]: r["seat"] for r in rows}
-    deltas = {seat_of[pid]: d for pid, d in deltas.items() if pid in seat_of}
+    parts = {seat_of[pid]: p for pid, p in parts.items() if pid in seat_of}
+    deltas = {seat: sum(x["n"] for x in p) for seat, p in parts.items()}
     append_event(room_id, "game_over", {
         "winner": winner, "round": room["round"],
         "roles": [{"seat": r["seat"], "role": r["role"]} for r in rows],
-        "words": words, "credits": deltas}, "all", conn=conn)
+        "words": words, "credits": deltas, "credit_parts": parts}, "all", conn=conn)
     if room["pair_id"]:
         from ai_svc.spy_hunt import words as words_mod
         words_mod.record_outcome(room["pair_id"], winner == "spies", conn)

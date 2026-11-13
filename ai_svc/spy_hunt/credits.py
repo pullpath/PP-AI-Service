@@ -95,40 +95,70 @@ def _safely(fn, *args):
         return 0
 
 
-def _award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> Dict[str, int]:
+Part = Dict[str, Any]   # {"kind": "played" | "won" | "daily" | "found" | "streak", "n": int}
+
+
+def _split(got: int, nominal: List[tuple]) -> List[Part]:
+    """Spread the amount actually added over its nominal parts, in order.
+
+    The ledger stores one row per award, so when the daily cap clamps an award the
+    later parts are the ones that shrink or drop; parts are never overstated.
+    """
+    out: List[Part] = []
+    for kind, n in nominal:
+        take = min(n, got)
+        if take > 0:
+            out.append({"kind": kind, "n": take})
+        got -= take
+    return out
+
+
+def _award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> Dict[str, List[Part]]:
     if winner not in ("spies", "civilians"):
         return {}
     humans = [r for r in rows if not r["is_bot"]]
     if len(humans) < MIN_HUMANS:
         return {}
     now = _now_ms()
-    out: Dict[str, int] = {}
+    out: Dict[str, List[Part]] = {}
     for r in humans:
         pid = r["player_id"]
         key = f"g:{room_id}:{game_no}:{pid}"
         won = (r["role"] == "spy") == (winner == "spies")
-        out[pid] = _add(conn, key, pid, GAME_PLAY + (GAME_WIN if won else 0), now)
+        nominal = [("played", GAME_PLAY)] + ([("won", GAME_WIN)] if won else [])
+        out[pid] = _split(_add(conn, key, pid, sum(n for _, n in nominal), now), nominal)
     return out
 
 
-def award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> Dict[str, int]:
-    """Per-human {player_id: delta actually added}; {} if ineligible or on error."""
+def award_game_parts(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> Dict[str, List[Part]]:
+    """Per-human {player_id: [parts actually added]}; {} if ineligible or on error."""
     res = _safely(_award_game, conn, room_id, game_no, rows, winner)
     return res if isinstance(res, dict) else {}
 
 
-def _award_daily(conn, player_id: str, day: str, solved: bool, streak: int) -> int:
+def award_game(conn, room_id: str, game_no: int, rows, winner: Optional[str]) -> Dict[str, int]:
+    """Per-human {player_id: delta actually added}; {} if ineligible or on error."""
+    return {pid: sum(p["n"] for p in parts)
+            for pid, parts in award_game_parts(conn, room_id, game_no, rows, winner).items()}
+
+
+def _award_daily(conn, player_id: str, day: str, solved: bool, streak: int) -> List[Part]:
     now = _now_ms()
-    got = _add(conn, f"d:{day}:{player_id}", player_id,
-               DAILY_DONE + (DAILY_SOLVED if solved else 0), now)
+    nominal = [("daily", DAILY_DONE)] + ([("found", DAILY_SOLVED)] if solved else [])
+    parts = _split(_add(conn, f"d:{day}:{player_id}", player_id, sum(n for _, n in nominal), now), nominal)
     if solved:
-        got += _add(conn, f"ds:{day}:{player_id}", player_id,
-                    min(STREAK_STEP * max(streak, 0), STREAK_MAX), now)
-    return got
+        bonus = min(STREAK_STEP * max(streak, 0), STREAK_MAX)
+        parts += _split(_add(conn, f"ds:{day}:{player_id}", player_id, bonus, now), [("streak", bonus)])
+    return parts
+
+
+def award_daily_parts(conn, player_id: str, day: str, solved: bool, streak: int) -> List[Part]:
+    res = _safely(_award_daily, conn, player_id, day, solved, streak)
+    return res if isinstance(res, list) else []
 
 
 def award_daily(conn, player_id: str, day: str, solved: bool, streak: int) -> int:
-    return int(_safely(_award_daily, conn, player_id, day, solved, streak))
+    return sum(p["n"] for p in award_daily_parts(conn, player_id, day, solved, streak))
 
 
 def total(conn, player_id: str) -> int:
@@ -155,4 +185,14 @@ def summary(player_id: str) -> Dict[str, Any]:
     if rank["index"] + 1 < len(RANKS):
         n = RANKS[rank["index"] + 1]
         nxt = {"key": n["key"], "min": n["min"], "remaining": n["min"] - tot}
-    return {"credits": tot, "today": int(today), "rank": rank, "next": nxt}
+    return {"credits": tot, "today": int(today), "rank": rank, "next": nxt, "rules": rules()}
+
+
+def rules() -> Dict[str, Any]:
+    """How credits are earned, so the client never hard-codes the numbers."""
+    return {
+        "game": {"played": GAME_PLAY, "won": GAME_WIN, "min_humans": MIN_HUMANS},
+        "daily": {"daily": DAILY_DONE, "found": DAILY_SOLVED},
+        "streak": {"step": STREAK_STEP, "max": STREAK_MAX},
+        "daily_cap": CREDITS_DAILY_CAP,
+    }

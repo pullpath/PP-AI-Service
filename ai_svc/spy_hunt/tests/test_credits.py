@@ -81,3 +81,33 @@ def test_award_daily_replay_is_zero(temp_db):
     with get_conn() as c:
         credits.award_daily(c, "g1", "2026-11-13", True, streak=4)
         assert credits.award_daily(c, "g1", "2026-11-13", True, streak=4) == 0
+
+
+def test_award_game_parts_name_each_source(temp_db):
+    rows = [{"player_id": "a", "is_bot": 0, "role": "spy"},
+            {"player_id": "b", "is_bot": 0, "role": "civilian"}]
+    with get_conn() as c:
+        d = credits.award_game_parts(c, "r1", 1, rows, "spies")
+    assert d == {"a": [{"kind": "played", "n": 10}, {"kind": "won", "n": 10}],
+                 "b": [{"kind": "played", "n": 10}]}
+
+
+def test_award_daily_parts_include_streak(temp_db):
+    with get_conn() as c:
+        parts = credits.award_daily_parts(c, "g1", "2026-11-13", True, streak=3)
+    assert parts == [{"kind": "daily", "n": 10}, {"kind": "found", "n": 10}, {"kind": "streak", "n": 15}]
+
+
+def test_parts_shrink_under_the_cap_and_never_overstate(temp_db):
+    with get_conn() as c:
+        credits._add(c, "x", "a", 485, credits._now_ms())
+        rows = [{"player_id": "a", "is_bot": 0, "role": "spy"},
+                {"player_id": "b", "is_bot": 0, "role": "civilian"}]
+        d = credits.award_game_parts(c, "r1", 1, rows, "spies")
+    assert d["a"] == [{"kind": "played", "n": 10}, {"kind": "won", "n": 5}]
+
+
+def test_replayed_parts_are_empty(temp_db):
+    with get_conn() as c:
+        credits.award_daily_parts(c, "g1", "2026-11-13", True, streak=1)
+        assert credits.award_daily_parts(c, "g1", "2026-11-13", True, streak=1) == []

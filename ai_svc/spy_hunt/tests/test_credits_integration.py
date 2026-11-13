@@ -22,5 +22,9 @@ def test_game_over_event_carries_credits_and_totals_increase(temp_db):
     assert set(payload["credits"]) == {str(seats[a]), str(seats[b])}
     assert a not in payload["credits"] and b not in payload["credits"]
     assert all(v > 0 for v in payload["credits"].values())
+    assert set(payload["credit_parts"]) == set(payload["credits"])
+    for seat, parts in payload["credit_parts"].items():
+        assert parts[0]["kind"] == "played"
+        assert sum(p["n"] for p in parts) == payload["credits"][seat]
     assert "winner" in payload and "roles" in payload and "words" in payload
     assert credits.total(get_conn(), a) > before
