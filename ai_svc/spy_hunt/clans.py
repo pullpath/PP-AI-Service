@@ -106,12 +106,19 @@ def _refresh_badge(player_id: str) -> None:
             logging.getLogger(__name__).exception("clan badge refresh failed for room %s", room_id)
 
 
+def _pick_badge(value: Any) -> Dict[str, str]:
+    """A preset index (legacy) or a built {emoji, color} from looks.CLAN_EMOJIS x COLORS."""
+    from ai_svc.spy_hunt import looks
+    if isinstance(value, dict):
+        return looks.check_badge(value)
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < len(BADGES):
+        raise StoreError(400, "bad_badge", "Pick one of the offered badges.")
+    return BADGES[value]
+
+
 def create(player_id: str, name: Any, badge_index: Any) -> Dict[str, Any]:
     name = _check_name(name)
-    if isinstance(badge_index, bool) or not isinstance(badge_index, int) \
-            or not 0 <= badge_index < len(BADGES):
-        raise StoreError(400, "bad_badge", "Pick one of the offered badges.")
-    badge = BADGES[badge_index]
+    badge = _pick_badge(badge_index)
     with _tx() as c:
         _require_registered(c, player_id)
         if _in_clan(c, player_id):
@@ -133,6 +140,25 @@ def create(player_id: str, name: Any, badge_index: Any) -> Dict[str, Any]:
                   (player_id, clan_id, now))
         out = _clan_dict(c, c.execute("SELECT * FROM clans WHERE id=?", (clan_id,)).fetchone())
     _refresh_badge(player_id)
+    return out
+
+
+def change_badge(player_id: str, value: Any) -> Dict[str, Any]:
+    badge = _pick_badge(value)
+    with _tx() as c:
+        row = c.execute("SELECT c.* FROM clan_members m JOIN clans c ON c.id=m.clan_id"
+                        " WHERE m.player_id=?", (player_id,)).fetchone()
+        if row is None:
+            raise StoreError(404, "no_clan", "You are not in a clan.")
+        if row["leader_id"] != player_id:
+            raise StoreError(403, "not_leader", "Only the clan leader can change the badge.")
+        c.execute("UPDATE clans SET badge_emoji=?, badge_color=? WHERE id=?",
+                  (badge["emoji"], badge["color"], row["id"]))
+        out = _clan_dict(c, c.execute("SELECT * FROM clans WHERE id=?", (row["id"],)).fetchone())
+        members = [r[0] for r in c.execute("SELECT player_id FROM clan_members WHERE clan_id=?",
+                                           (row["id"],))]
+    for pid in members:
+        _refresh_badge(pid)
     return out
 
 

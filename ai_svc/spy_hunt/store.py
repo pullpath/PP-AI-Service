@@ -28,7 +28,8 @@ CODE_LEN = 4
 NAME_MAX = 16
 _CODE_ATTEMPTS = 50
 # Columns store may read from players; never `role` (visibility.py owns that).
-PUBLIC_PLAYER_COLS = "seat, player_id, name, lang, is_bot, alive, connected, avatar_emoji, avatar_color, bot_id"
+PUBLIC_PLAYER_COLS = ("seat, player_id, name, lang, is_bot, alive, connected, avatar_emoji, avatar_color,"
+                      " avatar_frame, bot_id")
 
 
 class StoreError(Exception):
@@ -235,10 +236,14 @@ def _insert_player(conn, room, player_id: str, name: str, lang: str) -> int:
     if len(seats) >= cfg["max_players"]:
         raise StoreError(409, "room_full", "The room is full.")
     seat = next(i for i in range(len(seats) + 1) if i not in seats)
+    look = conn.execute("SELECT emoji, color, frame FROM player_looks WHERE player_id=?",
+                        (player_id,)).fetchone()
     conn.execute(
         "INSERT INTO players(room_id, player_id, seat, name, lang, is_bot, bot_persona,"
-        " alive, connected, joined_at) VALUES(?,?,?,?,?,0,NULL,1,0,?)",
-        (room["id"], player_id, seat, name, lang, now_ms()),
+        " alive, connected, joined_at, avatar_emoji, avatar_color, avatar_frame)"
+        " VALUES(?,?,?,?,?,0,NULL,1,0,?,?,?,?)",
+        (room["id"], player_id, seat, name, lang, now_ms(),
+         *((look["emoji"], look["color"], look["frame"]) if look else (None, None, None))),
     )
     _bump(conn, room["id"])
     _emit_player(conn, room, seat, "player_joined")

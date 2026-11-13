@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import accounts, admin, arena, auth, clans, credits, custombots, events, game, host, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import accounts, admin, arena, auth, clans, credits, custombots, events, game, host, looks, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -440,7 +440,33 @@ def get_bot_card(bot_id: str):
 @spy_hunt_bp.route("/clans/badges", methods=["GET"])
 @ratelimits.limit("flood")
 def clan_badges():
-    return jsonify({"badges": clans.BADGES})
+    return jsonify({"badges": clans.BADGES, "emojis": list(looks.CLAN_EMOJIS), "colors": list(looks.COLORS)})
+
+
+@spy_hunt_bp.route("/clans/badge", methods=["PUT"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def change_clan_badge():
+    return jsonify(clans.change_badge(g.player_id, _json_body().get("badge")))
+
+
+# ---- player looks (any guest; extras unlock by rank) ----
+
+@spy_hunt_bp.route("/looks", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def get_looks():
+    return jsonify(looks.catalog(g.player_id))
+
+
+@spy_hunt_bp.route("/looks", methods=["PUT"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def save_look():
+    return jsonify(looks.save(g.player_id, _json_body()))
 
 
 @spy_hunt_bp.route("/clans", methods=["POST"])
