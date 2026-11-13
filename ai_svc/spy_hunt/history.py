@@ -64,4 +64,4 @@ def game_detail(player_id: str, room_id: str, game_no: int) -> Optional[Dict[str
             out["credit_parts"] = json.loads(h["credit_parts"] or "[]")
         roles.append(out)
     return {"finished_at": res["finished_at"], "winner": res["winner"], "lang": res["lang"],
-            "words": json.loads(res["words_json"] or "{}"), "roles": roles}
+            "words": json.loads(res["words_json"] or "null") or {}, "roles": roles}

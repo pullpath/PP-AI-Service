@@ -94,3 +94,10 @@ def test_my_game_detail_route_404s_for_a_foreign_game(client):
     guest = _make_guest(client)
     r = client.get("/api/spy-hunt/me/games/no-such-room/1", headers=_auth_header(guest))
     assert r.status_code == 404
+
+
+def test_game_detail_words_is_an_object_when_the_room_had_no_pair(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    detail = history.game_detail("a", rid, _game_no(conn, rid))
+    assert detail["words"] == {}
