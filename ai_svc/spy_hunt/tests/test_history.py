@@ -314,3 +314,22 @@ def test_prune_replays_keeps_rows_inside_the_keep_window(conn):
     deleted = history.prune_replays(conn, keep_days=30)
     assert deleted == 0
     assert conn.execute("SELECT COUNT(*) FROM room_replays WHERE room_id=?", (rid,)).fetchone()[0] == 1
+
+
+def test_replay_route_requires_auth(client):
+    assert client.get("/api/spy-hunt/me/games/r/1/replay").status_code == 401
+
+
+def test_replay_route_404s_for_a_foreign_game(client):
+    guest = _make_guest(client)
+    r = client.get("/api/spy-hunt/me/games/no-such-room/1/replay", headers=_auth_header(guest))
+    assert r.status_code == 404
+
+
+def test_replay_route_returns_the_log_for_a_participant(conn, client):
+    guest = _make_guest(client)
+    rid = make_room([(guest["player_id"], False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    r = client.get(f"/api/spy-hunt/me/games/{rid}/{_game_no(conn, rid)}/replay", headers=_auth_header(guest))
+    assert r.status_code == 200
+    assert "rounds" in r.get_json()

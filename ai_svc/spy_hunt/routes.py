@@ -83,6 +83,17 @@ def my_game_detail(room_id: str, game_no: int):
     return jsonify(detail)
 
 
+@spy_hunt_bp.route("/me/games/<room_id>/<int:game_no>/replay", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def my_game_replay(room_id: str, game_no: int):
+    replay = history.replay_for(g.player_id, room_id, game_no)
+    if replay is None:
+        raise store.StoreError(404, "not_found", "No such game.")
+    return jsonify(replay)
+
+
 @spy_hunt_bp.route("/register", methods=["POST"])
 @ratelimits.limit("flood")
 @auth.require_guest
