@@ -217,6 +217,40 @@ def test_build_replay_log_does_not_credit_an_early_nobody_round_with_a_later_eli
     assert log["rounds"][1]["eliminated"] == 2
 
 
+def test_build_replay_log_resolves_a_stage_1_tiebreak_elimination(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "civilian"),
+                     ("c", False, "civilian"), ("d", False, "spy")])
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    # Stage 0: seats 2 and 3 tie at 2 votes each -- tiebreak.
+    for voter, target in ((0, 2), (3, 2), (1, 3), (2, 3)):
+        conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                     " VALUES (?,1,1,0,?,?)", (rid, voter, target))
+    # Stage 1: only the non-tied seats (0, 1) vote, both against seat 2.
+    for voter, target in ((0, 2), (1, 2)):
+        conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                     " VALUES (?,1,1,1,?,?)", (rid, voter, target))
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {}, "civilians")
+    assert log["rounds"][0]["eliminated"] == 2
+
+
+def test_build_replay_log_ignores_a_ghost_vote_from_an_already_eliminated_seat(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "civilian"), ("c", False, "spy")])
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    # Round 1: seats 0 and 1 vote out seat 2.
+    for voter, target in ((0, 2), (1, 2)):
+        conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                     " VALUES (?,1,1,0,?,?)", (rid, voter, target))
+    # Round 2: a ghost vote from seat 2, already eliminated in round 1. If it were
+    # not excluded, it would be the only vote and would decisively eliminate seat 0.
+    conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                 " VALUES (?,1,2,0,2,0)", (rid,))
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {}, "civilians")
+    assert log["rounds"][0]["eliminated"] == 2
+    assert log["rounds"][1]["eliminated"] is None
+
+
 def test_build_replay_log_handles_a_game_with_no_messages_or_votes(conn):
     rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
     room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())

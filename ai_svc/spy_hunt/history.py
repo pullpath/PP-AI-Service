@@ -23,11 +23,10 @@ def build_replay_log(conn, room: Mapping, rows: List[Mapping], words: dict,
         (room_id, game_no)).fetchall()
 
     translations_by_message: Dict[int, Dict[str, str]] = {}
-    for m in msg_rows:
-        trs = conn.execute(
-            "SELECT target_lang, text FROM translations WHERE message_id=?", (m["id"],)).fetchall()
-        if trs:
-            translations_by_message[m["id"]] = {t["target_lang"]: t["text"] for t in trs}
+    for t in conn.execute(
+            "SELECT message_id, target_lang, text FROM translations WHERE message_id IN"
+            " (SELECT id FROM messages WHERE room_id=? AND game_no=?)", (room_id, game_no)):
+        translations_by_message.setdefault(t["message_id"], {})[t["target_lang"]] = t["text"]
 
     round_numbers = sorted({m["round"] for m in msg_rows} | {v["round"] for v in vote_rows})
     alive = {r["seat"] for r in rows}
@@ -161,7 +160,6 @@ def replay_for(player_id: str, room_id: str, game_no: int) -> Optional[Dict[str,
 
 def prune_replays(conn, keep_days: int = 30) -> int:
     cutoff = int(time.time() * 1000) - keep_days * 86_400_000
-    ids = conn.execute("SELECT room_id, game_no FROM room_replays WHERE created_at < ?", (cutoff,)).fetchall()
-    conn.execute("DELETE FROM room_replays WHERE created_at < ?", (cutoff,))
+    cur = conn.execute("DELETE FROM room_replays WHERE created_at < ?", (cutoff,))
     conn.commit()
-    return len(ids)
+    return cur.rowcount
