@@ -109,6 +109,9 @@ CREATE TABLE IF NOT EXISTS room_result_players(
   room_id TEXT, game_no INTEGER, player_id TEXT, seat INTEGER, role TEXT, won INTEGER,
   credits_earned INTEGER, credit_parts TEXT, PRIMARY KEY(room_id, game_no, player_id));
 CREATE INDEX IF NOT EXISTS idx_room_result_players_player ON room_result_players(player_id);
+CREATE TABLE IF NOT EXISTS room_replays(
+  room_id TEXT, game_no INTEGER, log_json TEXT, created_at INTEGER,
+  PRIMARY KEY(room_id, game_no));
 """
 
 

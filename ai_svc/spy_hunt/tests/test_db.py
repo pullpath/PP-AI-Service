@@ -70,6 +70,24 @@ def test_old_guest_tokens_are_backfilled_into_sessions(conn):
     assert row["player_id"] == "p1"
 
 
+def test_room_replays_table_created(conn):
+    conn.execute("INSERT INTO room_replays(room_id, game_no, log_json, created_at) VALUES (?,?,?,?)",
+                 ("r1", 1, "{}", 0))
+    row = conn.execute("SELECT log_json FROM room_replays WHERE room_id=? AND game_no=?",
+                       ("r1", 1)).fetchone()
+    assert row["log_json"] == "{}"
+
+
+def test_room_replays_schema_columns(conn):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(room_replays)")}
+    assert cols == {"room_id", "game_no", "log_json", "created_at"}
+
+
+def test_init_db_is_idempotent_with_room_replays(conn):
+    db.init_db()
+    db.init_db()  # must not raise
+
+
 def test_a_real_pre_migration_database_keeps_its_guests_signed_in(tmp_path, monkeypatch):
     """Build the old schema by hand (no sessions table, no email columns), then upgrade it."""
     import sqlite3
