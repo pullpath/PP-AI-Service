@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from ai_svc.spy_hunt import game, history, store
 from ai_svc.spy_hunt.tests.test_clans_points import finish, make_room
@@ -272,3 +273,44 @@ def test_finish_still_succeeds_when_replay_write_raises(conn, monkeypatch):
     # neither row exists for this game.
     assert conn.execute("SELECT COUNT(*) FROM room_results WHERE room_id=?", (rid,)).fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM room_replays WHERE room_id=?", (rid,)).fetchone()[0] == 0
+
+
+def test_replay_for_returns_the_stored_log_with_is_you(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    replay = history.replay_for("a", rid, _game_no(conn, rid))
+    me = next(p for p in replay["players"] if p["is_you"])
+    other = next(p for p in replay["players"] if not p["is_you"])
+    assert me["role"] == "civilian"
+    assert "player_id" not in me and "player_id" not in other
+
+
+def test_replay_for_returns_none_for_a_non_participant(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    assert history.replay_for("stranger", rid, _game_no(conn, rid)) is None
+
+
+def test_replay_for_returns_none_when_no_replay_row_exists(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    conn.execute("DELETE FROM room_replays WHERE room_id=?", (rid,))
+    assert history.replay_for("a", rid, _game_no(conn, rid)) is None
+
+
+def test_prune_replays_deletes_rows_past_the_keep_window(conn, monkeypatch):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    old_ms = int(time.time() * 1000) - 31 * 86_400_000
+    conn.execute("UPDATE room_replays SET created_at=? WHERE room_id=?", (old_ms, rid))
+    deleted = history.prune_replays(conn, keep_days=30)
+    assert deleted == 1
+    assert conn.execute("SELECT COUNT(*) FROM room_replays WHERE room_id=?", (rid,)).fetchone()[0] == 0
+
+
+def test_prune_replays_keeps_rows_inside_the_keep_window(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    deleted = history.prune_replays(conn, keep_days=30)
+    assert deleted == 0
+    assert conn.execute("SELECT COUNT(*) FROM room_replays WHERE room_id=?", (rid,)).fetchone()[0] == 1

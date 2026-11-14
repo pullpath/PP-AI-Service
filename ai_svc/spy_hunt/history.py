@@ -125,3 +125,29 @@ def game_detail(player_id: str, room_id: str, game_no: int) -> Optional[Dict[str
         roles.append(out)
     return {"finished_at": res["finished_at"], "winner": res["winner"], "lang": res["lang"],
             "words": json.loads(res["words_json"] or "null") or {}, "roles": roles}
+
+
+def replay_for(player_id: str, room_id: str, game_no: int) -> Optional[Dict[str, Any]]:
+    from ai_svc.spy_hunt.db import get_conn
+    conn = get_conn()
+    if not 0 <= game_no <= 2**62:
+        return None
+    me = conn.execute("SELECT seat FROM room_result_players WHERE room_id=? AND game_no=? AND player_id=?",
+                      (room_id, game_no, player_id)).fetchone()
+    if me is None:
+        return None
+    row = conn.execute("SELECT log_json FROM room_replays WHERE room_id=? AND game_no=?",
+                       (room_id, game_no)).fetchone()
+    if row is None:
+        return None
+    log = json.loads(row["log_json"])
+    log["players"] = [{**p, "is_you": p["seat"] == me["seat"]} for p in log["players"]]
+    return log
+
+
+def prune_replays(conn, keep_days: int = 30) -> int:
+    cutoff = int(time.time() * 1000) - keep_days * 86_400_000
+    ids = conn.execute("SELECT room_id, game_no FROM room_replays WHERE created_at < ?", (cutoff,)).fetchall()
+    conn.execute("DELETE FROM room_replays WHERE created_at < ?", (cutoff,))
+    conn.commit()
+    return len(ids)
