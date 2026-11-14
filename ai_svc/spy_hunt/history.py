@@ -20,11 +20,11 @@ def record_game(conn, room: Mapping, rows: List[Mapping], winner: Optional[str],
         if r["is_bot"]:
             continue
         mine = parts.get(r["player_id"], [])
-        won = (r["role"] == "spy") == (winner == "spies")
+        won = None if winner is None else int((r["role"] == "spy") == (winner == "spies"))
         conn.execute(
             "INSERT OR IGNORE INTO room_result_players(room_id, game_no, player_id, seat, role,"
             " won, credits_earned, credit_parts) VALUES (?,?,?,?,?,?,?,?)",
-            (room["id"], room["game_no"], r["player_id"], r["seat"], r["role"], int(won),
+            (room["id"], room["game_no"], r["player_id"], r["seat"], r["role"], won,
              sum(p["n"] for p in mine), json.dumps(mine)))
 
 
@@ -37,7 +37,7 @@ def games_for(player_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         " WHERE p.player_id=? ORDER BY r.finished_at DESC, p.rowid DESC LIMIT ?",
         (player_id, limit)).fetchall()
     return [{"room_id": r["room_id"], "game_no": r["game_no"], "finished_at": r["finished_at"],
-             "winner": r["winner"], "your_role": r["role"], "won": bool(r["won"]),
+             "winner": r["winner"], "your_role": r["role"], "won": None if r["won"] is None else bool(r["won"]),
              "credits_earned": r["credits_earned"]} for r in rows]
 
 

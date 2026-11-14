@@ -221,7 +221,7 @@ def test_patch_me_sets_preferred_lang(client, conn):
     guest = _make_guest(client)
     r = client.patch("/api/spy-hunt/me", json={"lang": "zh-Hans"}, headers=_auth_header(guest))
     assert r.status_code == 200
-    assert r.get_json() == {"preferred_lang": "zh-Hans"}
+    assert r.get_json() == {"ok": True, "preferred_lang": "zh-Hans"}
     row = conn.execute("SELECT preferred_lang FROM guests WHERE player_id=?",
                         (guest["player_id"],)).fetchone()
     assert row["preferred_lang"] == "zh-Hans"
