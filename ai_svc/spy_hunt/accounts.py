@@ -155,8 +155,8 @@ def me(player_id: str) -> Dict[str, Optional[str]]:
             "preferred_lang": row["preferred_lang"] if row else None}
 
 
-def update_me(player_id: str, lang: Any) -> Dict[str, str]:
+def update_me(player_id: str, lang: Any) -> Dict[str, Any]:
     lang = store.check_lang(lang)
     get_conn().execute("UPDATE guests SET preferred_lang=? WHERE player_id=?", (lang, player_id))
     get_conn().commit()
-    return {"preferred_lang": lang}
+    return {"ok": True, "preferred_lang": lang}

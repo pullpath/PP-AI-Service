@@ -135,3 +135,14 @@ def test_finish_survives_history_write_that_aborts_the_transaction(conn, monkeyp
         finish(rid, "civilians")
     except Exception as e:  # noqa: BLE001
         assert "savepoint" not in str(e).lower(), e
+
+
+def test_a_game_with_no_winner_is_recorded_as_neither_won_nor_lost(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    with store.tx(rid) as c:
+        room = dict(c.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+        rows = c.execute("SELECT * FROM players WHERE room_id=?", (rid,)).fetchall()
+        history.record_game(c, room, rows, None, {}, {})
+    games = history.games_for("a")
+    assert games[0]["won"] is None
+    assert history.games_for("b")[0]["won"] is None
