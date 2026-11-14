@@ -191,6 +191,16 @@ def test_arena_night_script_main(temp_db, capsys):
     assert "played" in capsys.readouterr().out
 
 
+def test_main_calls_prune_replays(temp_db, monkeypatch):
+    from ai_svc.spy_hunt import arena, history
+    calls = []
+    monkeypatch.setattr(history, "prune_replays", lambda conn, **k: calls.append(1) or 0)
+    monkeypatch.setattr(arena, "run_night",
+                        lambda *a, **k: {"played": 0, "discarded": 0, "skipped": 0})
+    arena_night.main(["--matches", "0"])
+    assert calls == [1]
+
+
 def test_statements_are_stripped_of_control_characters(temp_db):
     from ai_svc.spy_hunt import store
     from ai_svc.spy_hunt.tests.test_arena_play import PAIR, seats

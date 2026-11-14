@@ -15,10 +15,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="print the groups, play nothing")
     args = ap.parse_args(argv)
 
-    from ai_svc.spy_hunt import arena, db
+    from ai_svc.spy_hunt import arena, db, history
     db.init_db()
     res = arena.run_night(args.matches if args.matches is not None else arena.ARENA_MATCHES_PER_DAY,
                           dry_run=args.dry_run)
+    history.prune_replays(db.get_conn())
     print(f"played {res['played']}, discarded {res['discarded']}, skipped {res['skipped']}")
     return 0
 
