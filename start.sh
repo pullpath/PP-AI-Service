@@ -23,7 +23,7 @@ fi
 
 # Start the application in background
 echo "Starting PP-AI-Service..."
-nohup $PYTHON_CMD app.py > ~/ppaiservice.log 2>&1 &
+FLASK_ENV=production nohup $PYTHON_CMD app.py > ~/ppaiservice.log 2>&1 &
 
 # Get the PID
 PID=$!
