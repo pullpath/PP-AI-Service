@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from typing import List, Optional
 
 
@@ -13,7 +14,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("bot_id")
     ap.add_argument("--unblock", action="store_true")
-    args = ap.parse_args(argv)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # ids are secrets.token_urlsafe(6), so some start with "-": argparse would read that as a flag.
+    # Anything that isn't our own flag is the id; "--" tells argparse so.
+    flags = [a for a in argv if a == "--unblock"]
+    rest = [a for a in argv if a != "--unblock"]
+    args = ap.parse_args(flags + ["--"] + rest)
 
     from ai_svc.spy_hunt import db
     db.init_db()

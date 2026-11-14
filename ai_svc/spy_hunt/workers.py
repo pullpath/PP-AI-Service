@@ -21,6 +21,7 @@ _lock = threading.Lock()
 _queue: "queue.Queue" = queue.Queue()
 _threads: List[threading.Thread] = []
 _synchronous = False
+_JOIN_TIMEOUT = 5.0
 
 
 def set_synchronous(flag: bool) -> None:
@@ -84,6 +85,11 @@ def shutdown() -> None:
         pass
     for _ in threads:
         old.put(None)
+    # A job still running here would outlive the caller and write into whatever DB is current next
+    # (it made an unrelated test flaky). Wait for it; the timeout keeps a stuck job from hanging us.
+    if threading.current_thread() not in threads:
+        for t in threads:
+            t.join(timeout=_JOIN_TIMEOUT)
 
 
 def reset() -> None:

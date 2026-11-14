@@ -793,3 +793,21 @@ def test_statement_rejects_split_word_and_keeps_emoji(env):
     game.submit_statement(rid, p, f"cozy {fam}")
     stored = get_conn().execute("SELECT text FROM messages WHERE kind='statement'").fetchone()[0]
     assert fam in stored
+
+
+def test_workers_reset_waits_for_the_running_job():
+    """A job still running when a test ends must not outlive reset(): it would write into the next test's DB."""
+    import time
+    workers.reset()
+    started, release, done = threading.Event(), threading.Event(), threading.Event()
+
+    def job():
+        started.set()
+        release.wait(5)
+        time.sleep(0.2)
+        done.set()
+    workers.submit(job)
+    assert started.wait(5)
+    release.set()
+    workers.reset()
+    assert done.is_set()
