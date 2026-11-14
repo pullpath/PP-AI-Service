@@ -267,11 +267,10 @@ def test_finish_still_succeeds_when_replay_write_raises(conn, monkeypatch):
     rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
     finish(rid, "civilians")
     assert conn.execute("SELECT status FROM rooms WHERE id=?", (rid,)).fetchone()[0] == "finished"
-    # The surrounding SAVEPOINT in game.py rolls back the whole record_game
-    # call on any failure inside it, including the room_results insert that
-    # already ran earlier in this same call -- the room still finishes, but
-    # neither row exists for this game.
-    assert conn.execute("SELECT COUNT(*) FROM room_results WHERE room_id=?", (rid,)).fetchone()[0] == 0
+    # A replay-build failure is isolated to the replay write: it must not
+    # take the permanent room_results/room_result_players rows down with it.
+    assert conn.execute("SELECT COUNT(*) FROM room_results WHERE room_id=?", (rid,)).fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM room_result_players WHERE room_id=?", (rid,)).fetchone()[0] == 2
     assert conn.execute("SELECT COUNT(*) FROM room_replays WHERE room_id=?", (rid,)).fetchone()[0] == 0
 
 

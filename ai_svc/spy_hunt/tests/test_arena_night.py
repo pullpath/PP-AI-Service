@@ -201,6 +201,16 @@ def test_main_calls_prune_replays(temp_db, monkeypatch):
     assert calls == [1]
 
 
+def test_main_does_not_prune_replays_on_dry_run(temp_db, monkeypatch):
+    from ai_svc.spy_hunt import arena, history
+    calls = []
+    monkeypatch.setattr(history, "prune_replays", lambda conn, **k: calls.append(1) or 0)
+    monkeypatch.setattr(arena, "run_night",
+                        lambda *a, **k: {"played": 0, "discarded": 0, "skipped": 0})
+    arena_night.main(["--dry-run"])
+    assert calls == []
+
+
 def test_statements_are_stripped_of_control_characters(temp_db):
     from ai_svc.spy_hunt import store
     from ai_svc.spy_hunt.tests.test_arena_play import PAIR, seats

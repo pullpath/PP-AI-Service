@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 import time
 from typing import Any, Dict, List, Mapping, Optional
 
 from ai_svc.spy_hunt import engine
+
+log = logging.getLogger(__name__)
 
 
 def build_replay_log(conn, room: Mapping, rows: List[Mapping], words: dict,
@@ -80,10 +84,20 @@ def record_game(conn, room: Mapping, rows: List[Mapping], winner: Optional[str],
             " won, credits_earned, credit_parts) VALUES (?,?,?,?,?,?,?,?)",
             (room["id"], room["game_no"], r["player_id"], r["seat"], r["role"], won,
              sum(p["n"] for p in mine), json.dumps(mine)))
-    log = build_replay_log(conn, room, rows, words, winner)
-    conn.execute(
-        "INSERT OR IGNORE INTO room_replays(room_id, game_no, log_json, created_at) VALUES (?,?,?,?)",
-        (room["id"], room["game_no"], json.dumps(log), now))
+    conn.execute("SAVEPOINT replay")
+    try:
+        replay_log = build_replay_log(conn, room, rows, words, winner)
+        conn.execute(
+            "INSERT OR IGNORE INTO room_replays(room_id, game_no, log_json, created_at) VALUES (?,?,?,?)",
+            (room["id"], room["game_no"], json.dumps(replay_log), now))
+        conn.execute("RELEASE replay")
+    except Exception:
+        log.exception("replay log write failed for %s", room["id"])
+        try:
+            conn.execute("ROLLBACK TO replay")
+            conn.execute("RELEASE replay")
+        except sqlite3.Error:
+            pass
 
 
 def games_for(player_id: str, limit: int = 20) -> List[Dict[str, Any]]:
@@ -140,9 +154,9 @@ def replay_for(player_id: str, room_id: str, game_no: int) -> Optional[Dict[str,
                        (room_id, game_no)).fetchone()
     if row is None:
         return None
-    log = json.loads(row["log_json"])
-    log["players"] = [{**p, "is_you": p["seat"] == me["seat"]} for p in log["players"]]
-    return log
+    log_ = json.loads(row["log_json"])
+    log_["players"] = [{**p, "is_you": p["seat"] == me["seat"]} for p in log_["players"]]
+    return log_
 
 
 def prune_replays(conn, keep_days: int = 30) -> int:

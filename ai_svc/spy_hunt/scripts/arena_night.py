@@ -19,7 +19,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     db.init_db()
     res = arena.run_night(args.matches if args.matches is not None else arena.ARENA_MATCHES_PER_DAY,
                           dry_run=args.dry_run)
-    history.prune_replays(db.get_conn())
+    if not args.dry_run:
+        history.prune_replays(db.get_conn())
     print(f"played {res['played']}, discarded {res['discarded']}, skipped {res['skipped']}")
     return 0
 
