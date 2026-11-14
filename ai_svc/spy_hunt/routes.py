@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from ai_svc.spy_hunt import accounts, admin, arena, auth, clans, credits, custombots, events, game, host, looks, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
+from ai_svc.spy_hunt import accounts, admin, arena, auth, clans, credits, custombots, events, game, history, host, looks, outfits, puzzles, ratelimits, store, timers, translation, visibility, words, workers
 from ai_svc.spy_hunt import bots as bots_module
 
 log = logging.getLogger(__name__)
@@ -58,8 +58,29 @@ def health():
 @spy_hunt_bp.route("/guests", methods=["POST"])
 @ratelimits.limit("guest_create")
 def create_guest():
-    player_id, token = auth.create_guest()
+    body = request.get_json(silent=True)
+    lang = body.get("lang") if isinstance(body, dict) else None
+    player_id, token = auth.create_guest(lang=lang)
     return jsonify({"player_id": player_id, "token": token})
+
+
+@spy_hunt_bp.route("/me/games", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def my_games():
+    return jsonify(history.games_for(g.player_id))
+
+
+@spy_hunt_bp.route("/me/games/<room_id>/<int:game_no>", methods=["GET"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("read")
+def my_game_detail(room_id: str, game_no: int):
+    detail = history.game_detail(g.player_id, room_id, game_no)
+    if detail is None:
+        raise store.StoreError(404, "not_found", "No such game.")
+    return jsonify(detail)
 
 
 @spy_hunt_bp.route("/register", methods=["POST"])
@@ -99,6 +120,15 @@ def logout():
 @ratelimits.limit("read")
 def me():
     return jsonify(accounts.me(g.player_id))
+
+
+@spy_hunt_bp.route("/me", methods=["PATCH"])
+@ratelimits.limit("flood")
+@auth.require_guest
+@ratelimits.limit("action")
+def patch_me():
+    body = _json_body()
+    return jsonify(accounts.update_me(g.player_id, body.get("lang")))
 
 
 # Room routes: `flood` (per IP) runs first, before auth, so unauthenticated

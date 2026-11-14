@@ -16,6 +16,27 @@ def test_create_guest_returns_ids(client):
     assert body["player_id"] and body["token"]
 
 
+def test_create_guest_seeds_preferred_lang_from_body(client, conn):
+    body = _make_guest(client, json={"lang": "zh-Hans"})
+    row = conn.execute("SELECT preferred_lang FROM guests WHERE player_id=?",
+                        (body["player_id"],)).fetchone()
+    assert row["preferred_lang"] == "zh-Hans"
+
+
+def test_create_guest_ignores_an_invalid_lang(client, conn):
+    body = _make_guest(client, json={"lang": "klingon"})
+    row = conn.execute("SELECT preferred_lang FROM guests WHERE player_id=?",
+                        (body["player_id"],)).fetchone()
+    assert row["preferred_lang"] is None
+
+
+def test_create_guest_without_a_body_still_works(client, conn):
+    body = _make_guest(client)
+    row = conn.execute("SELECT preferred_lang FROM guests WHERE player_id=?",
+                        (body["player_id"],)).fetchone()
+    assert row["preferred_lang"] is None
+
+
 def test_token_not_stored_plain(client, conn):
     body = _make_guest(client)
     row = conn.execute(

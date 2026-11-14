@@ -41,6 +41,25 @@ def test_sessions_table_and_guest_columns_exist(conn):
     assert {"email", "password_hash"} <= guest_cols
 
 
+def test_guest_preferred_lang_column_exists(conn):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(guests)")}
+    assert "preferred_lang" in cols
+
+
+def test_room_results_tables_and_index_created(conn):
+    names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"room_results", "room_result_players"} <= names
+    idx = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+    assert "idx_room_result_players_player" in idx
+
+
+def test_room_results_schema_columns(conn):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(room_results)")}
+    assert cols == {"room_id", "game_no", "finished_at", "winner", "lang", "roles_json", "words_json"}
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(room_result_players)")}
+    assert cols == {"room_id", "game_no", "player_id", "seat", "role", "won", "credits_earned", "credit_parts"}
+
+
 def test_old_guest_tokens_are_backfilled_into_sessions(conn):
     conn.execute(
         "INSERT INTO guests(player_id, token_hash, created_at) VALUES('p1','h1',0)"
@@ -73,6 +92,6 @@ def test_a_real_pre_migration_database_keeps_its_guests_signed_in(tmp_path, monk
         app = Flask(__name__)
         app.register_blueprint(spy_hunt_bp)
         r = app.test_client().get("/api/spy-hunt/me", headers={"Authorization": "Bearer legacy-pid.legacy-token"})
-        assert r.status_code == 200 and r.get_json() == {"email": None}
+        assert r.status_code == 200 and r.get_json() == {"email": None, "preferred_lang": None}
     finally:
         db.close_conn()
