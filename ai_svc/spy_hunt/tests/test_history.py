@@ -123,3 +123,15 @@ def test_game_detail_route_404s_for_an_oversized_game_no(client):
     guest = _make_guest(client)
     r = client.get("/api/spy-hunt/me/games/x/99999999999999999999", headers=_auth_header(guest))
     assert r.status_code == 404
+
+
+def test_finish_survives_history_write_that_aborts_the_transaction(conn, monkeypatch):
+    def abort(c, *_a, **_k):
+        c.execute("ROLLBACK")  # sqlite can auto-rollback on SQLITE_FULL; the savepoint is then gone
+        raise RuntimeError("boom")
+    monkeypatch.setattr(history, "record_game", abort)
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    try:
+        finish(rid, "civilians")
+    except Exception as e:  # noqa: BLE001
+        assert "savepoint" not in str(e).lower(), e
