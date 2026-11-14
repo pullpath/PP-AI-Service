@@ -5,6 +5,60 @@ import json
 import time
 from typing import Any, Dict, List, Mapping, Optional
 
+from ai_svc.spy_hunt import engine
+
+
+def build_replay_log(conn, room: Mapping, rows: List[Mapping], words: dict,
+                     winner: Optional[str]) -> dict:
+    room_id, game_no = room["id"], room["game_no"]
+    msg_rows = conn.execute(
+        "SELECT * FROM messages WHERE room_id=? AND game_no=? ORDER BY round, stage, id",
+        (room_id, game_no)).fetchall()
+    vote_rows = conn.execute(
+        "SELECT * FROM votes WHERE room_id=? AND game_no=? ORDER BY round, stage, voter_seat",
+        (room_id, game_no)).fetchall()
+
+    translations_by_message: Dict[int, Dict[str, str]] = {}
+    for m in msg_rows:
+        trs = conn.execute(
+            "SELECT target_lang, text FROM translations WHERE message_id=?", (m["id"],)).fetchall()
+        if trs:
+            translations_by_message[m["id"]] = {t["target_lang"]: t["text"] for t in trs}
+
+    round_numbers = sorted({m["round"] for m in msg_rows} | {v["round"] for v in vote_rows})
+    alive = {r["seat"] for r in rows}
+    rounds = []
+    for rnd in round_numbers:
+        statements = [{
+            "seat": m["seat"], "stage": m["stage"], "kind": m["kind"], "text": m["text"],
+            "lang": m["lang"], "translations": translations_by_message.get(m["id"], {}),
+        } for m in msg_rows if m["round"] == rnd]
+        round_votes = [v for v in vote_rows if v["round"] == rnd]
+        votes = [{"voter": v["voter_seat"], "target": v["target_seat"], "stage": v["stage"]}
+                 for v in round_votes]
+
+        votes0 = {v["voter_seat"]: v["target_seat"] for v in round_votes if v["stage"] == 0}
+        res0 = engine.resolve_vote(votes0, 0, sorted(alive), None)
+        if res0.outcome == "tiebreak":
+            votes1 = {v["voter_seat"]: v["target_seat"] for v in round_votes if v["stage"] == 1}
+            res1 = engine.resolve_vote(votes1, 1, sorted(alive), res0.tied)
+            eliminated = res1.eliminated
+        else:
+            eliminated = res0.eliminated
+        if eliminated is not None:
+            alive.discard(eliminated)
+
+        rounds.append({"round": rnd, "statements": statements, "votes": votes,
+                       "eliminated": eliminated})
+
+    return {
+        "players": [{"seat": r["seat"], "name": r["name"], "is_bot": bool(r["is_bot"]),
+                    "role": r["role"]} for r in rows],
+        "rounds": rounds,
+        "words": words,
+        "winner": winner,
+    }
+
 
 def record_game(conn, room: Mapping, rows: List[Mapping], winner: Optional[str],
                 words: dict, parts: Dict[str, list]) -> None:

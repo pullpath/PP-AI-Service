@@ -146,3 +146,91 @@ def test_a_game_with_no_winner_is_recorded_as_neither_won_nor_lost(conn):
     games = history.games_for("a")
     assert games[0]["won"] is None
     assert history.games_for("b")[0]["won"] is None
+
+
+def test_build_replay_log_groups_statements_and_votes_by_round(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    conn.execute("INSERT INTO messages(room_id, game_no, round, stage, seat, kind, text, lang, created_at)"
+                 " VALUES (?,1,1,0,0,'statement','hi','en',0)", (rid,))
+    conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                 " VALUES (?,1,1,0,0,1)", (rid,))
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {"civilian": {"en": "tea"}, "spy": {"en": "coffee"}}, "civilians")
+    assert log["rounds"] == [{
+        "round": 1, "eliminated": 1,
+        "statements": [{"seat": 0, "stage": 0, "kind": "statement", "text": "hi", "lang": "en", "translations": {}}],
+        "votes": [{"voter": 0, "target": 1, "stage": 0}],
+    }]
+    assert log["words"] == {"civilian": {"en": "tea"}, "spy": {"en": "coffee"}}
+    assert log["winner"] == "civilians"
+    assert log["players"] == [
+        {"seat": 0, "name": "P0", "is_bot": False, "role": "civilian"},
+        {"seat": 1, "name": "P1", "is_bot": False, "role": "spy"},
+    ]
+
+
+def test_build_replay_log_includes_translations(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    cur = conn.execute("INSERT INTO messages(room_id, game_no, round, stage, seat, kind, text, lang, created_at)"
+                       " VALUES (?,1,1,0,0,'statement','hi','en',0)", (rid,))
+    conn.execute("INSERT INTO translations(message_id, target_lang, text) VALUES (?,?,?)",
+                 (cur.lastrowid, "zh-Hans", "你好"))
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {}, None)
+    assert log["rounds"][0]["statements"][0]["translations"] == {"zh-Hans": "你好"}
+
+
+def test_build_replay_log_sets_eliminated_from_alive_transition(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    conn.execute("UPDATE players SET alive=0 WHERE room_id=? AND seat=1", (rid,))
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                 " VALUES (?,1,1,0,0,1)", (rid,))
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {}, "civilians")
+    assert log["rounds"][0]["eliminated"] == 1
+
+
+def test_build_replay_log_does_not_credit_an_early_nobody_round_with_a_later_elimination(conn):
+    """Seat 2 gets a stray vote in round 1 (3-way split, nobody eliminated), then is
+    actually voted out in round 2. A naive players.alive-based heuristic would wrongly
+    mark round 1 as seat 2's elimination round, since alive=0 only reflects final state."""
+    rid = make_room([("a", False, "civilian"), ("b", False, "civilian"), ("c", False, "spy")])
+    conn.execute("UPDATE players SET alive=0 WHERE room_id=? AND seat=2", (rid,))
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    # Round 1: votes split 0->1, 1->2, 2->0 -- no majority, nobody eliminated.
+    for voter, target in ((0, 1), (1, 2), (2, 0)):
+        conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                     " VALUES (?,1,1,0,?,?)", (rid, voter, target))
+    # Round 2: both survivors vote out seat 2.
+    for voter, target in ((0, 2), (1, 2)):
+        conn.execute("INSERT INTO votes(room_id, game_no, round, stage, voter_seat, target_seat)"
+                     " VALUES (?,1,2,0,?,?)", (rid, voter, target))
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {}, "civilians")
+    assert log["rounds"][0]["eliminated"] is None
+    assert log["rounds"][1]["eliminated"] == 2
+
+
+def test_build_replay_log_handles_a_game_with_no_messages_or_votes(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {}, None)
+    assert log["rounds"] == []
+
+
+def test_build_replay_log_carries_null_seat_and_null_text_for_host_and_skipped(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    room = dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone())
+    conn.execute("INSERT INTO messages(room_id, game_no, round, stage, seat, kind, text, lang, created_at)"
+                 " VALUES (?,1,1,0,NULL,'host','welcome','en',0)", (rid,))
+    conn.execute("INSERT INTO messages(room_id, game_no, round, stage, seat, kind, text, lang, created_at)"
+                 " VALUES (?,1,1,0,0,'skipped',NULL,'en',1)", (rid,))
+    rows = conn.execute("SELECT * FROM players WHERE room_id=? ORDER BY seat", (rid,)).fetchall()
+    log = history.build_replay_log(conn, room, rows, {}, None)
+    kinds = {s["kind"]: s for s in log["rounds"][0]["statements"]}
+    assert kinds["host"]["seat"] is None and kinds["host"]["text"] == "welcome"
+    assert kinds["skipped"]["seat"] == 0 and kinds["skipped"]["text"] is None
