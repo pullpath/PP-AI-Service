@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from ai_svc.spy_hunt import game, history, store
 from ai_svc.spy_hunt.tests.test_clans_points import finish, make_room
 
@@ -234,3 +236,39 @@ def test_build_replay_log_carries_null_seat_and_null_text_for_host_and_skipped(c
     kinds = {s["kind"]: s for s in log["rounds"][0]["statements"]}
     assert kinds["host"]["seat"] is None and kinds["host"]["text"] == "welcome"
     assert kinds["skipped"]["seat"] == 0 and kinds["skipped"]["text"] is None
+
+
+def test_record_game_writes_a_room_replays_row(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    conn.execute("INSERT INTO messages(room_id, game_no, round, stage, seat, kind, text, lang, created_at)"
+                 " VALUES (?,1,1,0,0,'statement','hi','en',0)", (rid,))
+    finish(rid, "civilians")
+    row = conn.execute("SELECT log_json FROM room_replays WHERE room_id=?", (rid,)).fetchone()
+    assert row is not None
+    log = json.loads(row["log_json"])
+    assert log["rounds"][0]["statements"][0]["text"] == "hi"
+
+
+def test_record_game_replay_write_is_idempotent_on_retried_finish(conn):
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    rows = conn.execute("SELECT * FROM players WHERE room_id=?", (rid,)).fetchall()
+    with store.tx(rid) as c:
+        history.record_game(c, dict(conn.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone()),
+                            rows, "civilians", {}, {})
+    assert conn.execute("SELECT COUNT(*) FROM room_replays WHERE room_id=?", (rid,)).fetchone()[0] == 1
+
+
+def test_finish_still_succeeds_when_replay_write_raises(conn, monkeypatch):
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(history, "build_replay_log", boom)
+    rid = make_room([("a", False, "civilian"), ("b", False, "spy")])
+    finish(rid, "civilians")
+    assert conn.execute("SELECT status FROM rooms WHERE id=?", (rid,)).fetchone()[0] == "finished"
+    # The surrounding SAVEPOINT in game.py rolls back the whole record_game
+    # call on any failure inside it, including the room_results insert that
+    # already ran earlier in this same call -- the room still finishes, but
+    # neither row exists for this game.
+    assert conn.execute("SELECT COUNT(*) FROM room_results WHERE room_id=?", (rid,)).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM room_replays WHERE room_id=?", (rid,)).fetchone()[0] == 0

@@ -80,6 +80,10 @@ def record_game(conn, room: Mapping, rows: List[Mapping], winner: Optional[str],
             " won, credits_earned, credit_parts) VALUES (?,?,?,?,?,?,?,?)",
             (room["id"], room["game_no"], r["player_id"], r["seat"], r["role"], won,
              sum(p["n"] for p in mine), json.dumps(mine)))
+    log = build_replay_log(conn, room, rows, words, winner)
+    conn.execute(
+        "INSERT OR IGNORE INTO room_replays(room_id, game_no, log_json, created_at) VALUES (?,?,?,?)",
+        (room["id"], room["game_no"], json.dumps(log), now))
 
 
 def games_for(player_id: str, limit: int = 20) -> List[Dict[str, Any]]:
